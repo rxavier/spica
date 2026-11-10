@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}prompt{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Global prompt</h1>
+<p class="sub">Who the DJ is and how it talks. Sent with every pick, on every station. Each station adds its own brief on top, and the mechanics of picking are not yours to edit.</p>
+
+<form hx-post="/admin/prompt" hx-target="#prompt-result" hx-swap="innerHTML">
+  <textarea name="text" rows="14" placeholder="leave empty to use the built-in voice">{{ text }}</textarea>
+  <div class="inline">
+    <button class="primary" type="submit">Save</button>
+    <button type="button" class="link" hx-post="/admin/prompt/reset" hx-target="body" hx-swap="innerHTML">Restore the built-in voice</button>
+  </div>
+</form>
+<div id="prompt-result"></div>
+
+{% if not custom %}<p class="sub">No custom prompt saved — the built-in voice below is what the DJ is using.</p>{% endif %}
+
+<details>
+  <summary class="sub">built-in voice</summary>
+  <pre class="prompt-view">{{ default }}</pre>
+</details>
+{% endblock %}

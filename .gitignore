@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local state: an index, pools, queues and history are all rebuildable, and none
+# of it belongs in git.
+state/
+config/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets and per-deployment configuration.
+.env
+*.env
+!*.env.example
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

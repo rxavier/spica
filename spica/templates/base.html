@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#bf5c35">
+  <title>{% block title %}Spica{% endblock %}</title>
+  <link rel="icon" href="/static/favicon-48.png" type="image/png">
+  <link rel="apple-touch-icon" href="/static/logo-128.png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/player.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brandmark" href="/" aria-label="Spica">
+        <img src="/static/logo-128.png" alt="">
+      </a>
+      <div class="wordmark"><h1>Spica</h1></div>
+    </div>
+  </header>
+
+  {% set here = request.url.path if request else "" %}
+  <nav class="sitenav">
+    {% block nav %}
+    {% if here.startswith("/admin") and not here.endswith("/login") %}
+      {% set admin_links = [("/admin", "panel"), ("/admin/stations", "stations"), ("/admin/genres", "genres"),
+                            ("/admin/prompt", "prompt"), ("/admin/settings", "settings"), ("/admin/library", "library")] %}
+      {% for href, label in admin_links %}
+        <a href="{{ href }}"{% if here == href or (href != "/admin" and here.startswith(href)) %} class="on" aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+      <form method="post" action="/admin/logout"><button class="link" type="submit">Sign out</button></form>
+    {% endif %}
+    {% endblock %}
+  </nav>
+
+  <audio id="stream" preload="none" playsinline></audio>
+  <audio id="static" src="/static/tuning.mp3" loop preload="auto"></audio>
+
+  <main class="shell {% block main_class %}{% endblock %}">
+    {% block body %}{% endblock %}
+  </main>
+
+  <script>
+    // If the custom player never initialises (a stale script, a browser saying no),
+    // fall back to the element every browser ships with.
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        const bar = document.querySelector("[data-player]");
+        if (!bar || bar.dataset.ready === "1") return;
+        const id = bar.dataset.station;
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.style.width = "100%";
+        audio.style.margin = "1rem 0";
+        bar.replaceWith(audio);
+        fetch("/s/" + id + "/start", { method: "POST" }).catch(() => {});
+        audio.src = "/" + id + ".mp3";
+      }, 3000);
+    });
+  </script>
+</body>
+</html>

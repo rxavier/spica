@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}sign in{% endblock %}
+{% block main_class %}studio loginpage{% endblock %}
+{% block body %}
+<div class="login">
+  <div class="paper">
+    <h1>Sign in</h1>
+    <p class="sub">This side of Spica writes: stations, genres, the DJ's voice.</p>
+    <form method="post" action="/admin/login" class="loginform">
+      <label for="password">password</label>
+      <input type="password" id="password" name="password" autofocus required>
+      <button class="primary" type="submit">Enter</button>
+    </form>
+    {% if error %}<p class="loginerror">{{ error }}</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

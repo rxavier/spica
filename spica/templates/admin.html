@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}admin{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Panel</h1>
+
+<h2>Library</h2>
+<div class="grid2">
+  <div class="notice">
+    <div class="muted">The DJ knows</div>
+    <div class="track">{{ coverage.genres.percent }}%</div>
+    <div class="bar"><span style="width: {{ coverage.genres.percent }}%"></span></div>
+    <div class="sub">{{ coverage.genres.known }} of {{ coverage.genres.total }} tracks · {{ coverage.genres.remaining }} without a genre</div>
+  </div>
+  <div class="notice">
+    <div class="muted">Stations</div>
+    {% for st in stations %}
+      <div>{{ st.name }} <span class="sub">· {{ st.genres|join(", ") if st.genres else "everything" }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+
+<h2>Recent jobs</h2>
+<div id="jobs" hx-get="/admin/jobs" hx-trigger="every 3s" hx-swap="innerHTML">
+  {% include "_jobs.html" %}
+</div>
+
+<div class="merge-bar">
+  <form class="inline" hx-post="/admin/rebuild" hx-target="#action-result" hx-swap="innerHTML">
+    <button type="submit">Rebuild index and pools</button>
+  </form>
+  <form class="inline" hx-post="/admin/reload" hx-target="#action-result" hx-swap="innerHTML">
+    <button type="submit">Regenerate spica.liq and restart the mixer</button>
+  </form>
+  <span class="sub">rebuilding re-reads the library; the mixer keeps playing either way</span>
+</div>
+<div id="action-result"></div>
+{% endblock %}

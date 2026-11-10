@@ -1,0 +1,54 @@
+<div id="station">
+  <nav class="presets" aria-label="stations">
+    {% for s in stations %}
+      <button type="button" class="key{% if s.id == station.id %} is-on{% endif %}"
+              hx-get="/s/{{ s.id }}/body" hx-target="#station" hx-swap="outerHTML"
+              hx-push-url="/s/{{ s.id }}">
+        <span class="label">{{ s.name }}</span>
+      </button>
+    {% endfor %}
+  </nav>
+
+  <div id="live" hx-get="/s/{{ station.id }}/live" hx-trigger="every 5s" hx-swap="innerHTML">
+    {% include "_live.html" %}
+  </div>
+
+  <div class="controls" data-player
+       data-station="{{ station.id }}"
+       data-name="{{ station.name }}"
+       data-start="/s/{{ station.id }}/start"
+       data-state="/s/{{ station.id }}/state">
+    <button class="play" type="button" aria-label="listen">
+      <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5.2v13.6L19 12z"/></svg>
+      <svg viewBox="0 0 24 24" class="i-stop"><rect x="7" y="7" width="10" height="10" rx="1.6"/></svg>
+    </button>
+    <div class="transport-line">
+      <span class="pill">press play</span>
+      <span class="vu" id="vu" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      <span class="err"></span>
+      <div class="volume" title="volume">
+        <span class="tag">vol</span>
+        <input type="range" min="0" max="100" value="80" aria-label="volume">
+      </div>
+    </div>
+  </div>
+
+  <nav class="tabs" data-tabs>
+    <button class="tab is-on" type="button" data-pane="history">Ledger</button>
+    <button class="tab" type="button" data-pane="requests">Requests</button>
+  </nav>
+
+  <div class="panes">
+    <section class="pane" id="pane-history" data-src="/s/{{ station.id }}/history" data-target="hist">
+      <div id="hist" hx-get="/s/{{ station.id }}/history" hx-trigger="every 10s" hx-swap="innerHTML">
+        {% include "_history.html" %}
+      </div>
+    </section>
+
+    <section class="pane" id="pane-requests" data-src="/s/{{ station.id }}/requests" data-target="reqs" hidden>
+      <div id="reqs" hx-get="/s/{{ station.id }}/requests" hx-trigger="every 15s" hx-swap="innerHTML">
+        {% include "_requests.html" %}
+      </div>
+    </section>
+  </div>
+</div>

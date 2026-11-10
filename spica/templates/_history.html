@@ -1,0 +1,20 @@
+<ul class="ledger">
+  {% for h in history %}
+    <li{% if h.current %} class="is-current"{% endif %}>
+      <time class="t"{% if h.stamp %} data-t="{{ h.stamp }}"{% endif %}>{{ h.clock or "" }}</time>
+      {% if h.album_id %}
+        <img src="/art/{{ h.album_id }}?v={{ h.cover_tag }}" alt=""
+             onerror="this.outerHTML='&lt;span class=\'noart\'&gt;&lt;/span&gt;'">
+      {% else %}
+        <span class="noart"></span>
+      {% endif %}
+      <span class="who">
+        <span class="artist">{{ h.artist }}</span>
+        <span class="title">{{ h.title }}</span>
+      </span>
+      <span class="src">{% if h.current %}on air{% else %}{{ h.source }}{% endif %}</span>
+    </li>
+  {% else %}
+    <li class="muted">nothing played yet</li>
+  {% endfor %}
+</ul>

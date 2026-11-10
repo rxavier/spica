@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>{{ item.name }} <span class="sub">· {{ item.id }}</span></h1>
+<form hx-post="/admin/stations/{{ item.id }}" hx-target="#save-result" hx-swap="innerHTML">
+  <div class="form-actions top">
+    <button class="primary" type="submit">Save and rebuild pool</button>
+    <span class="hint">saves the rules and rebuilds this station&rsquo;s pool</span>
+  </div>
+  <div class="grid2">
+    <div class="field">
+      <label for="name">name — what listeners see</label>
+      <input type="text" id="name" name="name" value="{{ item.name }}" required>
+    </div>
+    <div class="field">
+      <label for="new_id">id — the url and the file names</label>
+      <input type="text" id="new_id" name="new_id" value="{{ item.id }}"
+             pattern="[a-z0-9-]+" title="lowercase letters, digits and dashes">
+      <p class="hint">Changing this moves the station’s pool, history and queue with it.</p>
+    </div>
+  </div>
+  <div class="field">
+    <label for="description">brief for the DJ — this is where taste lives</label>
+    <textarea id="description" name="description">{{ item.description or "" }}</textarea>
+  </div>
+  <p class="hint">A track plays if it matches <strong>either</strong> list — a genre it carries
+    <em>or</em> an artist it is by. They do not have to agree: name an artist who is not in the
+    genres above and that artist still plays. Leave both empty for the whole library; the
+    exclusions below always win.</p>
+  <div class="grid2">
+    <div class="field">
+      <label>play these genres — any one of them is enough</label>
+      <div class="ms" data-multiselect data-empty="everything">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter genres" autocomplete="off">
+            {% for label, n in all_labels %}
+              <label><input type="checkbox" name="genres" value="{{ label }}"
+                            {% if label in item.include_genres %}checked{% endif %}>
+                {{ label }} <span class="sub">· {{ n }}</span></label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="field">
+      <label>never play these genres</label>
+      <div class="ms" data-multiselect data-empty="nothing excluded">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter genres" autocomplete="off">
+            {% for label, n in all_labels %}
+              <label><input type="checkbox" name="exclude_genres" value="{{ label }}"
+                            {% if label in item.exclude_genres %}checked{% endif %}>
+                {{ label }} <span class="sub">· {{ n }}</span></label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="field">
+      <label>plus these artists — they play even outside the genres</label>
+      <div class="ms" data-multiselect data-empty="anyone">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter artists" autocomplete="off">
+            {% for artist in all_artists %}
+              <label><input type="checkbox" name="include_artists" value="{{ artist }}"
+                            {% if artist in item.include_artists %}checked{% endif %}>
+                {{ artist }}</label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="field">
+      <label>never play these artists</label>
+      <div class="ms" data-multiselect data-empty="nobody excluded">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter artists" autocomplete="off">
+            {% for artist in all_artists %}
+              <label><input type="checkbox" name="exclude_artists" value="{{ artist }}"
+                            {% if artist in item.exclude_artists %}checked{% endif %}>
+                {{ artist }}</label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="field">
+      <label for="popularity">selection</label>
+      <select id="popularity" name="popularity">
+        <option value="deep" {% if item.popularity == 'deep' %}selected{% endif %}>album tracks, less known</option>
+        <option value="balanced" {% if item.popularity in (none, '', 'balanced') %}selected{% endif %}>balanced</option>
+        <option value="hits" {% if item.popularity == 'hits' %}selected{% endif %}>the familiar ones</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="year_from">year from</label>
+      <input type="text" id="year_from" name="year_from" value="{{ item.year_from or '' }}">
+    </div>
+    <div class="field">
+      <label for="year_to">year to</label>
+      <input type="text" id="year_to" name="year_to" value="{{ item.year_to or '' }}">
+    </div>
+  </div>
+  <div class="form-actions">
+    <button class="primary" type="submit">Save and rebuild pool</button>
+  </div>
+</form>
+
+<form method="post" action="/admin/stations/{{ item.id }}/delete" class="deletebar"
+      onsubmit="return confirm('Delete the station “{{ item.name }}”? Its history stays on disk.')">
+  <span class="sub">Removing a station stops its stream and regenerates spica.liq.</span>
+  <button class="danger" type="submit">Delete this station</button>
+</form>
+<div id="save-result"></div>
+
+<h2>What this station plays now</h2>
+<div class="notice">
+  <div class="track">{{ preview.tracks }} tracks</div>
+  <div class="sub">{{ preview.artists }} artists · {{ preview.albums }} albums{% if preview.years[0] %} · {{ preview.years[0] }}–{{ preview.years[1] }}{% endif %}</div>
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>Artists</h2>
+    <table>
+      <tr><th>artist</th><th>tracks</th></tr>
+      {% for name, n in preview.top_artists %}
+        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
+      {% else %}
+        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div>
+    <h2>Albums</h2>
+    <table>
+      <tr><th>album</th><th>tracks</th></tr>
+      {% for name, n in preview.top_albums %}
+        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
+      {% else %}
+        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+<p class="sub">Counts describe the rules as saved, not unsaved edits.</p>
+
+<script src="/static/multiselect.js"></script>
+{% endblock %}

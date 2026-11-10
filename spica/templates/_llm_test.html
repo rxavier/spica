@@ -1,0 +1,13 @@
+<div class="llm-test {{ 'ok' if result.ok else 'bad' }}">
+  {% if result.ok %}
+    <p><b>Endpoint answered in {{ result.ms }} ms</b>{% if result.served_by %} — served by
+      <code>{{ result.served_by }}</code>{% endif %}.</p>
+    <p class="sub">{{ result.detail }}</p>
+    {% if result.reply %}<p class="sub">It said: “{{ result.reply }}”</p>{% endif %}
+  {% else %}
+    <p><b>That did not work{% if result.ms %} after {{ result.ms }} ms{% endif %}.</b></p>
+    <p class="sub">{{ result.detail }}</p>
+    <p class="sub">Base <code>{{ result.base or '(empty)' }}</code>, model
+      <code>{{ result.model or '(empty)' }}</code>.</p>
+  {% endif %}
+</div>

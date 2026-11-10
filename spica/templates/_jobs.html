@@ -1,0 +1,33 @@
+{% if error %}<p class="flash">{{ error }}</p>{% endif %}
+<div class="tablewrap">
+  <table class="data jobs">
+    <thead>
+      <tr><th>job</th><th>state</th><th>result</th><th class="num">when</th><th class="num">took</th></tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+        <tr>
+          <td class="strong">{{ j.label }}<span class="kinds">{{ j.kind }}</span></td>
+          <td><span class="chip {{ j.status }}">{{ j.status }}</span></td>
+          <td class="sub">
+            {%- if j.note -%}
+              {{ j.note }}
+            {%- elif j.total -%}
+              {{ "{:,}".format(j.done) }} of {{ "{:,}".format(j.total) }}
+            {%- else -%}
+              —
+            {%- endif -%}
+          </td>
+          <td class="num sub">
+            {%- if j.finished_iso -%}
+              <time data-t="{{ j.finished_iso }}">{{ j.finished_iso[11:16] }}</time>
+            {%- else -%}—{%- endif -%}
+          </td>
+          <td class="num sub">{{ j.took or "—" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">nothing has run yet</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

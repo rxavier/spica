@@ -1,0 +1,10 @@
+<div class="notice">
+  {{ message }}
+</div>
+{% if requests %}
+<ul class="plain" style="margin-top:.5rem">
+  {% for r in requests %}
+    <li><span>“{{ r.text }}”</span></li>
+  {% endfor %}
+</ul>
+{% endif %}

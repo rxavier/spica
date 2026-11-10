@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}library{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Library</h1>
+<div class="notice">
+  <div class="muted">The DJ knows</div>
+  <div class="track">{{ coverage.genres.percent }}%</div>
+  <div class="bar"><span style="width: {{ coverage.genres.percent }}%"></span></div>
+  <div class="sub">{{ coverage.genres.known }} of {{ coverage.genres.total }} tracks · {{ coverage.genres.remaining }} missing</div>
+</div>
+
+<h2>Index</h2>
+<div class="notice">
+  <div class="muted">On this station's shelf</div>
+  <div class="track">{{ index_tracks }} tracks</div>
+  <div class="sub">Navidrome reports {{ library_tracks or "?" }}{% if library_scan %} · last scan {{ library_scan }}{% endif %} · checked every {{ check_minutes }} min</div>
+</div>
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="refresh">
+  <button type="submit">Recheck the library now</button>
+</form>
+
+<h2>Jobs</h2>
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="popularity">
+  <button type="submit">Fetch popularity (ListenBrainz + Last.fm)</button>
+</form>
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="musicbrainz">
+  <button type="submit">Fetch MusicBrainz genres</button>
+</form>
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="genre_tags">
+  <button type="submit">Look up missing genres on Last.fm</button>
+</form>
+
+<div id="jobs" hx-get="/admin/jobs" hx-trigger="every 3s" hx-swap="innerHTML">
+  {% include "_jobs.html" %}
+</div>
+{% endblock %}

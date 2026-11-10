@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}settings{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+<p class="sub">The model that picks the songs. Any OpenAI-compatible endpoint works: a
+  hosted API, a local server, or a gateway in front of either.</p>
+
+<form hx-post="/admin/settings" hx-target="#save-result" hx-swap="innerHTML">
+  <div class="field">
+    <label for="base">base URL</label>
+    <input type="url" id="base" name="base" value="{{ llm.base }}"
+           placeholder="https://api.example.com/v1" required>
+    <p class="sub">Up to and including the version segment; the path
+      <code>/chat/completions</code> is appended.</p>
+  </div>
+
+  <div class="field">
+    <label for="model">model</label>
+    <input type="text" id="model" name="model" value="{{ llm.model }}"
+           placeholder="the model name the endpoint expects" required>
+  </div>
+
+  <div class="field">
+    <label for="key">API key</label>
+    <input type="password" id="key" name="key" autocomplete="off"
+           placeholder="{{ 'a key is saved — leave blank to keep it' if key_set else 'paste the key' }}">
+    {% if key_set %}
+      <label class="checkline"><input type="checkbox" name="clear_key" value="1"> remove the saved key</label>
+    {% endif %}
+  </div>
+
+  <div class="field">
+    <label for="headers">extra headers</label>
+    <textarea id="headers" name="headers" rows="3"
+              placeholder="x-something=value">{{ headers_text }}</textarea>
+    <p class="sub">One per line, <code>name=value</code>. For endpoints that want more
+      than a bearer token.</p>
+  </div>
+
+  <div class="merge-bar">
+    <button class="primary" type="submit">Save</button>
+    <button class="link" type="button" hx-post="/admin/settings/test"
+            hx-target="#test-result" hx-swap="innerHTML">Test this endpoint</button>
+    <span class="sub">saving applies to the next pick, no restart</span>
+  </div>
+</form>
+<div id="save-result"></div>
+<div id="test-result"></div>
+
+<h2>MusicBrainz</h2>
+<p class="sub">Requests carry <code>{{ mb_user_agent }}</code>. That is what MusicBrainz
+  asks for — a name and somewhere to complain — and it needs no account or key. Set
+  <code>MB_USER_AGENT</code> in the environment to put your own address there.</p>
+
+<h2>No model?</h2>
+<p class="sub">With no endpoint saved, every station still plays: the mixer walks its
+  pool in order. What is missing is the DJ — the pick, the reason under each song, and
+  requests.</p>
+{% endblock %}

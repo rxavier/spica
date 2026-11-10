@@ -1,0 +1,23 @@
+{% set cover = ('/art/' ~ now.album_id ~ '?v=' ~ now.cover_tag) if now.album_id else '' %}
+<section class="now" data-cover="{{ cover }}">
+  <div class="artwrap">
+    {% if cover %}
+      <img class="hero-art" src="{{ cover }}" alt="">
+    {% else %}
+      <span class="hero-art noart" aria-hidden="true">
+        <svg viewBox="0 0 100 100"><path d="M50 10 L58 42 L90 50 L58 58 L50 90 L42 58 L10 50 L42 42 Z"/></svg>
+      </span>
+    {% endif %}
+  </div>
+
+  <div class="info">
+    {% if now.artist %}<div class="artist">{{ now.artist }}</div>{% endif %}
+    <h1 class="song{% if not (now.song or now.title) %} quiet{% endif %}">{{ now.song or now.title or "Off air" }}</h1>
+    <div class="meta">
+      {{ now.listeners }} listener{{ "" if now.listeners == 1 else "s" }}
+      {%- if now.queued %} · next up {{ now.queued }}{% endif %}
+      {%- if not (now.song or now.title) %} · press play to tune in{% endif %}
+    </div>
+    {% if now.why %}<p class="why">“{{ now.why }}”</p>{% endif %}
+  </div>
+</section>

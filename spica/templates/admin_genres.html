@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}genres{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Genres</h1>
+{% if msg %}<p class="flash">{{ msg }}</p>{% endif %}
+<p class="sub">{{ counts|length }} labels · {{ total_tracks }} tracks · {{ untagged }} without any genre · {{ builtin_count }} built-in rules · {{ operator|length }} of yours</p>
+
+<form id="genre-merge" method="post" action="/admin/genres/merge">
+  <div class="merge-bar">
+    <span id="picked" class="sub">nothing selected</span>
+    <input type="text" name="into" list="label-options" required
+           placeholder="merge into — an existing name or a new one">
+    <datalist id="label-options">
+      {% for c in counts %}<option value="{{ c.label }}"></option>{% endfor %}
+    </datalist>
+    <button class="primary" type="submit">Merge / rename</button>
+    <button class="link" type="button" id="clear-picks">Clear</button>
+  </div>
+
+  <div class="field">
+    <input id="genre-filter" type="text" autocomplete="off" placeholder="filter labels">
+  </div>
+
+  <h2>Labels ({{ counts|length }})</h2>
+  <div class="scroll-box">
+    <table class="pick">
+      <thead>
+        <tr><th><input type="checkbox" id="pick-all" aria-label="select all labels"></th><th>label</th><th class="num">tracks</th><th class="num">albums</th></tr>
+      </thead>
+      <tbody>
+        {% for c in counts %}
+          <tr>
+            <td><input type="checkbox" name="labels" value="{{ c.label }}"></td>
+            <td>{{ c.label }}</td>
+            <td class="num sub">{{ "{:,}".format(c.tracks) }}</td>
+            <td class="num sub">{{ "{:,}".format(c.albums) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+
+<h2>Explore</h2>
+<p class="sub">Pick as many genres as you like. A track appears if it carries any of them,
+  and the last column shows everything it really has.</p>
+<form hx-get="/admin/genres/tracks" hx-target="#explorer" hx-swap="innerHTML"
+      hx-trigger="submit, change from:#explore-labels" class="explore">
+  <div class="field">
+    <div class="ms" data-multiselect id="explore-labels" data-empty="no genres picked">
+      <details>
+        <summary><span class="ms-count"></span></summary>
+        <div class="ms-panel">
+          <input type="text" class="ms-filter" placeholder="filter genres" autocomplete="off">
+          {% for c in counts %}
+            <label><input type="checkbox" name="label" value="{{ c.label }}">
+              {{ c.label }} <span class="sub">· {{ c.tracks }}</span></label>
+          {% endfor %}
+          <button class="link ms-clear" type="button">Clear</button>
+        </div>
+      </details>
+    </div>
+  </div>
+  <button type="submit">Show tracks</button>
+</form>
+<div id="explorer"></div>
+
+<h2>Your rules ({{ operator|length }})</h2>
+<p class="sub">What a merge leaves behind. Removing one does not undo a merge already made —
+  it only stops the rule applying at the next rebuild.</p>
+<table>
+  <tr><th>from</th><th>to</th><th></th></tr>
+  {% for src, dst in operator.items() %}
+    <tr>
+      <td>{{ src }}</td>
+      <td>{{ dst }}</td>
+      <td>
+        <form method="post" action="/admin/genres/delete">
+          <input type="hidden" name="source" value="{{ src }}">
+          <button class="link" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="muted">none yet</td></tr>
+  {% endfor %}
+</table>
+
+<script>
+(function () {
+  const form = document.getElementById("genre-merge");
+  const picked = document.getElementById("picked");
+  const filter = document.getElementById("genre-filter");
+
+  const mergeButton = form.querySelector('button[type="submit"]');
+
+  function countPicks() {
+    const n = form.querySelectorAll('input[name="labels"]:checked').length;
+    picked.textContent = n ? n + " selected" : "nothing selected";
+    picked.classList.toggle("on", n > 0);
+    if (mergeButton) mergeButton.disabled = n === 0;
+    if (pickAll) pickAll.checked = n > 0 && n === form.querySelectorAll('input[name="labels"]').length;
+  }
+
+  const pickAll = document.getElementById("pick-all");
+
+  form.addEventListener("change", countPicks);
+  countPicks();
+
+  if (pickAll) {
+    pickAll.addEventListener("change", function () {
+      form.querySelectorAll('input[name="labels"]').forEach(function (b) {
+        const row = b.closest("tr");
+        if (row && row.style.display === "none") return;   // respect the filter
+        b.checked = pickAll.checked;
+      });
+      pickAll.indeterminate = false;
+      countPicks();
+    });
+  }
+
+  document.getElementById("clear-picks").addEventListener("click", function () {
+    form.querySelectorAll('input[name="labels"]').forEach(function (b) { b.checked = false; });
+    countPicks();
+  });
+
+  filter.addEventListener("input", function () {
+    const q = filter.value.trim().toLowerCase();
+    form.querySelectorAll("table.pick tbody tr").forEach(function (row) {
+      row.style.display = !q || row.textContent.toLowerCase().indexOf(q) >= 0 ? "" : "none";
+    });
+  });
+})();
+</script>
+<script src="/static/multiselect.js"></script>
+{% endblock %}

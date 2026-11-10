@@ -1,0 +1,116 @@
+"""Per-station queue + history on disk.
+
+The mixer reads queue/<id>.txt on a one-second timer, pushes whatever URI it
+finds into a Liquidsoap request.queue and truncates the file. That keeps the
+hand-off a plain file write — no sockets, no RPC, nothing to restart.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+
+from . import config
+
+
+def push(station: config.Station, uri: str) -> None:
+    """Hand the mixer the next track. Atomic: the mixer never sees a partial line."""
+    station.queue_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = station.queue_file.with_suffix(".tmp")
+    tmp.write_text(uri + "\n", encoding="utf-8")
+    tmp.replace(station.queue_file)
+
+
+def queued(station: config.Station) -> str:
+    try:
+        return station.queue_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
+def record(station: config.Station, track_id: str, title: str, artist: str, source: str, why: str = "") -> None:
+    station.history_file.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "id": track_id,
+        "title": title,
+        "artist": artist,
+        "source": source,
+        "why": why,
+    }
+    with station.history_file.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def split_title(raw: str) -> tuple[str, str]:
+    """Icecast reports one string, "Artist - Song"; the pages want them apart."""
+    raw = (raw or "").strip()
+    if " - " in raw:
+        artist, song = raw.split(" - ", 1)
+        return artist.strip(), song.strip()
+    return "", raw
+
+
+def _picks_path(station: config.Station) -> Path:
+    return station.history_file.with_suffix(".picks.jsonl")
+
+
+def record_pick(station: config.Station, track_id: str, title: str, artist: str, why: str = "",
+                presence: str = "") -> None:
+    """What the DJ chose. Kept apart from history, which only records plays.
+
+    The presence reading is logged with it: "why was the DJ picking at 3 a.m.?" is a
+    question that comes back, and the answer has to be in the record.
+    """
+    station.history_file.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "id": track_id,
+             "title": title, "artist": artist, "why": why, "presence": presence}
+    with _picks_path(station).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def recent_picks(station: config.Station, n: int = 12) -> list[dict]:
+    try:
+        lines = _picks_path(station).read_text(encoding="utf-8").splitlines()[-n:]
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def why_for(station: config.Station, title: str) -> str:
+    """The reason the DJ gave for a title, if it picked it recently."""
+    from .store import norm
+
+    key = norm(title)
+    for entry in reversed(recent_picks(station, 25)):
+        if norm(entry.get("title")) == key:
+            return entry.get("why", "")
+    return ""
+
+
+def recent(station: config.Station, n: int = 20) -> list[dict]:
+    try:
+        lines = station.history_file.read_text(encoding="utf-8").splitlines()[-n:]
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if out and (out[-1].get("artist"), out[-1].get("title")) == (entry.get("artist"), entry.get("title")):
+            continue  # a restart can re-announce the track that is already playing
+        out.append(entry)
+    return out
+
+
+def recent_ids(station: config.Station, n: int = 40) -> set[str]:
+    return {e["id"] for e in recent(station, n) if e.get("id")}

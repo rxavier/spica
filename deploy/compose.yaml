@@ -1,0 +1,107 @@
+name: spica
+
+# Spica, four services and one first-run step.
+#
+#   init    - writes config/icecast.xml, stations.json and spica.liq if missing, then exits
+#   icecast - the stream server, one mount per station
+#   mixer   - Liquidsoap, one output per station
+#   picker  - the web UI, the API, and the DJ
+#   worker  - background jobs (genres, MusicBrainz, popularity)
+#
+# Everything you must change lives in .env. Copy .env.example to .env, fill in the
+# values marked CHANGE ME, and run "docker compose up -d".
+#
+# Prefer building the image yourself? See deploy/README.md.
+
+services:
+  init:
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.1.0}
+    command: ["python", "-m", "spica.bootstrap"]
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: [.env]
+    environment:
+      - SPICA_CONFIG=/config
+      - SPICA_STATE=/state
+    volumes:
+      - ./config:/config
+      - ./state:/state
+    restart: "no"
+
+  icecast:
+    image: infiniteproject/icecast@sha256:cd506cf3dfe31ce05fd37d7e672dbd1213e7255cc93d28ecf5a3b547af4e162c
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    user: "100:65533"
+    ports:
+      - "${ICECAST_PORT:-8000}:8000"
+    volumes:
+      - ./config/icecast.xml:/etc/icecast.xml:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/status-json.xsl > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  mixer:
+    image: savonet/liquidsoap:v2.4.6
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      - HOME=/tmp
+      - TZ=${TZ:-UTC}
+    command: ["/config/spica.liq"]
+    volumes:
+      - ./config:/config:ro
+      - ./state:/state
+    depends_on:
+      icecast:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  picker:
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.1.0}
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt: ["no-new-privileges:true"]
+    env_file: [.env]
+    environment:
+      - SPICA_CONFIG=/config
+      - SPICA_STATE=/state
+      - ICECAST_URL=http://icecast:8000
+      - TZ=${TZ:-UTC}
+      - PORT=8030
+    ports:
+      - "${SPICA_PORT:-8030}:8030"
+    volumes:
+      - ./config:/config
+      - ./state:/state
+    depends_on:
+      icecast:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  worker:
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.1.0}
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt: ["no-new-privileges:true"]
+    command: ["python", "-m", "spica.worker"]
+    env_file: [.env]
+    environment:
+      - SPICA_CONFIG=/config
+      - SPICA_STATE=/state
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./config:/config:ro
+      - ./state:/state
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    mem_limit: 512m

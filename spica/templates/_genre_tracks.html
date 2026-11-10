@@ -1,0 +1,92 @@
+<div class="explorer">
+  {% if not labels %}
+    <p class="sub">Pick one or more genres above.</p>
+  {% else %}
+    <p class="sub">{{ total }} tracks · {{ albums }} albums — carrying
+      {% for l in labels %}<b>{{ l }}</b>{% if not loop.last %} or {% endif %}{% endfor %}</p>
+    <input type="text" class="js-filter" autocomplete="off" placeholder="filter artists, albums or titles">
+
+    <form>
+      {% for l in labels %}<input type="hidden" name="labels" value="{{ l }}">{% endfor %}
+      <div class="merge-bar">
+        <span class="sel-count sub">nothing selected</span>
+        <select name="label" required>
+          <option value="">hand-assign a genre…</option>
+          {% for name in all_labels %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+        </select>
+        <button class="primary" type="button"
+                hx-post="/admin/genres/assign" hx-include="closest form"
+                hx-target="#explorer" hx-swap="innerHTML">Assign to selected</button>
+        <button class="link" type="button"
+                hx-post="/admin/genres/unassign" hx-include="closest form"
+                hx-target="#explorer" hx-swap="innerHTML">Remove from selected</button>
+        <button class="link" type="button" id="pick-all-tracks">Select all shown</button>
+      </div>
+
+      <div class="scroll-box">
+        <table class="detail">
+          <thead>
+            <tr><th></th><th>artist</th><th>album</th><th>title</th><th>genres</th></tr>
+          </thead>
+          <tbody>
+            {% for t in tracks %}
+              <tr>
+                <td><input type="checkbox" name="tracks" value="{{ t.id }}"></td>
+                <td>{{ t.artist }}</td>
+                <td class="sub">{{ t.album }}</td>
+                <td>{{ t.title }}</td>
+                <td class="sub genres">{{ t.genres|join(' · ') }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="muted">nothing under those labels</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+    {% if total > tracks|length %}
+      <p class="sub">showing the first {{ tracks|length }} of {{ total }} — narrow the genres to reach the rest</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  const root = document.currentScript.parentElement;
+  const box = root.querySelector(".js-filter");
+  const form = root.querySelector("form");
+  const count = root.querySelector(".sel-count");
+
+  if (box) {
+    const rows = root.querySelectorAll("table.detail tbody tr");
+    box.addEventListener("input", function () {
+      const q = box.value.trim().toLowerCase();
+      rows.forEach(function (row) {
+        row.style.display = !q || row.textContent.toLowerCase().indexOf(q) >= 0 ? "" : "none";
+      });
+    });
+  }
+
+  function refresh() {
+    if (!count) return;
+    const n = form.querySelectorAll('input[name="tracks"]:checked').length;
+    count.textContent = n ? n + " selected" : "nothing selected";
+  }
+
+  if (form) {
+    form.addEventListener("change", refresh);
+    const all = root.querySelector("#pick-all-tracks");
+    if (all) {
+      all.addEventListener("click", function () {
+        const shown = Array.from(form.querySelectorAll("table.detail tbody tr"))
+          .filter(function (row) { return row.style.display !== "none"; });
+        const boxes = shown.map(function (row) { return row.querySelector('input[name="tracks"]'); });
+        const everyOneTicked = boxes.every(function (b) { return b.checked; });
+        boxes.forEach(function (b) { b.checked = !everyOneTicked; });
+        refresh();
+      });
+    }
+    refresh();
+  }
+})();
+</script>
