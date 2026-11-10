@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass
 
 import httpx
@@ -329,8 +330,6 @@ class Library:
 
     def station_map(self, station: config.Station, **_) -> dict:
         """What this station is made of, in numbers the model can reason with."""
-        from collections import Counter
-
         rows = navidrome.rows_for_station(self.conn, station)
         labels = navidrome.labels_by_track(self.conn)
         genre_counts: Counter = Counter()
