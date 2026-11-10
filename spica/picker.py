@@ -15,14 +15,36 @@ import httpx
 from . import config, icecast, mixer, navidrome, queue, requests as requests_mod
 from . import genres as genres_module
 
-MAX_TOOL_ROUNDS = 3
+MAX_TOOL_ROUNDS = 4
 
 TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "history",
+            "description": (
+                "The station's own recent past, newest first: what played, how many songs ago, "
+                "and whether it is on air. Call it before picking when the current track suggests "
+                "an artist you may have just played, to read the arc of the last half hour, or when "
+                "a request says 'like what you just put on'. Do not use it to find a track to play "
+                "— every id here has already played."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "default": 20}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search",
-            "description": "Search the library by text across title, artist and album.",
+            "description": (
+                "Free-text lookup across titles, artists and albums. Best when you have a name in "
+                "mind: a song, a band, half an album title. Everything it returns is playable on "
+                "this station. Use catalogue when you want order or completeness, filter when you "
+                "want a kind of thing rather than a name."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -37,7 +59,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "filter",
-            "description": "List tracks matching genre and year bounds.",
+            "description": (
+                "A random sample of what this station can play, narrowed by genre label and year "
+                "bounds. Genre matching is deliberately loose: 'Punk' also brings 'Punk Rock'. "
+                "Results are not ranked — call it twice for a different draw. Use it to explore, "
+                "not to find one specific track."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -52,11 +79,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "catalogue",
+            "description": (
+                "What the station owns by one artist, or one album's tracklist in running order "
+                "(artist + album, or album alone when the name is unique). Call it to build a set "
+                "from a single record, to see how much of a band there is to work with, or when a "
+                "request names a band rather than a song. Tracks this station cannot play are "
+                "omitted, so an empty list means it holds none of it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "artist": {"type": "string"},
+                    "album": {"type": "string"},
+                    "limit": {"type": "integer", "default": 25},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "similar",
             "description": (
-                "Find tracks by artists that sound like the given artist. Use it when the "
-                "listener asks for something in the vein of X, or to widen beyond the "
-                "station's own genre tags."
+                "Artists and tracks that sit near a given artist: cached similarity, then "
+                "ListenBrainz, then Last.fm, then a shared local genre. Use it when someone asks "
+                "for 'something in the vein of X', or to step outside the station's genres. It can "
+                "return artists you own nothing by — owned: false means the answer is names, not "
+                "playable tracks."
             ),
             "parameters": {
                 "type": "object",
@@ -66,6 +116,19 @@ TOOLS = [
                 },
                 "required": ["artist"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "station_map",
+            "description": (
+                "The station's palette as numbers: how many tracks it can play, which genres "
+                "dominate and how much of each, the year spread, and the artists with the most to "
+                "choose from. Call it when a request may not be possible here, or to aim a set — "
+                "'mostly the seventies' is only true if the years say so. Returns no track ids."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]
@@ -176,6 +239,154 @@ class Library:
                 }
         return {"source": "none", "artists": [], "tracks": []}
 
+    def history(self, station: config.Station, limit: int = 20, **_) -> list[dict]:
+        """The station's recent past, newest first, with how long ago each played."""
+        plays = list(reversed(queue.recent(station, int(limit))))
+        out: list[dict] = []
+        for ago, entry in enumerate(plays):
+            track_id = entry.get("id") or ""
+            track = self.by_id(track_id) if track_id else None
+            out.append(
+                {
+                    "id": track_id,
+                    "title": entry.get("title") or (track.title if track else ""),
+                    "artist": entry.get("artist") or (track.artist if track else ""),
+                    "album": track.album if track else "",
+                    "year": track.year if track else None,
+                    "songs_ago": ago,
+                    "on_air": ago == 0,
+                }
+            )
+        return out
+
+    def catalogue(
+        self,
+        artist: str | None = None,
+        album: str | None = None,
+        limit: int = 25,
+        station: config.Station | None = None,
+        **_,
+    ) -> dict:
+        """One artist's holdings, or one album in running order.
+
+        An album name alone is enough when only one artist owns it; if several do,
+        the one with most tracks on this station wins and the reply says so.
+        """
+        limit = int(limit or 25)
+        where, args = ["uri != ''"], []
+        if artist:
+            where.append("artist = ? COLLATE NOCASE")
+            args.append(artist.strip())
+        if album:
+            where.append("album LIKE ?")
+            args.append(f"%{album.strip()}%")
+        if not artist and not album:
+            return {"error": "give an artist, an album, or both"}
+
+        rows = self.conn.execute(
+            "SELECT * FROM tracks WHERE " + " AND ".join(where)
+            + " ORDER BY artist, album, track_no", args
+        ).fetchall()
+        if station is not None:
+            ok = navidrome.station_matcher(self.conn, station)
+            rows = [r for r in rows if ok(r)]
+        if not rows:
+            return {
+                "artist": artist or "",
+                "album": album or "",
+                "tracks": [],
+                "note": "this station holds nothing under that name",
+            }
+
+        # An album name shared by several artists: keep the one with the most tracks.
+        if album and not artist:
+            counts: dict[str, int] = {}
+            for row in rows:
+                counts[row["artist"]] = counts.get(row["artist"], 0) + 1
+            artist = max(counts, key=counts.get)
+            rows = [r for r in rows if r["artist"] == artist]
+
+        played = {e["id"] for e in queue.recent(station, 40) if e.get("id")} if station else set()
+        queued = set(mixer.queued_ids(station)) if station else set()
+        albums: dict[str, dict] = {}
+        tracks: list[dict] = []
+        for row in rows[:limit]:
+            item = self._brief(row)
+            item["track_no"] = row["track_no"]
+            item["played"] = row["id"] in played
+            item["queued"] = row["id"] in queued
+            tracks.append(item)
+            key = row["album"] or ""
+            albums.setdefault(key, {"album": key, "year": row["year"], "tracks": []})
+            albums[key]["tracks"].append(item)
+        return {
+            "artist": rows[0]["artist"],
+            "album": album or "",
+            "albums": list(albums.values()),
+            "tracks": tracks,
+            "played_recently": any(t["played"] for t in tracks),
+        }
+
+    def station_map(self, station: config.Station, **_) -> dict:
+        """What this station is made of, in numbers the model can reason with."""
+        from collections import Counter
+
+        rows = navidrome.rows_for_station(self.conn, station)
+        labels = navidrome.labels_by_track(self.conn)
+        genre_counts: Counter = Counter()
+        artist_counts: Counter = Counter()
+        decades: Counter = Counter()
+        for row in rows:
+            for label in labels.get(row["id"], ()):
+                genre_counts[label] += 1
+            artist_counts[row["artist"] or "?"] += 1
+            year = row["year"] or 0
+            if year >= 1900:
+                decades[(year // 10) * 10] += 1
+        # Bogus years in file tags (1006, 1800s reissues) would otherwise make the
+        # station look like it spans a millennium; count them, don't rank them.
+        years = [r["year"] for r in rows if r["year"] and r["year"] >= 1900]
+        odd = sum(1 for r in rows if r["year"] and r["year"] < 1900)
+        undated = sum(1 for r in rows if not r["year"])
+        return {
+            "station": station.name,
+            "tracks": len(rows),
+            "genres": [
+                {"label": label, "tracks": n} for label, n in genre_counts.most_common(8)
+            ],
+            "years": {
+                "from": min(years) if years else None,
+                "to": max(years) if years else None,
+                "decades": {
+                    f"{d}s": n for d, n in sorted(decades.items()) if d >= 1900
+                },
+                "undated": undated,
+                "ignored_bad_years": odd,
+            },
+            "artists": [{"name": name, "tracks": n} for name, n in artist_counts.most_common(10)],
+        }
+
+    def run_tool(self, name: str, args: dict, station: config.Station):
+        """Execute one tool call, turning bad arguments into something the model can read."""
+        try:
+            if name == "history":
+                return self.history(station=station, **args)
+            if name == "catalogue":
+                return self.catalogue(station=station, **args)
+            if name == "station_map":
+                return self.station_map(station=station, **args)
+            if name == "similar":
+                return self.similar(station=station, **args)
+            if name == "search":
+                return self.search(station=station, **args)
+            if name == "filter":
+                return self.filter(station=station, **args)
+            return {"error": f"no such tool: {name}"}
+        except TypeError as exc:
+            return {"error": f"bad arguments for {name}: {exc}"}
+        except Exception as exc:  # a tool must never take the pick down with it
+            return {"error": f"{name} failed: {exc}"}
+
     @staticmethod
     def _brief(row: sqlite3.Row) -> dict:
         return {
@@ -258,6 +469,11 @@ def _system_prompt(station: config.Station, pool_size: int) -> str:
     bits.append(f"There are about {pool_size} tracks within reach.")
 
     bits.append(
+        "The brief tells you what is on air, what came before it and what is already queued. "
+        "For anything further back — the last half hour, what you played before the current "
+        "record — call history."
+    )
+    bits.append(
         "Pick exactly ONE track to play next, using the tools to look things up — never "
         "invent a track id. Keep the set moving: don't follow a song with the same artist, "
         "and don't circle back to something that just played."
@@ -276,7 +492,8 @@ def _system_prompt(station: config.Station, pool_size: int) -> str:
     return "\n\n".join(bits)
 
 
-def _chat(messages: list[dict], tools: list[dict], no_tools: bool = False) -> dict:
+def _chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
+          require_call: bool = False) -> dict:
     llm = config.llm_settings()
     headers = {"Authorization": f"Bearer {llm['key']}", "content-type": "application/json"}
     headers.update(llm["headers"])
@@ -284,11 +501,15 @@ def _chat(messages: list[dict], tools: list[dict], no_tools: bool = False) -> di
         "model": llm["model"],
         "messages": messages,
         "tools": tools,
-        "tool_choice": "none" if no_tools else "auto",
+        "tool_choice": "none" if no_tools else ("required" if require_call else "auto"),
         "temperature": 0.7,
         "max_tokens": 700,
     }
     r = httpx.post(f"{llm['base']}/chat/completions", headers=headers, json=body, timeout=90.0)
+    if require_call and r.status_code in (400, 422):
+        # Not every "OpenAI-compatible" server accepts tool_choice: required.
+        body["tool_choice"] = "auto"
+        r = httpx.post(f"{llm['base']}/chat/completions", headers=headers, json=body, timeout=90.0)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]
 
@@ -375,7 +596,9 @@ def pick_next(
                     "from the results you already have.",
                 }
             )
-        msg = _chat(messages, TOOLS, no_tools=last_round)
+        # A track id can only come from a tool result, so the first round is made to
+        # look something up rather than hoping the model has an id to hand.
+        msg = _chat(messages, TOOLS, no_tools=last_round, require_call=round_no == 0)
         calls = msg.get("tool_calls") or []
         if not calls:
             pick = _parse_final(lib, msg.get("content") or "", avoid)
@@ -402,12 +625,7 @@ def pick_next(
                 args = json.loads(call["function"].get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
-            if name == "search":
-                result = lib.search(station=station, **args)
-            elif name == "similar":
-                result = lib.similar(station=station, **args)
-            else:
-                result = lib.filter(station=station, **args)
+            result = lib.run_tool(name, args, station)
             payload = result
             if isinstance(result, list) and not result:
                 # Empty almost always means "exists but not on this station" —
