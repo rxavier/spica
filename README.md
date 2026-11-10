@@ -467,3 +467,8 @@ label.
 
 Rebuilding the index wipes `index.db` content, not the other files, so history and
 requests survive it.
+
+## Contributing
+
+`main` is release-only: changes arrive as squashed pull requests. The loop, the
+commit style and how to cut a release are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
