@@ -28,7 +28,7 @@ ICECAST_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
     <limits>
         <clients>25</clients>
-        <sources>8</sources>
+        <sources>40</sources>
         <queue-size>524288</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>

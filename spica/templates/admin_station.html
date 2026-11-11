@@ -114,10 +114,55 @@
       <input type="text" id="year_to" name="year_to" value="{{ item.year_to or '' }}">
     </div>
   </div>
+  <div class="field">
+    <label>streams — what this station publishes</label>
+    <p class="hint">Each stream is its own encoder and its own mount, and each one costs a
+      core-percent or so <em>only while somebody is listening to that stream</em>.
+      <strong>FLAC</strong> is lossless and has no bitrate — it goes out as Ogg FLAC.
+      The first stream is the default: it is what <code>/listen/{{ item.id }}</code>
+      and the play button use.</p>
+    <div id="streams" class="streams">
+      {% for s in (item.streams or [{"codec": "mp3", "bitrate": 192}]) %}
+        <div class="stream-row">
+          <select name="stream_codec" aria-label="codec">
+            {% for codec in codecs %}
+              <option value="{{ codec }}"{% if s.codec == codec %} selected{% endif %}>{{ codec }}{% if codec == 'flac' %} (ogg){% endif %}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="stream_bitrate" min="32" max="512" step="8"
+                 value="{{ s.bitrate or 192 }}" aria-label="bitrate in kbit/s">
+          <span class="hint">kbit/s</span>
+          <button type="button" class="link drop-stream">remove</button>
+        </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="link" id="add-stream">add a stream</button>
+  </div>
+
   <div class="form-actions">
     <button class="primary" type="submit">Save and rebuild pool</button>
   </div>
 </form>
+<script>
+(function () {
+  const box = document.getElementById("streams");
+  const add = document.getElementById("add-stream");
+  if (!box || !add) return;
+  function row() {
+    const first = box.querySelector(".stream-row");
+    const copy = first.cloneNode(true);
+    copy.querySelector("select").value = "mp3";
+    copy.querySelector("input").value = "192";
+    return copy;
+  }
+  add.addEventListener("click", function () { box.appendChild(row()); });
+  box.addEventListener("click", function (ev) {
+    if (!ev.target.classList.contains("drop-stream")) return;
+    if (box.querySelectorAll(".stream-row").length === 1) return;  // keep one
+    ev.target.closest(".stream-row").remove();
+  });
+})();
+</script>
 
 <form method="post" action="/admin/stations/{{ item.id }}/delete" class="deletebar"
       onsubmit="return confirm('Delete the station “{{ item.name }}”? Its history stays on disk.')">

@@ -59,7 +59,8 @@ def station_or_404(station_id: str) -> config.Station:
 
 
 def now_playing(st) -> dict:
-    state = icecast.listen_states().get(st.mount)
+    live = icecast.live_mount(icecast.listen_states(), st)
+    state = live[1] if live else None
     raw = ((state.title if state else "") or "").strip()
     # Log it here too: the page polls every five seconds and must not show the
     # previous track's line under the new one while the background loop catches up.
@@ -331,32 +332,30 @@ async def hear(station_id: str):
     return Response(status_code=204)
 
 
-@router.get("/listen/{station_id}")
-async def listen(station_id: str, request: Request):
-    """A radio URL any player can hold: opens the mount if needed, then relays it.
+async def _relay(st, stream, request: Request):
+    """Open one stream's mount if needed, then copy the bytes to the client.
 
     Mounts start closed, so a client that cannot run the page (Music Assistant,
-    VLC, a car head unit) would otherwise get a 404. This route makes the station
-    behave like an ordinary always-on stream: the picker opens the output, waits
-    for Icecast, and copies the bytes. The browser player keeps using /<id>.mp3
-    straight to Icecast, so the common path has no extra hop.
+    VLC, a car head unit) would otherwise get a 404. This makes the station behave
+    like an ordinary always-on stream: the picker opens that one output, waits for
+    Icecast, and relays it.
     """
-    st = station_or_404(station_id)
-    await asyncio.to_thread(mixer.start, st)
+    mount = st.mount_for(stream)
+    await asyncio.to_thread(mixer.start, st, stream)
     for _ in range(40):
         states = await asyncio.to_thread(icecast.listen_states)
-        if st.mount in states:
+        if mount in states:
             break
         await asyncio.sleep(0.25)
 
     client = httpx.AsyncClient(timeout=None)
     upstream = await client.send(
-        client.build_request("GET", f"{config.ICECAST_URL}{st.mount}"), stream=True
+        client.build_request("GET", f"{config.ICECAST_URL}{mount}"), stream=True
     )
     if upstream.status_code != 200:
         await upstream.aclose()
         await client.aclose()
-        raise HTTPException(503, "station not on air")
+        raise HTTPException(503, "stream not on air")
 
     token = presence.relay_open(st.id, request.headers.get("user-agent", ""))
 
@@ -370,11 +369,12 @@ async def listen(station_id: str, request: Request):
             await upstream.aclose()
             await client.aclose()
 
+    icy = st.name if stream == st.stream_set[0] else f"{st.name} ({stream.label})"
     return StreamingResponse(
         relay(),
-        media_type="audio/mpeg",
+        media_type=stream.media_type,
         headers={
-            "icy-name": st.name,
+            "icy-name": icy,
             "cache-control": "no-store",
             "x-accel-buffering": "no",
             # A live stream has no beginning to seek to. Without this, Chrome
@@ -384,19 +384,55 @@ async def listen(station_id: str, request: Request):
     )
 
 
-@router.post("/s/{station_id}/start")
-async def station_start(station_id: str):
+@router.get("/listen/{station_id}")
+async def listen(station_id: str, request: Request):
+    """The station's default stream, as a URL any player can hold."""
     st = station_or_404(station_id)
-    started = await asyncio.to_thread(mixer.start, st)
-    return JSONResponse({"started": started})
+    return await _relay(st, st.stream_set[0], request)
+
+
+@router.get("/listen/{station_id}/{slug}")
+async def listen_stream(station_id: str, slug: str, request: Request):
+    """A specific stream of a station: /listen/alt/opus96, /listen/alt/flac."""
+    st = station_or_404(station_id)
+    stream = st.stream_for(slug)
+    if stream is None:
+        raise HTTPException(404, f"{st.name} has no stream called {slug}")
+    return await _relay(st, stream, request)
+
+
+@router.post("/s/{station_id}/start")
+async def station_start(station_id: str, stream: str = ""):
+    st = station_or_404(station_id)
+    chosen = st.stream_for(stream) if stream else None
+    started = await asyncio.to_thread(mixer.start, st, chosen)
+    return JSONResponse({"started": started, "stream": (chosen or st.stream_set[0]).slug})
 
 
 @router.get("/s/{station_id}/state")
-async def station_state(station_id: str):
+async def station_state(station_id: str, stream: str = ""):
     st = station_or_404(station_id)
     states = await asyncio.to_thread(icecast.listen_states)
-    state = states.get(st.mount)
-    return JSONResponse({"live": state is not None, "listeners": state.listeners if state else 0})
+    live = icecast.live_mount(states, st)
+    chosen = st.stream_for(stream) if stream else None
+    return JSONResponse(
+        {
+            "live": live is not None,
+            "listeners": icecast.total_listeners(states, st),
+            "stream": (chosen or st.stream_set[0]).slug,
+            "stream_live": (states.get(st.mount_for(chosen)) is not None) if chosen else live is not None,
+            "streams": [
+                {
+                    "slug": s.slug,
+                    "label": s.label,
+                    "mount": st.mount_for(s),
+                    "listeners": states[st.mount_for(s)].listeners if st.mount_for(s) in states else 0,
+                    "live": st.mount_for(s) in states,
+                }
+                for s in st.stream_set
+            ],
+        }
+    )
 
 
 @router.get("/s/{station_id}/history", response_class=HTMLResponse)
@@ -580,6 +616,7 @@ async def admin_station_form(request: Request, station_id: str):
             "preview": pool_preview(station_or_404(station_id)),
             "all_labels": labels,
             "all_artists": artists,
+            "codecs": config.CODECS,
         },
     )
 
@@ -598,6 +635,8 @@ async def admin_station_save(
     year_from: str = Form(""),
     year_to: str = Form(""),
     new_id: str = Form(""),
+    stream_codec: list[str] = Form(default=[]),
+    stream_bitrate: list[str] = Form(default=[]),
 ):
     admin_only(request)
     raw = _raw_stations()
@@ -619,11 +658,21 @@ async def admin_station_save(
     else:
         note = ""
 
+    wanted_streams = config.parse_streams(
+        [
+            {"codec": codec, "bitrate": (stream_bitrate[i] if i < len(stream_bitrate) else "")}
+            for i, codec in enumerate(stream_codec)
+        ]
+    )
+    streams_changed = False
     for item in raw:
         if item.get("id") != station_id:
             continue
+        before = config.parse_streams(item.get("streams"))
+        streams_changed = before != wanted_streams
         item.update(
             {
+                "streams": [s.as_json() for s in wanted_streams],
                 "name": name.strip() or station_id,
                 "description": description.strip(),
                 "include_genres": _known_labels(genres),
@@ -637,7 +686,9 @@ async def admin_station_save(
         )
     write_stations(raw)
     counts = pool.write_pools(_conn(), store.reload_stations())
-    if note:
+    if note or streams_changed:
+        # A new or changed stream is a new Liquidsoap output, so the mixer has to
+        # come back with a regenerated script.
         note += " " + _apply_station_script()
     return templates.TemplateResponse(
         request,

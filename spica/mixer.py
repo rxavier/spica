@@ -43,22 +43,30 @@ def pending(station) -> int | None:
     return len(reply.split())
 
 
-def start(station) -> bool:
-    """Open the station's Icecast source; returns False if the mixer is away."""
-    try:
-        reply = command(f"out_{station.id}.start")
-    except OSError:
-        return False
-    return not reply.startswith("ERROR")
+def _switches(station, stream, verb: str) -> bool:
+    streams = (stream,) if stream is not None else station.stream_set
+    ok = True
+    for one in streams:
+        try:
+            reply = command(f"out_{station.id}_{one.slug}.{verb}")
+        except OSError:
+            return False
+        ok = ok and not reply.startswith("ERROR")
+    return ok
 
 
-def stop(station) -> bool:
-    """Close the source: the mount disappears and the encoder stops burning CPU."""
-    try:
-        reply = command(f"out_{station.id}.stop")
-    except OSError:
-        return False
-    return not reply.startswith("ERROR")
+def start(station, stream=None) -> bool:
+    """Open one stream's Icecast source, or all of them.
+
+    Each stream is a separate encoder, so opening only the one somebody asked for
+    is the difference between one core-percent and three.
+    """
+    return _switches(station, stream, "start")
+
+
+def stop(station, stream=None) -> bool:
+    """Close a stream: its mount disappears and its encoder stops burning CPU."""
+    return _switches(station, stream, "stop")
 
 
 def queued_ids(station) -> list[str]:

@@ -41,8 +41,17 @@ The first run writes `config/icecast.xml`, `config/stations.json` and
 whole library. Nothing else is required.
 
 Open `http://localhost:8030` for the radio, `http://localhost:8030/admin` for the
-console (password: `SPICA_ADMIN_PASSWORD`), and give `http://localhost:8000/main.mp3`
-to VLC, Sonos or Music Assistant.
+console (password: `SPICA_ADMIN_PASSWORD`), and give `http://localhost:8030/listen/main`
+to VLC, Sonos or Music Assistant — that URL opens the stream on demand and survives a
+bitrate change.
+
+A station can publish several streams (MP3, Opus and FLAC, at whatever bitrates you
+choose), set under **Stations** in the console. Each gets its own URL:
+
+```
+http://localhost:8030/listen/main          the default stream
+http://localhost:8030/listen/main/opus96   a named one
+```
 
 ## 4. Teach it your library
 

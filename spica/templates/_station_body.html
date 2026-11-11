@@ -26,6 +26,16 @@
       <span class="pill">press play</span>
       <span class="vu" id="vu" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="err"></span>
+      {% if station.stream_set|length > 1 %}
+        <label class="format" title="stream">
+          <span class="tag">fmt</span>
+          <select aria-label="stream format">
+            {% for s in station.stream_set %}
+              <option value="{{ s.slug }}"{% if loop.first %} selected{% endif %}>{{ s.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
       <div class="volume" title="volume">
         <span class="tag">vol</span>
         <input type="range" min="0" max="100" value="80" aria-label="volume">

@@ -231,6 +231,20 @@ a { color: var(--leather-deep); }
   transition: transform .1s linear;
 }
 
+.format { display: flex; align-items: center; gap: .45rem; }
+.format select {
+  font: 700 .62rem/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--cream);
+  background: rgba(239, 228, 207, .1);
+  border: 1px solid rgba(239, 228, 207, .28);
+  border-radius: 999px;
+  padding: .28rem .5rem;
+  cursor: pointer;
+}
+.format select option { color: #1d150e; background: #f7f0e1; }
+
 .volume { display: flex; align-items: center; gap: .65rem; }
 .volume .tag {
   font: 600 .58rem/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--soft);

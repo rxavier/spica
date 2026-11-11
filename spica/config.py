@@ -70,6 +70,43 @@ IDLE_STOP_S = int(os.environ.get("IDLE_STOP_S", "90"))
 REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
 
 
+# One codec per stream. Opus and mp3 take a bitrate; FLAC is lossless, so its
+# number is meaningless and is stored as 0.
+CODEC_EXT = {"mp3": "mp3", "opus": "opus", "flac": "oga"}
+CODEC_MEDIA = {"mp3": "audio/mpeg", "opus": "audio/ogg", "flac": "audio/ogg"}
+CODECS = tuple(CODEC_EXT)
+
+
+@dataclass(frozen=True)
+class Stream:
+    """One encoder on a station: its own Icecast mount, and its own cost."""
+
+    codec: str = "mp3"
+    bitrate: int = 192
+
+    @property
+    def slug(self) -> str:
+        return self.codec if self.codec == "flac" else f"{self.codec}{self.bitrate}"
+
+    @property
+    def ext(self) -> str:
+        return CODEC_EXT.get(self.codec, "mp3")
+
+    @property
+    def media_type(self) -> str:
+        return CODEC_MEDIA.get(self.codec, "audio/mpeg")
+
+    @property
+    def label(self) -> str:
+        return "FLAC" if self.codec == "flac" else f"{self.codec.upper()} {self.bitrate}k"
+
+    def as_json(self) -> dict:
+        return {"codec": self.codec, "bitrate": self.bitrate}
+
+
+DEFAULT_STREAM = Stream()
+
+
 @dataclass(frozen=True)
 class Station:
     id: str
@@ -87,14 +124,35 @@ class Station:
     # "balanced" for neither. It only weights the seeded order.
     popularity: str = "balanced"
     description: str = ""
+    # What the station publishes. Empty means one mp3 at 192, which is what every
+    # station did before this was configurable.
+    streams: tuple[Stream, ...] = ()
 
     @property
     def deep_bias(self) -> float:
         return {"deep": 1.0, "balanced": 0.0, "hits": -1.0}.get(self.popularity, 0.0)
 
     @property
+    def stream_set(self) -> tuple[Stream, ...]:
+        return self.streams or (DEFAULT_STREAM,)
+
+    def mount_for(self, stream: Stream) -> str:
+        return f"/{self.id}-{stream.slug}.{stream.ext}"
+
+    @property
+    def mounts(self) -> tuple[str, ...]:
+        return tuple(self.mount_for(s) for s in self.stream_set)
+
+    @property
     def mount(self) -> str:
-        return f"/{self.id}.mp3"
+        """The default stream: what /listen/<station> serves and the page plays."""
+        return self.mounts[0]
+
+    def stream_for(self, slug: str) -> Stream | None:
+        for stream in self.stream_set:
+            if stream.slug == slug:
+                return stream
+        return None
 
     @property
     def pool_file(self) -> Path:
@@ -114,6 +172,29 @@ class Station:
         return STATE_DIR / "now" / f"{self.id}.txt"
 
 
+def parse_streams(raw) -> tuple[Stream, ...]:
+    """Read a station's stream list, dropping anything it cannot play.
+
+    An absent or unusable list means the historical default, so an old
+    stations.json keeps working without an edit.
+    """
+    out: list[Stream] = []
+    for entry in raw or ():
+        if not isinstance(entry, dict):
+            continue
+        codec = str(entry.get("codec") or "mp3").lower()
+        if codec not in CODECS:
+            continue
+        try:
+            bitrate = int(entry.get("bitrate") or 192)
+        except (TypeError, ValueError):
+            bitrate = 192
+        stream = Stream(codec, 0 if codec == "flac" else max(32, min(bitrate, 512)))
+        if stream not in out:
+            out.append(stream)
+    return tuple(out) or (DEFAULT_STREAM,)
+
+
 def load_stations(path: Path | None = None) -> list[Station]:
     path = path or (CONFIG_DIR / "stations.json")
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -131,6 +212,7 @@ def load_stations(path: Path | None = None) -> list[Station]:
                 year_to=item.get("year_to"),
                 popularity=str(item.get("popularity") or "balanced").lower(),
                 description=item.get("description", ""),
+                streams=parse_streams(item.get("streams")),
             )
         )
     return out
