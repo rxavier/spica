@@ -7,6 +7,7 @@ hand-off a plain file write — no sockets, no RPC, nothing to restart.
 
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from pathlib import Path
@@ -95,19 +96,38 @@ def why_for(station: config.Station, title: str) -> str:
     return ""
 
 
+# A restart re-announces the track that is already playing, usually seconds later.
+# Two plays of the same track further apart than this are two plays: a station that
+# resumes hours later picks up exactly where it stopped.
+DUPE_ANNOUNCE_S = 120
+
+
+def _when(entry: dict) -> float | None:
+    raw = str(entry.get("t") or "").strip()
+    if not raw:
+        return None
+    try:
+        stamp = datetime.datetime.strptime(raw[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+    return stamp.replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
 def recent(station: config.Station, n: int = 20) -> list[dict]:
     try:
         lines = station.history_file.read_text(encoding="utf-8").splitlines()[-n:]
     except FileNotFoundError:
         return []
-    out = []
+    out: list[dict] = []
     for line in lines:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
         if out and (out[-1].get("artist"), out[-1].get("title")) == (entry.get("artist"), entry.get("title")):
-            continue  # a restart can re-announce the track that is already playing
+            first, second = _when(out[-1]), _when(entry)
+            if first is None or second is None or second - first <= DUPE_ANNOUNCE_S:
+                continue  # the same announce twice, not a second play
         out.append(entry)
     return out
 
