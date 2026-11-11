@@ -148,13 +148,27 @@
   const box = document.getElementById("streams");
   const add = document.getElementById("add-stream");
   if (!box || !add) return;
+  // FLAC has no bitrate: grey the field out rather than pretending 192 means
+  // something for a lossless encoder.
+  function sync(row) {
+    const sel = row.querySelector("select");
+    const num = row.querySelector("input");
+    const flac = sel.value === "flac";
+    num.disabled = flac;
+    num.style.opacity = flac ? "0.35" : "1";
+    num.title = flac ? "FLAC is lossless — no bitrate" : "bitrate in kbit/s";
+  }
   function row() {
-    const first = box.querySelector(".stream-row");
-    const copy = first.cloneNode(true);
+    const copy = box.querySelector(".stream-row").cloneNode(true);
     copy.querySelector("select").value = "mp3";
     copy.querySelector("input").value = "192";
+    sync(copy);
     return copy;
   }
+  box.querySelectorAll(".stream-row").forEach(sync);
+  box.addEventListener("change", function (ev) {
+    if (ev.target.tagName === "SELECT") sync(ev.target.closest(".stream-row"));
+  });
   add.addEventListener("click", function () { box.appendChild(row()); });
   box.addEventListener("click", function (ev) {
     if (!ev.target.classList.contains("drop-stream")) return;
