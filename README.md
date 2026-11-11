@@ -506,6 +506,23 @@ a 300-pixel PNG behind a day of cache — so a directory, a client or a Sonos fa
 can be pointed at it today, and swap to a station's own artwork later without the URL
 changing.
 
+### Getting the logo into a player
+
+Nothing discovers a logo by itself, so it has to be handed over. Two ways are built in:
+
+- **`/stations.m3u`** (every station) and **`/<station>.m3u`** (one) — playlists carrying
+  `tvg-logo` and the `/listen/<station>` URL. Kodi's IPTV Simple Client, TiviMate and the
+  rest read the name, picture and stream straight out of the file.
+- **`icy-url`** — with `SPICA_PUBLIC_URL` set, each stream advertises its own page
+  (`icy-url: https://…/s/<station>`). It is a page, not an image, but clients that fetch
+  a stream's homepage for its favicon have something to find.
+
+Directories are the third way and the only one that reaches clients you never touch:
+radio-browser.info takes a station record with a `homepage` and a `favicon`, and that
+favicon field is where `/logo/<station>.png` goes. Submit the `/listen/<station>` URL
+rather than `/<station>.mp3` — a mount answers 404 while nobody is listening, because the
+encoder starts on demand.
+
 ## Listening elsewhere
 
 The browser player streams through `https://<host>/listen/<station>`, which is also the
@@ -540,6 +557,7 @@ page uses.
 | GET | `/health` | LLM configured, which stations |
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
+| GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
 | GET | `/coverage` | how much of the library has genres, and what is missing |
 | GET | `/genres` | labels with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
@@ -582,6 +600,7 @@ the keys, and that is the file to start from.
 | `MB_USER_AGENT` | optional: contact string for MusicBrainz |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
+| `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
 | `ICECAST_OUTPUT_HOST`, `ICECAST_OUTPUT_PORT` | where the mixer publishes — separate from `ICECAST_URL` because the two containers see Icecast at different addresses |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |
 | `SPICA_TZ` | the timezone the server falls back to when the browser cannot say (default `America/Montevideo`) |

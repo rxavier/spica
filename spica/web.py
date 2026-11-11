@@ -499,6 +499,44 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
 PLACEHOLDER_MD5 = "83d193cefca2810f217cffd533241508"
 
 
+def _playlist(request: Request, stations: list) -> Response:
+    """An M3U, because it is the only format a player will read a logo out of.
+
+    Kodi, TiviMate and the rest read tvg-logo straight from the playlist, so importing
+    one file gives them the station's name, its picture and its stream. The logo URL is
+    /logo/<id>.png, which answers with the Spica mark until a station has its own.
+    """
+    base = str(request.base_url).rstrip("/")
+    lines = ["#EXTM3U"]
+    for st in stations:
+        name = st.name.replace('"', "")
+        lines.append(
+            f'#EXTINF:-1 tvg-id="{st.id}" tvg-name="{name}" '
+            f'tvg-logo="{base}/logo/{st.id}.png" group-title="Spica",{name}'
+        )
+        lines.append(f"{base}/listen/{st.id}")
+    return Response(
+        "\n".join(lines) + "\n",
+        media_type="audio/x-mpegurl",
+        headers={"cache-control": "public, max-age=60"},
+    )
+
+
+@router.get("/stations.m3u")
+def all_playlist(request: Request):
+    """Every station in one playlist."""
+    return _playlist(request, store.stations())
+
+
+@router.get("/{station_id}.m3u")
+def station_playlist(station_id: str, request: Request):
+    """One station, for pasting into a player that wants a single favourite."""
+    st = store.station(station_id)
+    if st is None:
+        raise HTTPException(404, "no such station")
+    return _playlist(request, [st])
+
+
 @router.get("/logo/{station_id}.png")
 def station_logo(station_id: str):
     """The station's own picture, for anything that wants one.

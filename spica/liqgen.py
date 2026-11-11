@@ -43,7 +43,11 @@ def outputs_for(st: config.Station, password: str) -> list[str]:
             f'  host="{config.ICECAST_OUTPUT_HOST}", port={config.ICECAST_OUTPUT_PORT}, '
             f'password="{password}", mount="{st.mount_for(codec)}",',
             f'  name="{st.name}", description="{st.description or st.name} · '
-            f'{config.CODEC_LABEL[codec]}", s_{st.id})',
+            f'{config.CODEC_LABEL[codec]}",',
+            # icy-url is the one place a stream can point at its own page. Some players
+            # fetch that page and use its favicon as the station picture.
+            *([f'  url="{config.PUBLIC_URL}/s/{st.id}",'] if config.PUBLIC_URL else []),
+            f"  s_{st.id})",
             "",
         ]
     return lines
