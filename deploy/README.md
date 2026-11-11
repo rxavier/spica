@@ -58,18 +58,18 @@ In the admin:
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.1.0`. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.2.0`. To build from source instead,
 replace the `image:` line in each of `init`, `picker` and `worker` with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.1.0
+    build: https://github.com/rxavier/spica.git#v0.2.0
 ```
 
 or, with a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.1.0 .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.2.0 .
 ```
 
 ## Behind a reverse proxy
