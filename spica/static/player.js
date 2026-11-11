@@ -103,19 +103,48 @@
   }
 
   let beat = null;
+  let beatCleanup = null;
 
   function stopBeat() {
     if (beat) clearInterval(beat);
     beat = null;
+    if (beatCleanup) {
+      beatCleanup();
+      beatCleanup = null;
+    }
   }
 
   // The radio only talks when somebody can hear it, and a socket is not proof of
   // that. A closed tab stops beating, so the DJ stops within a minute.
   function startBeat(station) {
     stopBeat();
+    let ticks = 0;
+    let seen = 0;
+    let stalled = 0;
+    let primed = false;  // nothing has had a chance to advance yet
+    // "timeupdate" only fires while audio is actually advancing, which is what
+    // "somebody can hear this" means. A closed mount does not always raise
+    // "error" — it just stops delivering bytes.
+    const onTick = function () { ticks++; };
+    stream.addEventListener("timeupdate", onTick);
     const ping = function () {
+      if (primed && ticks === seen) {
+        if (++stalled >= 2) {            // two beats with no audio moving
+          stopBeat();
+          statik.pause();
+          stream.pause();
+          setPill("off air");
+          stopAnimation();
+          return;
+        }
+      } else if (ticks !== seen) {
+        stalled = 0;
+        seen = ticks;
+      }
+      primed = true;
       fetch("/s/" + station + "/hear", { method: "POST", keepalive: true }).catch(function () {});
     };
+    beatCleanup = function () { stream.removeEventListener("timeupdate", onTick); };
     ping();
     beat = setInterval(ping, 20000);
   }
@@ -316,12 +345,19 @@
     animate();
   });
   stream.addEventListener("pause", () => { setPill("off air"); stopAnimation(); });
-  stream.addEventListener("ended", () => { setPill("press play"); stopAnimation(); });
+  stream.addEventListener("ended", () => {
+    setPill("press play");
+    stopAnimation();
+    stopBeat();  // nothing is being heard any more, so stop claiming otherwise
+  });
   stream.addEventListener("error", () => {
     if (!wanted) return;
     statik.pause();
     setPill("off air");
     stopAnimation();
+    // The mount closed underneath us. Without this the page keeps posting its
+    // heartbeat every 20 s and the station keeps picking for an empty room.
+    stopBeat();
   });
 
   window.initPlayer = init;
