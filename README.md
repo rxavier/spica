@@ -7,7 +7,7 @@ that picks, and a page you can leave open.
 
 ## Where it comes from
 
-Spica is inspired by [SUB/WAVE](https://github.com/nocomputer/subwave), the project it
+Spica is inspired by [SUB/WAVE](https://github.com/perminder-klair/subwave), the project it
 grew out of, and is built from the ground up around two things SUB/WAVE does not do.
 
 The first is **several stations at once**. SUB/WAVE puts one station on air: switching
