@@ -60,16 +60,15 @@ async def loop() -> None:
                 _close_if_silent(st, states)
                 if queue.queued(st):
                     continue
-                # A closed mount cannot be heard by anyone. Presence is built from
-                # browser heartbeats and relay sessions, and a page whose stream
-                # died can keep beating for a while yet. Note this also pauses
-                # picking for a poll or two if Icecast itself hiccups and returns
-                # nothing: with no states, every mount reads as absent. That is the
-                # right trade — nobody can hear anything during an Icecast outage.
-                if states.get(st.mount) is None:
+                # No live mount among the station's streams means nobody can hear it,
+                # whatever presence says. Note this also pauses picking for a poll or
+                # two if Icecast itself hiccups and returns nothing: with no states,
+                # every mount reads as absent. That is the right trade — nobody can
+                # hear anything during an Icecast outage.
+                if icecast.live_mount(states, st) is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "why": "off air — no mount"}
                     continue
-                n = icecast.listeners(states, st.mount)
+                n = icecast.total_listeners(states, st)
                 if not presence.listening(st.id, n):
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n,
                                    "why": presence.reason(st.id, n)}
@@ -108,19 +107,24 @@ async def loop() -> None:
 
 
 def _close_if_silent(st: config.Station, states: dict) -> None:
-    """Stop encoding a station nobody is listening to."""
-    state = states.get(st.mount)
-    if state is None:
-        QUIET_SINCE.pop(st.id, None)
-        return
-    if state.listeners > 0:
-        QUIET_SINCE.pop(st.id, None)
-        return
-    since = QUIET_SINCE.setdefault(st.id, time.time())
-    if time.time() - since >= config.IDLE_STOP_S:
-        if mixer.stop(st):
-            log.info("[%s] closed after %ds without listeners", st.id, config.IDLE_STOP_S)
-        QUIET_SINCE.pop(st.id, None)
+    """Stop encoding any stream of this station that nobody is listening to.
+
+    Per stream, not per station: an Opus listener should not keep the FLAC encoder
+    running.
+    """
+    for codec in st.stream_set:
+        mount = st.mount_for(codec)
+        key = f"{st.id}/{codec}"
+        state = states.get(mount)
+        if state is None or state.listeners > 0:
+            QUIET_SINCE.pop(key, None)
+            continue
+        since = QUIET_SINCE.setdefault(key, time.time())
+        if time.time() - since >= config.IDLE_STOP_S:
+            if mixer.stop(st, codec):
+                log.info("[%s] closed %s after %ds without listeners",
+                         st.id, codec, config.IDLE_STOP_S)
+            QUIET_SINCE.pop(key, None)
 
 
 def reload_stations() -> list[config.Station]:
@@ -202,10 +206,22 @@ async def status() -> dict:
     states = await asyncio.to_thread(icecast.listen_states)
     out = {}
     for st in store.stations():
-        mount = states.get(st.mount)
+        live = icecast.live_mount(states, st)
+        mount = live[1] if live else None
+        streams = [
+            {
+                "codec": c,
+                "label": config.CODEC_LABEL[c],
+                "mount": st.mount_for(c),
+                "live": st.mount_for(c) in states,
+                "listeners": states[st.mount_for(c)].listeners if st.mount_for(c) in states else 0,
+            }
+            for c in st.stream_set
+        ]
         out[st.id] = {
             "name": st.name,
             "mount": st.mount,
+            "streams": streams,
             "listeners": mount.listeners if mount else 0,
             "on_air": mount.title if mount else "",
             "queued": queue.queued(st),
@@ -228,8 +244,10 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     if p is None:
         return None
     queue.push(st, p.track.uri)
+    states = await asyncio.to_thread(icecast.listen_states)
+    n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                                  presence=presence.reason(st.id, n))
+                      presence=presence.reason(st.id, n))
     LAST[st.id] = {"queued": p.track.as_line(), "why": p.why, "at": time.strftime("%H:%M:%S")}
     return p
 
@@ -275,8 +293,10 @@ async def force_pick(station_id: str) -> dict:
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
     queue.push(st, p.track.uri)
+    states = await asyncio.to_thread(icecast.listen_states)
+    n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                                  presence=presence.reason(st.id, n))
+                      presence=presence.reason(st.id, n))
     return {"station": st.id, "track": p.track.as_line(), "why": p.why}
 
 

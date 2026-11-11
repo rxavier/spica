@@ -544,7 +544,8 @@ def pick_next(
     # then the choice. So the brief has to describe that timeline — what is on air,
     # what is already queued, and which track will end right before the pick.
     recent = list(reversed(queue.recent(station, 7)))
-    state = icecast.listen_states().get(station.mount)
+    live = icecast.live_mount(icecast.listen_states(), station)
+    state = live[1] if live else None
     on_air = ""
     if state and state.title:
         artist, song = queue.split_title(state.title)

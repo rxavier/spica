@@ -95,8 +95,13 @@ deployment story: [`deploy/README.md`](deploy/README.md).
 
 ## Features
 
-- **Several stations at once.** Every station has its own mount and its own output. No
-  fixed number of stations, though `icecast.xml` ships with a limit of eight sources.
+- **Several stations at once.** Every station has its own mounts and its own outputs. No
+  fixed number of stations; `icecast.xml` ships with a limit of forty sources, which is
+  stations multiplied by streams.
+- **Several streams per station.** MP3, Opus and FLAC are independent switches per
+  station, each its own encoder and mount, all fed by the same source — so a phone can
+  take Opus, a Sonos MP3 and a laptop FLAC, from the same station at the same moment.
+  See [Streams](#streams).
 - **Always on air, cheap when unheard.** The clock keeps decoding; the encoder only runs
   while a mount is open. See [Resources](#resources).
 - **Deterministic pools.** Sequencing is `blake2b(station, day, track_id)`, blended with
@@ -146,7 +151,9 @@ Deliberate omissions, not backlog:
 - **No shows or scheduling.** A station is one continuous stream.
 - **No scrobbling anywhere.** Plays are written to a local JSONL history and nowhere
   else. Nothing is sent to Last.fm or to Navidrome.
-- **No per-station formats.** One MP3 mount per station, 192 kbit/s, 48 kHz, fixed.
+- **No transcoding ladder.** Every stream is one encoder at a fixed bitrate; there is no
+  adaptive switching inside a stream, no per-listener negotiation, and no bitrate
+  dial — the mount name is the extension.
 - **No tempo.** A BPM axis was prototyped and dropped: on synthetic click tracks with
   exact ground truth the best estimator got 20 of 24, failing precisely on the
   slow-tempo-versus-half-time case that "play something slower" depends on, and 70% on a
@@ -166,9 +173,10 @@ Measured on one host (8 cores), a 4,800-track library, two stations running:
 - **A station on air and unheard costs about 1.5–2% of one core.** That is decoding the
   next track from the library (mostly FLAC over the Navidrome API, resampled to 48 kHz),
   crossfading it and discarding the audio.
-- **A station being listened to costs about 12% of one core**, independent of how many
-  people are listening — one encoder per station, and Icecast copies those bytes to every
-  client.
+- **A stream being listened to costs about 12% of one core**, independent of how many
+  people are listening — one encoder per stream, and Icecast copies those bytes to every
+  client. Three formats listened to at once is three encoders: FLAC is the expensive
+  one, because lossless at 48 kHz is roughly 700 kbit/s against MP3's 192.
 - **A listener costs about 0.07% on Icecast, 10 KB of memory and 192 kbit/s of
   bandwidth.** One encode per station serves every listener on it, so ten listeners cost
 the same as one.
@@ -212,7 +220,8 @@ constraint.
   "exclude_artists": [],
   "year_from": 1969,
   "year_to": null,
-  "popularity": "deep"
+  "popularity": "deep",
+  "streams": ["mp3", "opus", "flac"]
 }
 ```
 
@@ -230,6 +239,10 @@ constraint.
 - `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order of the
   pool — it never filters. `deep` opens on the tracks that fewest people know, `hits` on
   the ones they do.
+- `streams` is what the station publishes: any of `mp3`, `opus` and `flac`, as toggles
+  in the console. **MP3 is the default** whenever it is on — that is what
+  `/listen/<station>` and the play button use. Leave the key out and you get MP3 alone.
+  Details in [Streams](#streams).
 - No rules at all means the whole library.
 
 A station whose rules match nothing logs a warning and plays the whole library rather
@@ -239,6 +252,57 @@ Editing in the admin saves and rebuilds the pools immediately. Adding, renaming 
 deleting a station regenerates `spica.liq` and restarts the mixer for you; renaming the
 id moves the station's pool, history and queue along with it, so the ledger survives the
 rename. Deleting keeps the history on disk — re-creating the same id picks it back up.
+
+## Streams
+
+A station publishes a set of streams: MP3 at 192 kbit/s, Opus at 128, and FLAC
+lossless. They are switches, not settings — on or off — because the mount name is the
+extension, and a bitrate you could change would make `/alt.mp3` a lie for whoever is
+holding the URL.
+
+| codec | mount | encoder | cost |
+|---|---|---|---|
+| MP3 | `/<station>.mp3` | `%mp3(192, 48 kHz, stereo)` | ~12% of a core while listened to |
+| Opus | `/<station>.opus` | `%opus(128, 48 kHz, stereo)` | ~12% of a core, half the bits of MP3 |
+| FLAC | `/<station>.flac` | `%ogg(%flac(44.1 kHz, stereo))` | ~12% of a core, ~700 kbit/s per listener |
+
+FLAC goes out as Ogg FLAC — bare FLAC over Icecast gives players no framing to resync
+on — on a `.flac` mount, because the extension is what a player sniffs. It runs at
+44.1 kHz rather than 48 so a lossless stream is not resampled for nothing; MP3 and Opus
+run at 48.
+
+ICY titles are sent only on the MP3 mount: Icecast does not apply out-of-band titles to
+Ogg streams, which carry their own.
+
+**URLs to hand out.** Two shapes, one for players and one for people:
+
+```
+https://host/alt.mp3                 straight to Icecast, and only alive while the mount is open
+https://host/alt.opus
+https://host/alt.flac
+
+https://host/listen/alt              the default stream, opened on demand
+https://host/listen/alt/opus         a specific one, by codec
+https://host/listen/alt/flac
+```
+
+The `/listen/` URLs are the ones to give VLC, Sonos, a car head unit or a phone: they
+open the mount if it is closed and relay the bytes, so the client sees an always-on
+stream instead of a 404. The bare `/<station>.<ext>` URLs only work while somebody
+already has that mount open.
+
+**MP3 is the default.** `/listen/<station>` and the page's play button use the first
+codec in MP3 → Opus → FLAC order that the station publishes, which means MP3 whenever
+it is on. The station page shows a format selector when there is more than one, and
+switching mid-song reconnects to the other mount while the station keeps playing.
+
+**Cost.** A stream costs nothing until it is opened, and then the encoder's share of a
+core for as long as anybody listens, whether that is one listener or twenty. Idle is the
+shared decode, so three streams cost the same as one until a second is actually in use.
+FLAC also costs the listener four times the bandwidth.
+
+**Changing streams** regenerates `spica.liq` and restarts the mixer, which is a few
+seconds of silence on every station, not just the one being edited.
 
 ## Genres
 
@@ -437,8 +501,10 @@ page uses.
 | POST | `/rebuild` | re-index Navidrome and rewrite every pool |
 | POST | `/liq` | render `spica.liq` from `stations.json` |
 | POST | `/enrich?limit=N` | fill artist MBIDs, 0 for all |
-| POST | `/s/<station>/start` | open the station's mount (what the play button calls) |
-| GET | `/s/<station>/state` | live/presence json for the player |
+| POST | `/s/<station>/start?stream=<codec>` | open a stream's mount (what the play button calls) |
+| GET | `/s/<station>/state?stream=<codec>` | live/presence json, per stream and in total |
+| GET | `/listen/<station>` | the default stream, relayed and opened on demand |
+| GET | `/listen/<station>/<codec>` | one stream: `mp3`, `opus` or `flac` |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
 | POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "musicbrainz" \| "refresh"}` |
 | GET | `/jobs` | recent jobs with progress |

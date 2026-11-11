@@ -47,3 +47,21 @@ def listen_states() -> dict[str, MountState]:
 def listeners(states: dict[str, MountState], mount: str) -> int:
     st = states.get(mount)
     return st.listeners if st else 0
+
+
+def live_mount(states: dict[str, MountState], station) -> tuple[str, MountState] | None:
+    """The first of the station's streams that is actually on air.
+
+    A station has one mount per stream, and which of them is open depends on what
+    somebody asked for. Anything that wants "what is this station doing" — the
+    ledger's title lookup, the presence check — goes through here.
+    """
+    for mount in station.mounts:
+        state = states.get(mount)
+        if state is not None:
+            return mount, state
+    return None
+
+
+def total_listeners(states: dict[str, MountState], station) -> int:
+    return sum(states[m].listeners for m in station.mounts if m in states)

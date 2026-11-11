@@ -96,10 +96,25 @@
   async function isLive(url) {
     try {
       const res = await fetch(url, { cache: "no-store" });
-      return Boolean((await res.json()).live);
+      const body = await res.json();
+      // A station is on air if any of its streams is; a specific stream only if
+      // that one is.
+      return Boolean("stream_live" in body ? body.stream_live : body.live);
     } catch {
       return false;
     }
+  }
+
+  /* ---- which stream ---- */
+
+  function chosenStream() {
+    const sel = playerbar()?.querySelector(".format select");
+    return sel ? sel.value : "";
+  }
+
+  function streamQuery() {
+    const codec = chosenStream();
+    return codec ? "?stream=" + encodeURIComponent(codec) : "";
   }
 
   let beat = null;
@@ -174,8 +189,10 @@
     busy = true;
     wanted = true;
     const { start, state: stateUrl, station } = bar.dataset;
-    // Through the relay, so the picker can tell a browser from a VLC.
-    const src = "/listen/" + station;
+    // Through the relay, so the picker can tell a browser from a VLC. A station
+    // with more than one stream plays the one picked in the format selector.
+    const codec = chosenStream();
+    const src = "/listen/" + station + (codec ? "/" + codec : "");
     current = station;
 
     statik.volume = 0.35;
@@ -183,7 +200,7 @@
       if (mine === attempt) setPill("off air");
     });
 
-    if (await isLive(stateUrl)) {
+    if (await isLive(stateUrl + streamQuery())) {
       if (mine !== attempt) return;
       if (!(await join(src))) setPill("off air");
       else startBeat(station);
@@ -192,13 +209,13 @@
     }
 
     setPill("tuning", "tuning");
-    fetch(start, { method: "POST" }).catch(() => {});
+    fetch(start + streamQuery(), { method: "POST" }).catch(() => {});
 
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 350));
       if (mine !== attempt) return;
-      if (await isLive(stateUrl)) {
+      if (await isLive(stateUrl + streamQuery())) {
         if (mine !== attempt) return;
         if (await join(src)) { startBeat(station); busy = false; return; }
         break;
@@ -246,6 +263,17 @@
     bar.querySelector(".play").addEventListener("click", () => {
       if (isPlaying()) stop(); else listen();
     });
+    const fmt = bar.querySelector(".format select");
+    if (fmt) {
+      // Changing format mid-song reconnects to the other mount; the station keeps
+      // playing, the listener just joins a different encoder.
+      fmt.addEventListener("change", () => {
+        if (isPlaying()) {
+          stop();
+          listen();
+        }
+      });
+    }
     const vol = bar.querySelector(".volume input");
     if (vol) {
       const paint = () => {

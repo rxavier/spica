@@ -114,10 +114,48 @@
       <input type="text" id="year_to" name="year_to" value="{{ item.year_to or '' }}">
     </div>
   </div>
+  <div class="field">
+    <label>streams — what this station publishes</label>
+    <p class="hint">Each one is its own encoder and its own mount, and costs a
+      core-percent or so <em>only while somebody is listening to that stream</em>.
+      The default is the first of these three that is on — MP3 whenever it is ticked —
+      so <code>/listen/{{ item.id }}</code> and the play button use that one. At least
+      one stays on.</p>
+    <div id="streams" class="toggles">
+      {% for codec in codecs %}
+        <label class="toggle">
+          <input type="checkbox" name="stream_codec" value="{{ codec }}"
+                 {% if codec in (item.streams or ["mp3"]) %}checked{% endif %}>
+          <span>{{ labels[codec] }}</span>
+          <em>/{{ item.id }}.{{ extensions[codec] }}</em>
+        </label>
+      {% endfor %}
+    </div>
+    <p class="hint" id="streams-note" hidden>At least one stream has to stay on.</p>
+  </div>
+
   <div class="form-actions">
     <button class="primary" type="submit">Save and rebuild pool</button>
   </div>
 </form>
+<script>
+(function () {
+  // The last ticked stream cannot be unticked: a station with no stream has
+  // nothing to publish. Put it straight back and say why.
+  const box = document.getElementById("streams");
+  const note = document.getElementById("streams-note");
+  if (!box) return;
+  box.addEventListener("change", function (ev) {
+    const boxes = [...box.querySelectorAll("input[type=checkbox]")];
+    if (boxes.some((b) => b.checked)) {
+      if (note) note.hidden = true;
+      return;
+    }
+    ev.target.checked = true;
+    if (note) note.hidden = false;
+  });
+})();
+</script>
 
 <form method="post" action="/admin/stations/{{ item.id }}/delete" class="deletebar"
       onsubmit="return confirm('Delete the station “{{ item.name }}”? Its history stays on disk.')">

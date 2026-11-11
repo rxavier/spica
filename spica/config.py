@@ -70,6 +70,17 @@ IDLE_STOP_S = int(os.environ.get("IDLE_STOP_S", "90"))
 REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
 
 
+# Three streams, one per codec, each at a bitrate that suits it. No knobs: the
+# extension says what the stream is, so /<station>.mp3 and /<station>.opus cannot
+# disagree with the encoder behind them.
+CODEC_EXT = {"mp3": "mp3", "opus": "opus", "flac": "flac"}
+CODEC_MEDIA = {"mp3": "audio/mpeg", "opus": "audio/ogg", "flac": "audio/ogg"}
+CODEC_BITRATE = {"mp3": 192, "opus": 128}
+CODEC_LABEL = {"mp3": "MP3 192k", "opus": "Opus 128k", "flac": "FLAC"}
+CODECS = ("mp3", "opus", "flac")
+DEFAULT_CODECS = ("mp3",)
+
+
 @dataclass(frozen=True)
 class Station:
     id: str
@@ -87,14 +98,32 @@ class Station:
     # "balanced" for neither. It only weights the seeded order.
     popularity: str = "balanced"
     description: str = ""
+    # Which streams the station publishes, as codec names. Empty means mp3 only,
+    # which is what every station did before this was configurable.
+    streams: tuple[str, ...] = ()
 
     @property
     def deep_bias(self) -> float:
         return {"deep": 1.0, "balanced": 0.0, "hits": -1.0}.get(self.popularity, 0.0)
 
     @property
+    def stream_set(self) -> tuple[str, ...]:
+        return self.streams or DEFAULT_CODECS
+
+    def mount_for(self, codec: str) -> str:
+        return f"/{self.id}.{CODEC_EXT.get(codec, 'mp3')}"
+
+    @property
+    def mounts(self) -> tuple[str, ...]:
+        return tuple(self.mount_for(c) for c in self.stream_set)
+
+    @property
     def mount(self) -> str:
-        return f"/{self.id}.mp3"
+        """The default stream: what /listen/<station> serves and the page plays."""
+        return self.mounts[0]
+
+    def has_codec(self, codec: str) -> bool:
+        return codec in self.stream_set
 
     @property
     def pool_file(self) -> Path:
@@ -114,6 +143,25 @@ class Station:
         return STATE_DIR / "now" / f"{self.id}.txt"
 
 
+def parse_codecs(raw) -> tuple[str, ...]:
+    """Read a station's stream list: codec names, in the order they were given.
+
+    Accepts the {"codec": ..., "bitrate": ...} shape too, so a config written while
+    bitrates were configurable still loads. An absent or unusable list means mp3,
+    so an old stations.json keeps working without an edit.
+    """
+    wanted: set[str] = set()
+    for entry in raw or ():
+        if isinstance(entry, dict):
+            entry = entry.get("codec")
+        codec = str(entry or "").strip().lower()
+        if codec in CODECS:
+            wanted.add(codec)
+    # Canonical order, so "the default is MP3 whenever it is on" holds for a file
+    # someone wrote by hand as well as for the console's checkboxes.
+    return tuple(c for c in CODECS if c in wanted) or DEFAULT_CODECS
+
+
 def load_stations(path: Path | None = None) -> list[Station]:
     path = path or (CONFIG_DIR / "stations.json")
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -131,6 +179,7 @@ def load_stations(path: Path | None = None) -> list[Station]:
                 year_to=item.get("year_to"),
                 popularity=str(item.get("popularity") or "balanced").lower(),
                 description=item.get("description", ""),
+                streams=parse_codecs(item.get("streams")),
             )
         )
     return out
