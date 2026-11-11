@@ -45,12 +45,13 @@ console (password: `SPICA_ADMIN_PASSWORD`), and give `http://localhost:8030/list
 to VLC, Sonos or Music Assistant — that URL opens the stream on demand and survives a
 bitrate change.
 
-A station can publish several streams (MP3, Opus and FLAC, at whatever bitrates you
-choose), set under **Stations** in the console. Each gets its own URL:
+A station can publish MP3 (192), Opus (128) and FLAC, as switches under **Stations**
+in the console. Each gets its own URL:
 
 ```
 http://localhost:8030/listen/main          the default stream
-http://localhost:8030/listen/main/opus96   a named one
+http://localhost:8030/listen/main/opus     one by codec
+http://localhost:8030/listen/main/flac
 ```
 
 ## 4. Teach it your library

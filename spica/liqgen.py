@@ -14,30 +14,32 @@ from pathlib import Path
 from . import config
 
 
-def encoder(stream: config.Stream) -> str:
-    """The Liquidsoap encoder for one stream.
+def encoder(codec: str) -> str:
+    """The Liquidsoap encoder for one codec.
 
     FLAC goes out as Ogg FLAC: bare FLAC over Icecast gives players no framing to
     resync on, and every client that matters reads Ogg.
     """
-    if stream.codec == "opus":
-        return f"%opus(bitrate={stream.bitrate}, samplerate=48000, channels=2)"
-    if stream.codec == "flac":
+    if codec == "opus":
+        bitrate = config.CODEC_BITRATE["opus"]
+        return f"%opus(bitrate={bitrate}, samplerate=48000, channels=2)"
+    if codec == "flac":
         return "%ogg(%flac(samplerate=48000, channels=2))"
-    return f"%mp3(bitrate={stream.bitrate}, samplerate=48000, stereo=true)"
+    bitrate = config.CODEC_BITRATE["mp3"]
+    return f"%mp3(bitrate={bitrate}, samplerate=48000, stereo=true)"
 
 
 def outputs_for(st: config.Station, password: str) -> list[str]:
-    """One Icecast output per stream, each its own encoder and its own mount."""
+    """One Icecast output per stream: one encoder each, one mount each."""
     lines: list[str] = []
-    for stream in st.stream_set:
+    for codec in st.stream_set:
         lines += [
-            f"output.icecast({encoder(stream)},",
-            f'  id="out_{st.id}_{stream.slug}", start=false,',
+            f"output.icecast({encoder(codec)},",
+            f'  id="out_{st.id}_{codec}", start=false,',
             f'  host="{config.ICECAST_OUTPUT_HOST}", port={config.ICECAST_OUTPUT_PORT}, '
-            f'password="{password}", mount="{st.mount_for(stream)}",',
-            f'  name="{st.name}", description="{st.description or st.name} · {stream.label}", '
-            f"s_{st.id})",
+            f'password="{password}", mount="{st.mount_for(codec)}",',
+            f'  name="{st.name}", description="{st.description or st.name} · '
+            f'{config.CODEC_LABEL[codec]}", s_{st.id})',
             "",
         ]
     return lines

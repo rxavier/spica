@@ -197,6 +197,7 @@ def station_context(st) -> dict:
         "station": st,
         "stations": stations(),
         "now": now,
+        "labels": config.CODEC_LABEL,
         "history": history_of(st, 15, now),
         "requests": request_rows(st),
         "pool": pool_size(st),
@@ -332,7 +333,7 @@ async def hear(station_id: str):
     return Response(status_code=204)
 
 
-async def _relay(st, stream, request: Request):
+async def _relay(st, codec, request: Request):
     """Open one stream's mount if needed, then copy the bytes to the client.
 
     Mounts start closed, so a client that cannot run the page (Music Assistant,
@@ -340,8 +341,8 @@ async def _relay(st, stream, request: Request):
     like an ordinary always-on stream: the picker opens that one output, waits for
     Icecast, and relays it.
     """
-    mount = st.mount_for(stream)
-    await asyncio.to_thread(mixer.start, st, stream)
+    mount = st.mount_for(codec)
+    await asyncio.to_thread(mixer.start, st, codec)
     for _ in range(40):
         states = await asyncio.to_thread(icecast.listen_states)
         if mount in states:
@@ -369,10 +370,10 @@ async def _relay(st, stream, request: Request):
             await upstream.aclose()
             await client.aclose()
 
-    icy = st.name if stream == st.stream_set[0] else f"{st.name} ({stream.label})"
+    icy = st.name if codec == st.stream_set[0] else f"{st.name} ({config.CODEC_LABEL[codec]})"
     return StreamingResponse(
         relay(),
-        media_type=stream.media_type,
+        media_type=config.CODEC_MEDIA[codec],
         headers={
             "icy-name": icy,
             "cache-control": "no-store",
@@ -391,22 +392,22 @@ async def listen(station_id: str, request: Request):
     return await _relay(st, st.stream_set[0], request)
 
 
-@router.get("/listen/{station_id}/{slug}")
-async def listen_stream(station_id: str, slug: str, request: Request):
-    """A specific stream of a station: /listen/alt/opus96, /listen/alt/flac."""
+@router.get("/listen/{station_id}/{codec}")
+async def listen_stream(station_id: str, codec: str, request: Request):
+    """A specific stream: /listen/alt/opus, /listen/alt/flac."""
     st = station_or_404(station_id)
-    stream = st.stream_for(slug)
-    if stream is None:
-        raise HTTPException(404, f"{st.name} has no stream called {slug}")
-    return await _relay(st, stream, request)
+    codec = codec.strip().lower()
+    if not st.has_codec(codec):
+        raise HTTPException(404, f"{st.name} does not publish {codec}")
+    return await _relay(st, codec, request)
 
 
 @router.post("/s/{station_id}/start")
 async def station_start(station_id: str, stream: str = ""):
     st = station_or_404(station_id)
-    chosen = st.stream_for(stream) if stream else None
-    started = await asyncio.to_thread(mixer.start, st, chosen)
-    return JSONResponse({"started": started, "stream": (chosen or st.stream_set[0]).slug})
+    chosen = stream.strip().lower() if stream else ""
+    started = await asyncio.to_thread(mixer.start, st, chosen or None)
+    return JSONResponse({"started": started, "codec": chosen or st.stream_set[0]})
 
 
 @router.get("/s/{station_id}/state")
@@ -414,22 +415,22 @@ async def station_state(station_id: str, stream: str = ""):
     st = station_or_404(station_id)
     states = await asyncio.to_thread(icecast.listen_states)
     live = icecast.live_mount(states, st)
-    chosen = st.stream_for(stream) if stream else None
+    chosen = (stream or "").strip().lower() or st.stream_set[0]
     return JSONResponse(
         {
             "live": live is not None,
             "listeners": icecast.total_listeners(states, st),
-            "stream": (chosen or st.stream_set[0]).slug,
-            "stream_live": (states.get(st.mount_for(chosen)) is not None) if chosen else live is not None,
+            "stream": chosen,
+            "stream_live": st.mount_for(chosen) in states,
             "streams": [
                 {
-                    "slug": s.slug,
-                    "label": s.label,
-                    "mount": st.mount_for(s),
-                    "listeners": states[st.mount_for(s)].listeners if st.mount_for(s) in states else 0,
-                    "live": st.mount_for(s) in states,
+                    "codec": c,
+                    "label": config.CODEC_LABEL[c],
+                    "mount": st.mount_for(c),
+                    "listeners": states[st.mount_for(c)].listeners if st.mount_for(c) in states else 0,
+                    "live": st.mount_for(c) in states,
                 }
-                for s in st.stream_set
+                for c in st.stream_set
             ],
         }
     )
@@ -617,6 +618,8 @@ async def admin_station_form(request: Request, station_id: str):
             "all_labels": labels,
             "all_artists": artists,
             "codecs": config.CODECS,
+            "labels": config.CODEC_LABEL,
+            "extensions": config.CODEC_EXT,
         },
     )
 
@@ -636,7 +639,6 @@ async def admin_station_save(
     year_to: str = Form(""),
     new_id: str = Form(""),
     stream_codec: list[str] = Form(default=[]),
-    stream_bitrate: list[str] = Form(default=[]),
 ):
     admin_only(request)
     raw = _raw_stations()
@@ -658,21 +660,17 @@ async def admin_station_save(
     else:
         note = ""
 
-    wanted_streams = config.parse_streams(
-        [
-            {"codec": codec, "bitrate": (stream_bitrate[i] if i < len(stream_bitrate) else "")}
-            for i, codec in enumerate(stream_codec)
-        ]
-    )
+    # Checkboxes: whatever arrived, in the canonical order, and never nothing.
+    wanted_streams = config.parse_codecs(stream_codec) or config.DEFAULT_CODECS
     streams_changed = False
     for item in raw:
         if item.get("id") != station_id:
             continue
-        before = config.parse_streams(item.get("streams"))
+        before = config.parse_codecs(item.get("streams"))
         streams_changed = before != wanted_streams
         item.update(
             {
-                "streams": [s.as_json() for s in wanted_streams],
+                "streams": list(wanted_streams),
                 "name": name.strip() or station_id,
                 "description": description.strip(),
                 "include_genres": _known_labels(genres),

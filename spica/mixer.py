@@ -43,30 +43,30 @@ def pending(station) -> int | None:
     return len(reply.split())
 
 
-def _switches(station, stream, verb: str) -> bool:
-    streams = (stream,) if stream is not None else station.stream_set
+def _switches(station, codec, verb: str) -> bool:
+    codecs = (codec,) if codec is not None else station.stream_set
     ok = True
-    for one in streams:
+    for one in codecs:
         try:
-            reply = command(f"out_{station.id}_{one.slug}.{verb}")
+            reply = command(f"out_{station.id}_{one}.{verb}")
         except OSError:
             return False
         ok = ok and not reply.startswith("ERROR")
     return ok
 
 
-def start(station, stream=None) -> bool:
+def start(station, codec=None) -> bool:
     """Open one stream's Icecast source, or all of them.
 
     Each stream is a separate encoder, so opening only the one somebody asked for
     is the difference between one core-percent and three.
     """
-    return _switches(station, stream, "start")
+    return _switches(station, codec, "start")
 
 
-def stop(station, stream=None) -> bool:
+def stop(station, codec=None) -> bool:
     """Close a stream: its mount disappears and its encoder stops burning CPU."""
-    return _switches(station, stream, "stop")
+    return _switches(station, codec, "stop")
 
 
 def queued_ids(station) -> list[str]:

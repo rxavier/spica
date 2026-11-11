@@ -30,8 +30,8 @@
         <label class="format" title="stream">
           <span class="tag">fmt</span>
           <select aria-label="stream format">
-            {% for s in station.stream_set %}
-              <option value="{{ s.slug }}"{% if loop.first %} selected{% endif %}>{{ s.label }}</option>
+            {% for c in station.stream_set %}
+              <option value="{{ c }}"{% if loop.first %} selected{% endif %}>{{ labels[c] }}</option>
             {% endfor %}
           </select>
         </label>

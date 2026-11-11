@@ -112,18 +112,18 @@ def _close_if_silent(st: config.Station, states: dict) -> None:
     Per stream, not per station: an Opus listener should not keep the FLAC encoder
     running.
     """
-    for stream in st.stream_set:
-        mount = st.mount_for(stream)
-        key = f"{st.id}/{stream.slug}"
+    for codec in st.stream_set:
+        mount = st.mount_for(codec)
+        key = f"{st.id}/{codec}"
         state = states.get(mount)
         if state is None or state.listeners > 0:
             QUIET_SINCE.pop(key, None)
             continue
         since = QUIET_SINCE.setdefault(key, time.time())
         if time.time() - since >= config.IDLE_STOP_S:
-            if mixer.stop(st, stream):
+            if mixer.stop(st, codec):
                 log.info("[%s] closed %s after %ds without listeners",
-                         st.id, stream.slug, config.IDLE_STOP_S)
+                         st.id, codec, config.IDLE_STOP_S)
             QUIET_SINCE.pop(key, None)
 
 
@@ -210,13 +210,13 @@ async def status() -> dict:
         mount = live[1] if live else None
         streams = [
             {
-                "slug": s.slug,
-                "label": s.label,
-                "mount": st.mount_for(s),
-                "live": st.mount_for(s) in states,
-                "listeners": states[st.mount_for(s)].listeners if st.mount_for(s) in states else 0,
+                "codec": c,
+                "label": config.CODEC_LABEL[c],
+                "mount": st.mount_for(c),
+                "live": st.mount_for(c) in states,
+                "listeners": states[st.mount_for(c)].listeners if st.mount_for(c) in states else 0,
             }
-            for s in st.stream_set
+            for c in st.stream_set
         ]
         out[st.id] = {
             "name": st.name,

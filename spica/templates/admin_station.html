@@ -116,27 +116,22 @@
   </div>
   <div class="field">
     <label>streams — what this station publishes</label>
-    <p class="hint">Each stream is its own encoder and its own mount, and each one costs a
+    <p class="hint">Each one is its own encoder and its own mount, and costs a
       core-percent or so <em>only while somebody is listening to that stream</em>.
-      <strong>FLAC</strong> is lossless and has no bitrate — it goes out as Ogg FLAC.
-      The first stream is the default: it is what <code>/listen/{{ item.id }}</code>
-      and the play button use.</p>
-    <div id="streams" class="streams">
-      {% for s in (item.streams or [{"codec": "mp3", "bitrate": 192}]) %}
-        <div class="stream-row">
-          <select name="stream_codec" aria-label="codec">
-            {% for codec in codecs %}
-              <option value="{{ codec }}"{% if s.codec == codec %} selected{% endif %}>{{ codec }}{% if codec == 'flac' %} (ogg){% endif %}</option>
-            {% endfor %}
-          </select>
-          <input type="number" name="stream_bitrate" min="32" max="512" step="8"
-                 value="{{ s.bitrate or 192 }}" aria-label="bitrate in kbit/s">
-          <span class="hint">kbit/s</span>
-          <button type="button" class="link drop-stream">remove</button>
-        </div>
+      The default is the first of these three that is on — MP3 whenever it is ticked —
+      so <code>/listen/{{ item.id }}</code> and the play button use that one. At least
+      one stays on.</p>
+    <div id="streams" class="toggles">
+      {% for codec in codecs %}
+        <label class="toggle">
+          <input type="checkbox" name="stream_codec" value="{{ codec }}"
+                 {% if codec in (item.streams or ["mp3"]) %}checked{% endif %}>
+          <span>{{ labels[codec] }}</span>
+          <em>/{{ item.id }}.{{ extensions[codec] }}</em>
+        </label>
       {% endfor %}
     </div>
-    <button type="button" class="link" id="add-stream">add a stream</button>
+    <p class="hint" id="streams-note" hidden>At least one stream has to stay on.</p>
   </div>
 
   <div class="form-actions">
@@ -145,35 +140,19 @@
 </form>
 <script>
 (function () {
+  // The last ticked stream cannot be unticked: a station with no stream has
+  // nothing to publish. Put it straight back and say why.
   const box = document.getElementById("streams");
-  const add = document.getElementById("add-stream");
-  if (!box || !add) return;
-  // FLAC has no bitrate: grey the field out rather than pretending 192 means
-  // something for a lossless encoder.
-  function sync(row) {
-    const sel = row.querySelector("select");
-    const num = row.querySelector("input");
-    const flac = sel.value === "flac";
-    num.disabled = flac;
-    num.style.opacity = flac ? "0.35" : "1";
-    num.title = flac ? "FLAC is lossless — no bitrate" : "bitrate in kbit/s";
-  }
-  function row() {
-    const copy = box.querySelector(".stream-row").cloneNode(true);
-    copy.querySelector("select").value = "mp3";
-    copy.querySelector("input").value = "192";
-    sync(copy);
-    return copy;
-  }
-  box.querySelectorAll(".stream-row").forEach(sync);
+  const note = document.getElementById("streams-note");
+  if (!box) return;
   box.addEventListener("change", function (ev) {
-    if (ev.target.tagName === "SELECT") sync(ev.target.closest(".stream-row"));
-  });
-  add.addEventListener("click", function () { box.appendChild(row()); });
-  box.addEventListener("click", function (ev) {
-    if (!ev.target.classList.contains("drop-stream")) return;
-    if (box.querySelectorAll(".stream-row").length === 1) return;  // keep one
-    ev.target.closest(".stream-row").remove();
+    const boxes = [...box.querySelectorAll("input[type=checkbox]")];
+    if (boxes.some((b) => b.checked)) {
+      if (note) note.hidden = true;
+      return;
+    }
+    ev.target.checked = true;
+    if (note) note.hidden = false;
   });
 })();
 </script>

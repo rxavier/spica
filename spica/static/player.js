@@ -113,8 +113,8 @@
   }
 
   function streamQuery() {
-    const slug = chosenStream();
-    return slug ? "?stream=" + encodeURIComponent(slug) : "";
+    const codec = chosenStream();
+    return codec ? "?stream=" + encodeURIComponent(codec) : "";
   }
 
   let beat = null;
@@ -191,8 +191,8 @@
     const { start, state: stateUrl, station } = bar.dataset;
     // Through the relay, so the picker can tell a browser from a VLC. A station
     // with more than one stream plays the one picked in the format selector.
-    const slug = chosenStream();
-    const src = "/listen/" + station + (slug ? "/" + slug : "");
+    const codec = chosenStream();
+    const src = "/listen/" + station + (codec ? "/" + codec : "");
     current = station;
 
     statik.volume = 0.35;
