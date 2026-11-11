@@ -20,7 +20,7 @@
         <span class="asked">“{{ r.text }}”</span>
         {% if r.track %}
           <span class="gave">
-            {% if r.album_id %}<img src="/art/{{ r.album_id }}?v={{ r.cover_tag }}" alt="" onerror="this.outerHTML='&lt;span class=\'noart\'&gt;&lt;/span&gt;'">{% else %}<span class="noart"></span>{% endif %}
+            {% if r.album_id %}<img src="/art/{{ r.album_id }}?v={{ r.cover_tag }}&amp;size={{ thumb }}" alt="" onerror="this.outerHTML='&lt;span class=\'noart\'&gt;&lt;/span&gt;'">{% else %}<span class="noart"></span>{% endif %}
             <span>
               <span class="artist">{{ r.track.artist }}</span>
               <span class="title">{{ r.track.title }}</span>

@@ -1,8 +1,13 @@
-{% set cover = ('/art/' ~ now.album_id ~ '?v=' ~ now.cover_tag) if now.album_id else '' %}
+{% set cover = ('/art/' ~ now.album_id ~ '?v=' ~ now.cover_tag ~ '&size=' ~ hero) if now.album_id else '' %}
 <section class="now" data-cover="{{ cover }}">
   <div class="artwrap">
+    {# The star sits underneath the cover, so a cover that fails to load falls back to
+       it instead of the browser's broken-image icon. #}
+    {% if cover %}<span class="hero-art noart" aria-hidden="true">
+      <svg viewBox="0 0 100 100"><path d="M50 10 L58 42 L90 50 L58 58 L50 90 L42 58 L10 50 L42 42 Z"/></svg>
+    </span>{% endif %}
     {% if cover %}
-      <img class="hero-art" src="{{ cover }}" alt="">
+      <img class="hero-art" src="{{ cover }}" alt="" onerror="this.style.display='none'">
     {% else %}
       <span class="hero-art noart" aria-hidden="true">
         <svg viewBox="0 0 100 100"><path d="M50 10 L58 42 L90 50 L58 58 L50 90 L42 58 L10 50 L42 42 Z"/></svg>

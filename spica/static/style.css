@@ -163,6 +163,8 @@ a { color: var(--leather-deep); }
     0 18px 44px rgba(89, 48, 24, .22),
     0 0 0 1px rgba(29, 21, 14, .1);
 }
+.artwrap { position: relative; }
+.artwrap > .hero-art { position: absolute; inset: 0; }
 .hero-art { width: 100%; height: 100%; object-fit: cover; display: block; }
 .hero-art.noart { display: grid; place-items: center; background: var(--paper-3); }
 .hero-art.noart svg { width: 26%; height: 26%; fill: var(--leather); opacity: .5; }

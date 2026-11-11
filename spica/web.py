@@ -30,7 +30,15 @@ from . import requests as requests_mod
 
 HERE = Path(__file__).parent
 static = StaticFiles(directory=HERE / "static")
+COVER_SIZE = 600  # the hero shows it up to 320px on a phone; 600 survives retina
+THUMB_SIZE = 96  # the ledger and the request slips render at 38px; 96 survives retina
+ALBUM_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+# Sizes the templates ask the art route for: the hero needs the big one, a 38-pixel
+# ledger stamp does not.
+templates.env.globals["hero"] = COVER_SIZE
+templates.env.globals["thumb"] = THUMB_SIZE
 router = APIRouter()
 
 ART_DIR = config.STATE_DIR / "art"
@@ -67,16 +75,26 @@ def now_playing(st) -> dict:
     else:
         album_id = ""
 
-    # history records plays, so its last entry is the track on air
+    # history records plays, so its last entry is the track on air. It is also the
+    # only witness when the mount is closed: the station keeps playing with nobody
+    # listening, and Icecast has no title to give then.
     played = queue.recent(st, 1)
-    entry = played[-1] if played else {}
-    # Only claim a reason when it belongs to this track.
-    if entry and store.norm(f"{entry.get('artist', '')} {entry.get('title', '')}") != store.norm(f"{artist} {song}"):
-        entry = {}
+    last = played[-1] if played else {}
+
+    if not raw and last:
+        artist = last.get("artist", "")
+        song = last.get("title", "")
+        album_id = store.album_for(last.get("id", ""))
+        entry = last
+    else:
+        # Only claim a reason when it belongs to this track.
+        entry = last if last and store.norm(
+            f"{last.get('artist', '')} {last.get('title', '')}"
+        ) == store.norm(f"{artist} {song}") else {}
+
     track_id = entry.get("id", "")
     if not album_id and track_id:
-        row = store.conn().execute("SELECT album_id FROM tracks WHERE id = ?", (track_id,)).fetchone()
-        album_id = row["album_id"] if row else ""
+        album_id = store.album_for(track_id)
     if not album_id and song:
         found = store.find_track(artist, song)
         album_id = found["album_id"] if found else ""
@@ -421,26 +439,55 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
     )
 
 
-COVER_SIZE = 600  # the page shows it up to 320px on a phone; 600 survives retina
 # Navidrome answers with this image when an album has no art at all. Caching it
 # would freeze a placeholder in place, so it is treated as "no cover".
 PLACEHOLDER_MD5 = "83d193cefca2810f217cffd533241508"
 
 
 @router.get("/art/{album_id}")
-async def art(album_id: str):
-    """Cover art, cached on disk: the browser never holds API credentials."""
-    ART_DIR.mkdir(parents=True, exist_ok=True)
-    cached = ART_DIR / f"{album_id}-{COVER_SIZE}.jpg"
-    if cached.exists() and cached.stat().st_size > 0:
-        return Response(cached.read_bytes(), media_type="image/jpeg", headers={"cache-control": "public, max-age=300"})
-    cover = store.cover_for(album_id)
-    data = subsonic.cover_art(cover, size=COVER_SIZE)
-    if not data:
-        data = subsonic.cover_art(cover, size=COVER_SIZE)  # one retry: a blip is not a missing cover
-    if not data or hashlib.md5(data).hexdigest() == PLACEHOLDER_MD5:
+def art(album_id: str, size: int | None = None):
+    """Cover art, cached on disk: the browser never holds API credentials.
+
+    `size` exists because the hero and a 38-pixel ledger thumbnail were both asking
+    Navidrome for 600-pixel originals — fifteen of those on one page is megabytes of
+    JPEG to draw a column of stamps. Each size is cached separately.
+
+    A plain `def` on purpose: the fetch is blocking urllib with a timeout, and inside
+    an `async def` handler that stalls the event loop for every other request,
+    including the now-playing poll and the stream relay. FastAPI runs a sync handler
+    in its threadpool instead.
+    """
+    if not ALBUM_ID.match(album_id):
         raise HTTPException(404, "no cover")
+    px = COVER_SIZE if size is None else max(32, min(int(size), COVER_SIZE))
+
+    ART_DIR.mkdir(parents=True, exist_ok=True)
+    cached = ART_DIR / f"{album_id}-{px}.jpg"
+    if cached.exists() and cached.stat().st_size > 0:
+        return Response(cached.read_bytes(), media_type="image/jpeg",
+                        headers={"cache-control": "public, max-age=300"})
+
+    # An album without art would otherwise go back to Navidrome on every poll, and
+    # each of those is a blocking round trip. One marker covers every size.
+    missing = ART_DIR / f"{album_id}.none"
+    if missing.exists():
+        raise HTTPException(404, "no cover", headers={"cache-control": "public, max-age=86400"})
+
+    cover = store.cover_for(album_id)
+    data = subsonic.cover_art(cover, size=px)
+    if not data:
+        data = subsonic.cover_art(cover, size=px)  # one retry: a blip is not a missing cover
+    if not data or hashlib.md5(data).hexdigest() == PLACEHOLDER_MD5:
+        try:
+            missing.write_bytes(b"")
+        except OSError:
+            pass
+        raise HTTPException(404, "no cover", headers={"cache-control": "public, max-age=86400"})
     cached.write_bytes(data)
+    try:
+        missing.unlink()
+    except OSError:
+        pass
     return Response(data, media_type="image/jpeg", headers={"cache-control": "public, max-age=300"})
 
 
