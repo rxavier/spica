@@ -53,6 +53,12 @@ async def loop() -> None:
                 _close_if_silent(st, states)
                 if queue.queued(st):
                     continue
+                # A closed mount cannot be heard by anyone. Presence is built from
+                # browser heartbeats and relay sessions, and a page whose stream
+                # died can keep beating for a while yet.
+                if states.get(st.mount) is None:
+                    LAST[st.id] = {**LAST.get(st.id, {}), "why": "off air — no mount"}
+                    continue
                 n = icecast.listeners(states, st.mount)
                 if not presence.listening(st.id, n):
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n,
