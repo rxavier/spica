@@ -90,7 +90,7 @@ async def loop() -> None:
                 if p is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": "pick failed — playlist continues"}
                     continue
-                queue.push(st, p.track.uri)
+                queue.push(st, p.track.uri, p.track.as_line())
                 queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                                   presence=presence.reason(st.id, n))
                 LAST[st.id] = {
@@ -266,7 +266,7 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     p = await asyncio.to_thread(picker.pick_next, lib(), st, text, queue.recent_ids(st))
     if p is None:
         return None
-    queue.push(st, p.track.uri)
+    queue.push(st, p.track.uri, p.track.as_line())
     states = await asyncio.to_thread(icecast.listen_states)
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
@@ -315,7 +315,7 @@ async def force_pick(station_id: str) -> dict:
     p = await asyncio.to_thread(picker.pick_next, lib(), st, None, queue.recent_ids(st))
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
-    queue.push(st, p.track.uri)
+    queue.push(st, p.track.uri, p.track.as_line())
     states = await asyncio.to_thread(icecast.listen_states)
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
