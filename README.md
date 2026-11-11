@@ -501,6 +501,11 @@ So: per-track art is ours to serve (`/art/<albumId>`, and the `art` field in
 `/status`), and free for anything that speaks Music Assistant's metadata path. Anything
 that wants a station logo wants one image, per station, not per song.
 
+`/logo/<station>.png` is that URL. Every station answers with the Spica mark for now —
+a 300-pixel PNG behind a day of cache — so a directory, a client or a Sonos favourite
+can be pointed at it today, and swap to a station's own artwork later without the URL
+changing.
+
 ## Listening elsewhere
 
 The browser player streams through `https://<host>/listen/<station>`, which is also the
@@ -534,6 +539,7 @@ page uses.
 |---|---|---|
 | GET | `/health` | LLM configured, which stations |
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
+| GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/coverage` | how much of the library has genres, and what is missing |
 | GET | `/genres` | labels with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |

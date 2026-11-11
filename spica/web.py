@@ -21,7 +21,14 @@ import socket
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -490,6 +497,24 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
 # Navidrome answers with this image when an album has no art at all. Caching it
 # would freeze a placeholder in place, so it is treated as "no cover".
 PLACEHOLDER_MD5 = "83d193cefca2810f217cffd533241508"
+
+
+@router.get("/logo/{station_id}.png")
+def station_logo(station_id: str):
+    """The station's own picture, for anything that wants one.
+
+    Stations do not carry artwork of their own yet, so every station answers with the
+    Spica mark. The point is the shape: one stable URL per station that a directory, a
+    client or a Sonos favourite can keep, without anyone having to know where the brand
+    file lives.
+    """
+    if station_id not in {s.id for s in store.stations()}:
+        raise HTTPException(404, "no such station")
+    return FileResponse(
+        HERE / "static" / "logo-300.png",
+        media_type="image/png",
+        headers={"cache-control": "public, max-age=86400"},
+    )
 
 
 @router.get("/art/{album_id}")

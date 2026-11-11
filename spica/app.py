@@ -242,6 +242,9 @@ async def status(request: Request) -> dict:
             "title": now.get("song", ""),
             "album": now.get("album", ""),
             "art": art,
+            # Per-station URL that answers with the station's picture; the Spica mark
+            # for everyone, since stations do not have their own yet.
+            "logo": f"{base}/logo/{st.id}.png",
             "queued": queue.queued(st),
             "pool": _pool_size(st),
             "last": LAST.get(st.id, {}),
