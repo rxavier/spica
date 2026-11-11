@@ -83,7 +83,8 @@ TOOLS = [
             "name": "catalogue",
             "description": (
                 "What the station owns by one artist, or one album's tracklist in running order "
-                "(artist + album, or album alone when the name is unique). Call it to build a set "
+                "(artist + album, or album alone — if several artists share the name, the one with "
+                "the most tracks here wins). Call it to build a set "
                 "from a single record, to see how much of a band there is to work with, or when a "
                 "request names a band rather than a song. Tracks this station cannot play are "
                 "omitted, so an empty list means it holds none of it."
@@ -141,21 +142,35 @@ class Pick:
     why: str
 
 
+def _clamp(value, default: int, high: int) -> int:
+    """A limit the model chose, kept inside sensible bounds.
+
+    limit=0 would slice to nothing (or, with recent()'s [-n:], to everything) and a
+    huge one would flood a context the tool has to fit in 6000 characters anyway.
+    """
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(number, high))
+
+
 class Library:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
     def search(self, query: str, limit: int = 20, station: config.Station | None = None) -> list[dict]:
+        limit = _clamp(limit, 20, 200)
         like = f"%{query.strip()}%"
         rows = self.conn.execute(
             """SELECT * FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
                ORDER BY artist, album, track_no LIMIT ?""",
-            (like, like, like, int(limit) * 40),
+            (like, like, like, limit * 40),
         ).fetchall()
         if station is not None:
             ok = navidrome.station_matcher(self.conn, station)
             rows = [r for r in rows if ok(r)]
-        return [self._brief(r) for r in rows[: int(limit)]]
+        return [self._brief(r) for r in rows[:limit]]
 
     def filter(self, station: config.Station | None = None, **kw) -> list[dict]:
         where, args = ["uri != ''"], []
@@ -180,7 +195,7 @@ class Library:
             ok = navidrome.station_matcher(self.conn, station)
             rows = [r for r in rows if ok(r)]
 
-        limit = int(kw.get("limit") or 30)
+        limit = _clamp(kw.get("limit"), 30, 200)
         return [self._brief(r) for r in rows[:limit]]
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
@@ -191,6 +206,7 @@ class Library:
         return len(navidrome.rows_for_station(self.conn, station))
 
     def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
+        limit = _clamp(limit, 12, 50)
         """Tracks by artists that sound like this one.
 
         Four levels, cheapest first, so this answers even on a library with no
@@ -242,7 +258,8 @@ class Library:
 
     def history(self, station: config.Station, limit: int = 20, **_) -> list[dict]:
         """The station's recent past, newest first, with how long ago each played."""
-        plays = list(reversed(queue.recent(station, int(limit))))
+        limit = _clamp(limit, 20, 100)
+        plays = list(reversed(queue.recent(station, limit)))
         out: list[dict] = []
         for ago, entry in enumerate(plays):
             track_id = entry.get("id") or ""
@@ -273,7 +290,7 @@ class Library:
         An album name alone is enough when only one artist owns it; if several do,
         the one with most tracks on this station wins and the reply says so.
         """
-        limit = int(limit or 25)
+        limit = _clamp(limit, 25, 100)
         where, args = ["uri != ''"], []
         if artist:
             where.append("artist = ? COLLATE NOCASE")
@@ -626,7 +643,12 @@ def pick_next(
                 args = {}
             result = lib.run_tool(name, args, station)
             payload = result
-            if isinstance(result, list) and not result:
+            if isinstance(result, list) and not result and name == "history":
+                payload = {
+                    "results": [],
+                    "note": "nothing has played on this station yet; look something up instead",
+                }
+            elif isinstance(result, list) and not result:
                 # Empty almost always means "exists but not on this station" —
                 # saying so stops the model retrying the same dead end.
                 payload = {
