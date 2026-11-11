@@ -121,14 +121,15 @@
     let ticks = 0;
     let seen = 0;
     let stalled = 0;
+    let primed = false;  // nothing has had a chance to advance yet
     // "timeupdate" only fires while audio is actually advancing, which is what
     // "somebody can hear this" means. A closed mount does not always raise
     // "error" — it just stops delivering bytes.
     const onTick = function () { ticks++; };
     stream.addEventListener("timeupdate", onTick);
     const ping = function () {
-      if (ticks === seen) {
-        if (++stalled >= 2) {            // 40 s of frozen audio
+      if (primed && ticks === seen) {
+        if (++stalled >= 2) {            // two beats with no audio moving
           stopBeat();
           statik.pause();
           stream.pause();
@@ -136,10 +137,11 @@
           stopAnimation();
           return;
         }
-      } else {
+      } else if (ticks !== seen) {
         stalled = 0;
         seen = ticks;
       }
+      primed = true;
       fetch("/s/" + station + "/hear", { method: "POST", keepalive: true }).catch(function () {});
     };
     beatCleanup = function () { stream.removeEventListener("timeupdate", onTick); };

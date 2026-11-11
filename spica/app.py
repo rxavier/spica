@@ -55,7 +55,10 @@ async def loop() -> None:
                     continue
                 # A closed mount cannot be heard by anyone. Presence is built from
                 # browser heartbeats and relay sessions, and a page whose stream
-                # died can keep beating for a while yet.
+                # died can keep beating for a while yet. Note this also pauses
+                # picking for a poll or two if Icecast itself hiccups and returns
+                # nothing: with no states, every mount reads as absent. That is the
+                # right trade — nobody can hear anything during an Icecast outage.
                 if states.get(st.mount) is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "why": "off air — no mount"}
                     continue
