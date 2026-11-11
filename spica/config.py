@@ -23,6 +23,10 @@ ICECAST_URL = os.environ.get("ICECAST_URL", "http://127.0.0.1:8020").rstrip("/")
 ICECAST_OUTPUT_HOST = os.environ.get("ICECAST_OUTPUT_HOST", "icecast")
 ICECAST_OUTPUT_PORT = int(os.environ.get("ICECAST_OUTPUT_PORT", "8000"))
 
+# How the outside world reaches this station, without a trailing slash. Optional:
+# without it the streams simply can't advertise a homepage in their icy-url header.
+PUBLIC_URL = os.environ.get("SPICA_PUBLIC_URL", "").rstrip("/")
+
 # Optional enrichment providers (see radio/enrich.py). Both are optional: with
 # neither, the DJ works from names, genre and year alone.
 # MusicBrainz asks callers to identify themselves; the project's own name and URL are

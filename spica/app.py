@@ -14,7 +14,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import bootstrap
@@ -202,12 +202,25 @@ async def health() -> dict:
 
 
 @app.get("/status")
-async def status() -> dict:
+async def status(request: Request) -> dict:
+    """What every station is doing, for anything that is not the web page.
+
+    Carries the track split into artist and title, plus an absolute URL to its
+    cover, so a dashboard or a Home Assistant sensor does not have to scrape the
+    page or know about album ids.
+    """
     states = await asyncio.to_thread(icecast.listen_states)
+    base = str(request.base_url).rstrip("/")
     out = {}
     for st in store.stations():
         live = icecast.live_mount(states, st)
         mount = live[1] if live else None
+        now = await asyncio.to_thread(web.now_playing, st)
+        art = ""
+        if now.get("album_id"):
+            art = f"{base}/art/{now['album_id']}"
+            if now.get("cover_tag"):
+                art += f"?v={now['cover_tag']}"
         streams = [
             {
                 "codec": c,
@@ -224,6 +237,14 @@ async def status() -> dict:
             "streams": streams,
             "listeners": mount.listeners if mount else 0,
             "on_air": mount.title if mount else "",
+            # The same fields the page shows, for clients that are not the page.
+            "artist": now.get("artist", ""),
+            "title": now.get("song", ""),
+            "album": now.get("album", ""),
+            "art": art,
+            # Per-station URL that answers with the station's picture; the Spica mark
+            # for everyone, since stations do not have their own yet.
+            "logo": f"{base}/logo/{st.id}.png",
             "queued": queue.queued(st),
             "pool": _pool_size(st),
             "last": LAST.get(st.id, {}),

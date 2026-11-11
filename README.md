@@ -460,6 +460,69 @@ holds only the large wordmark and fills; surfaces with small text step down to `
 (cream 5.4:1); leather used as text on paper is `#6f3a22` (8.0:1); red survives as a
 signal because on paper it reads 5.7:1.
 
+## Metadata and artwork
+
+Each stream announces itself over ICY, which is what a player in a car, on a Sonos or
+in Music Assistant actually reads:
+
+```
+icy-name: Alternative
+icy-description: Alternative and indie rock, …
+icy-br: 192
+icy-metaint: 16000        # only sent to clients that ask with Icy-MetaData: 1
+StreamTitle='Future Islands - Peach';
+```
+
+The title block is inserted every 16 KB by Icecast itself, from the metadata the mixer
+pushes as each track starts. Ogg streams (Opus, FLAC) have no ICY; they carry
+`artist=`/`title=` as Vorbis comments inside the stream, which VLC reads.
+
+**Artwork cannot travel in ICY.** Icecast emits exactly one field, `StreamTitle`, and no
+image or image-URL field exists in the protocol. `StreamUrl` is a de-facto extra that
+some broadcasters stuff with an image link — Music Assistant honours it when it ends in
+`.png`/`.jpg` — but Icecast does not emit it and VLC ignores it, so it is not a channel
+worth building on.
+
+What open-source players actually do with that:
+
+- **Music Assistant** parses ICY, HLS, Ogg comments and SHOUTcast v1. Given
+  `"Artist - Title"` it looks the release up on MusicBrainz by itself and shows single,
+  then album, then artist artwork — the station logo only when there is no metadata or
+  no match. No cooperation needed beyond announcing the track, which we do.
+- **VLC, Strawberry, Cantata, mpv** show `StreamTitle` text and no per-track art; art
+  only appears if the stream carries ID3 `APIC`, which Liquidsoap's Icecast output
+  cannot inject per track.
+- **Kodi** add-ons combine `StreamTitle` with a per-station logo configured in the
+  add-on or directory.
+- **radio-browser.info, TuneIn and Sonos** serve a station `favicon`/logo from their own
+  directories — configured once per station, never per track.
+
+So: per-track art is ours to serve (`/art/<albumId>`, and the `art` field in
+`/status`), and free for anything that speaks Music Assistant's metadata path. Anything
+that wants a station logo wants one image, per station, not per song.
+
+`/logo/<station>.png` is that URL. Every station answers with the Spica mark for now —
+a 300-pixel PNG behind a day of cache — so a directory, a client or a Sonos favourite
+can be pointed at it today, and swap to a station's own artwork later without the URL
+changing.
+
+### Getting the logo into a player
+
+Nothing discovers a logo by itself, so it has to be handed over. Two ways are built in:
+
+- **`/stations.m3u`** (every station) and **`/<station>.m3u`** (one) — playlists carrying
+  `tvg-logo` and the `/listen/<station>` URL. Kodi's IPTV Simple Client, TiviMate and the
+  rest read the name, picture and stream straight out of the file.
+- **`icy-url`** — with `SPICA_PUBLIC_URL` set, each stream advertises its own page
+  (`icy-url: https://…/s/<station>`). It is a page, not an image, but clients that fetch
+  a stream's homepage for its favicon have something to find.
+
+Directories are the third way and the only one that reaches clients you never touch:
+radio-browser.info takes a station record with a `homepage` and a `favicon`, and that
+favicon field is where `/logo/<station>.png` goes. Submit the `/listen/<station>` URL
+rather than `/<station>.mp3` — a mount answers 404 while nobody is listening, because the
+encoder starts on demand.
+
 ## Listening elsewhere
 
 The browser player streams through `https://<host>/listen/<station>`, which is also the
@@ -479,7 +542,9 @@ itself keeps playing — which is why the relay exists. The rules for "nobody":
 
 The pause case is bounded by TCP, not by our timer: a paused player stops reading, but
 its socket buffers absorb a few minutes of audio before the connection stops accepting
-bytes. `GET /status` shows the presence picture per station.
+bytes. `GET /status` shows the presence picture per station, plus the track split into
+`artist`/`title`/`album` and an absolute `art` URL — which 404s for an album with no
+cover, so treat it as optional.
 
 ## API
 
@@ -490,7 +555,9 @@ page uses.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | LLM configured, which stations |
-| GET | `/status` | listeners, presence, on-air title, queued track, pool size per station |
+| GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
+| GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
+| GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
 | GET | `/coverage` | how much of the library has genres, and what is missing |
 | GET | `/genres` | labels with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
@@ -533,6 +600,7 @@ the keys, and that is the file to start from.
 | `MB_USER_AGENT` | optional: contact string for MusicBrainz |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
+| `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
 | `ICECAST_OUTPUT_HOST`, `ICECAST_OUTPUT_PORT` | where the mixer publishes — separate from `ICECAST_URL` because the two containers see Icecast at different addresses |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |
 | `SPICA_TZ` | the timezone the server falls back to when the browser cannot say (default `America/Montevideo`) |

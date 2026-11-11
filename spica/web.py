@@ -21,7 +21,14 @@ import socket
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -100,11 +107,22 @@ def now_playing(st) -> dict:
         found = store.find_track(artist, song)
         album_id = found["album_id"] if found else ""
 
+    album = ""
+    if album_id:
+        try:
+            row = store.conn().execute(
+                "SELECT album FROM tracks WHERE album_id = ? LIMIT 1", (album_id,)
+            ).fetchone()
+            album = (row["album"] if row else "") or ""
+        except Exception:
+            album = ""
+
     return {
         "listeners": state.listeners if state else 0,
         "title": raw,
         "artist": artist,
         "song": song,
+        "album": album,
         "queued": queue.queued(st),
         "why": entry.get("why", ""),
         "track_id": track_id,
@@ -479,6 +497,62 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
 # Navidrome answers with this image when an album has no art at all. Caching it
 # would freeze a placeholder in place, so it is treated as "no cover".
 PLACEHOLDER_MD5 = "83d193cefca2810f217cffd533241508"
+
+
+def _playlist(request: Request, stations: list) -> Response:
+    """An M3U, because it is the only format a player will read a logo out of.
+
+    Kodi, TiviMate and the rest read tvg-logo straight from the playlist, so importing
+    one file gives them the station's name, its picture and its stream. The logo URL is
+    /logo/<id>.png, which answers with the Spica mark until a station has its own.
+    """
+    base = str(request.base_url).rstrip("/")
+    lines = ["#EXTM3U"]
+    for st in stations:
+        name = st.name.replace('"', "")
+        lines.append(
+            f'#EXTINF:-1 tvg-id="{st.id}" tvg-name="{name}" '
+            f'tvg-logo="{base}/logo/{st.id}.png" group-title="Spica",{name}'
+        )
+        lines.append(f"{base}/listen/{st.id}")
+    return Response(
+        "\n".join(lines) + "\n",
+        media_type="audio/x-mpegurl",
+        headers={"cache-control": "public, max-age=60"},
+    )
+
+
+@router.get("/stations.m3u")
+def all_playlist(request: Request):
+    """Every station in one playlist."""
+    return _playlist(request, store.stations())
+
+
+@router.get("/{station_id}.m3u")
+def station_playlist(station_id: str, request: Request):
+    """One station, for pasting into a player that wants a single favourite."""
+    st = store.station(station_id)
+    if st is None:
+        raise HTTPException(404, "no such station")
+    return _playlist(request, [st])
+
+
+@router.get("/logo/{station_id}.png")
+def station_logo(station_id: str):
+    """The station's own picture, for anything that wants one.
+
+    Stations do not carry artwork of their own yet, so every station answers with the
+    Spica mark. The point is the shape: one stable URL per station that a directory, a
+    client or a Sonos favourite can keep, without anyone having to know where the brand
+    file lives.
+    """
+    if station_id not in {s.id for s in store.stations()}:
+        raise HTTPException(404, "no such station")
+    return FileResponse(
+        HERE / "static" / "logo-300.png",
+        media_type="image/png",
+        headers={"cache-control": "public, max-age=86400"},
+    )
 
 
 @router.get("/art/{album_id}")
