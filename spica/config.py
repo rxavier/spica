@@ -108,6 +108,11 @@ class Station:
     def history_file(self) -> Path:
         return STATE_DIR / "history" / f"{self.id}.jsonl"
 
+    @property
+    def now_file(self) -> Path:
+        """Where the mixer writes the track it has just started playing."""
+        return STATE_DIR / "now" / f"{self.id}.txt"
+
 
 def load_stations(path: Path | None = None) -> list[Station]:
     path = path or (CONFIG_DIR / "stations.json")
@@ -132,7 +137,7 @@ def load_stations(path: Path | None = None) -> list[Station]:
 
 
 def ensure_dirs() -> None:
-    for sub in ("pools", "queue", "history", "logs"):
+    for sub in ("pools", "queue", "history", "logs", "now"):
         (STATE_DIR / sub).mkdir(parents=True, exist_ok=True)
 
 
