@@ -170,7 +170,8 @@ Measured on one host (8 cores), a 4,800-track library, two stations running:
   people are listening — one encoder per station, and Icecast copies those bytes to every
   client.
 - **A listener costs about 0.07% on Icecast, 10 KB of memory and 192 kbit/s of
-  bandwidth.** One core of encoding serves all of them.
+  bandwidth.** One encode per station serves every listener on it, so ten listeners cost
+the same as one.
 - **The whole stack idle** — picker, worker, Icecast and both station clocks — is about
   4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
   0.2%.
