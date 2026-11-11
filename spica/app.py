@@ -210,7 +210,9 @@ async def status(request: Request) -> dict:
     page or know about album ids.
     """
     states = await asyncio.to_thread(icecast.listen_states)
-    base = str(request.base_url).rstrip("/")
+    # Behind Caddy the request arrives over http, so base_url would hand out http://
+    # links on an https page. The public address, when configured, is the truth.
+    base = config.PUBLIC_URL or str(request.base_url).rstrip("/")
     out = {}
     for st in store.stations():
         live = icecast.live_mount(states, st)
