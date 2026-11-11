@@ -2,7 +2,7 @@
 
 Four containers and one first-run step. You need Docker with the Compose plugin,
 a music library served by Navidrome (or anything that speaks Subsonic), and about
-300 MB of RAM.
+200 MB of RAM.
 
 ## 1. Get the files
 
@@ -14,7 +14,8 @@ curl -o .env https://raw.githubusercontent.com/rxavier/spica/main/deploy/.env.ex
 
 ## 2. Fill in `.env`
 
-Three things must change, and everything else has a working default:
+This file is the only place credentials live, and it sits next to `compose.yaml`, so
+`chmod 600 .env`. Three things must change, and everything else has a working default:
 
 ```sh
 # generate the three passwords
