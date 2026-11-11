@@ -143,7 +143,7 @@ does less, and runs continuously on almost nothing.
 ```
 this repo                code, Dockerfile
 $SPICA_CONFIG            stations.json, spica.liq (generated), icecast.xml
-$SPICA_STATE             index.db, pools/, queue/, history/, requests/, genre-aliases.json
+$SPICA_STATE             index.db, pools/, queue/, history/, now/, requests/, genre-aliases.json
 your deployment dir      compose file, .env, radio.env
 ```
 

@@ -88,44 +88,91 @@ def queued_ids(station) -> list[str]:
 _NOW_OFFSET: dict[str, int] = {}
 
 
+def _offset_file(station):
+    return station.now_file.with_suffix(".offset")
+
+
+def _load_offset(station, size: int) -> int:
+    """Where we stopped last time. A fresh start begins at the end of the file.
+
+    The offset has to outlive the process: the picker restarts, and replaying the
+    file from zero would re-record everything the station played while the picker
+    was down as fresh plays — and crowd the DJ's avoid list with them. Seeding a
+    first run to the current size loses nothing worth having; a couple of tracks
+    from before the cursor existed are not evidence about now.
+    """
+    try:
+        saved = int(_offset_file(station).read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return size
+    if saved < 0 or saved > size:  # the file went backwards under us
+        return 0
+    return saved
+
+
+def _save_offset(station, offset: int) -> None:
+    try:
+        _offset_file(station).write_text(f"{offset}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def now_lines(station) -> list[str]:
     """Tracks the mixer has started since the last call, oldest first.
 
     The ledger cannot come from Icecast once the clock outlives the mount: a closed
     mount has no title. The mixer appends "artist - title" to a file as each track
-    starts, and this reads whatever is new. A half-written last line is left for the
-    next call rather than guessed at.
+    starts, and this reads whatever is new.
+
+    Everything here is byte-oriented. The lines carry accents ("Los Wálters"), and
+    splitting decoded text then re-encoding it to recover an offset drifts as soon as
+    a chunk boundary lands inside a character.
     """
     path = station.now_file
     try:
         size = path.stat().st_size
     except OSError:
         return []
-    offset = _NOW_OFFSET.get(station.id, 0)
-    if size < offset:  # rewritten under us
+
+    offset = _NOW_OFFSET.get(station.id)
+    if offset is None:
+        offset = _load_offset(station, size)
+        _NOW_OFFSET[station.id] = offset
+        if not _offset_file(station).exists():
+            _save_offset(station, offset)  # remember the decision across restarts
+    if offset > size:  # truncated or rewritten under us
         offset = 0
-    if size == offset:
-        return []
-    try:
-        with path.open("rb") as fh:
-            fh.seek(offset)
-            chunk = fh.read(size - offset)
-    except OSError:
-        return []
-    text = chunk.decode("utf-8", "replace")
-    if not text.endswith("\n"):
-        tail = text.rsplit("\n", 1)[-1]
-        text = text[: len(text) - len(tail)]
-        _NOW_OFFSET[station.id] = size - len(tail.encode("utf-8"))
-    else:
-        _NOW_OFFSET[station.id] = size
-    if size > 512_000:  # the state file is a cursor, not the archive
+        _NOW_OFFSET[station.id] = offset
+
+    out: list[str] = []
+    if size > offset:
         try:
-            path.write_text("", encoding="utf-8")
+            with path.open("rb") as fh:
+                fh.seek(offset)
+                chunk = fh.read(size - offset)
+        except OSError:
+            return []
+        cut = chunk.rfind(b"\n")
+        if cut >= 0:  # anything after the last newline is still being written
+            for raw in chunk[:cut].split(b"\n"):
+                line = raw.decode("utf-8", "replace").strip()
+                if line:
+                    out.append(line)
+            offset += cut + 1
+            _NOW_OFFSET[station.id] = offset
+            _save_offset(station, offset)
+
+    # Rotate only once everything has been consumed, so a full file cannot hide
+    # unread plays. A line appended between the read above and this truncation is
+    # lost; that is one track, and the alternative is a file that grows forever.
+    if size > 512_000 and offset >= size:
+        try:
+            path.write_bytes(b"")
             _NOW_OFFSET[station.id] = 0
+            _save_offset(station, 0)
         except OSError:
             pass
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    return out
 
 
 def close() -> None:
