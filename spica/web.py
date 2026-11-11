@@ -100,11 +100,22 @@ def now_playing(st) -> dict:
         found = store.find_track(artist, song)
         album_id = found["album_id"] if found else ""
 
+    album = ""
+    if album_id:
+        try:
+            row = store.conn().execute(
+                "SELECT album FROM tracks WHERE album_id = ? LIMIT 1", (album_id,)
+            ).fetchone()
+            album = (row["album"] if row else "") or ""
+        except Exception:
+            album = ""
+
     return {
         "listeners": state.listeners if state else 0,
         "title": raw,
         "artist": artist,
         "song": song,
+        "album": album,
         "queued": queue.queued(st),
         "why": entry.get("why", ""),
         "track_id": track_id,
