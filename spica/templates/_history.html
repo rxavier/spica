@@ -3,7 +3,8 @@
     <li{% if h.current %} class="is-current"{% endif %}>
       <time class="t"{% if h.stamp %} data-t="{{ h.stamp }}"{% endif %}>{{ h.clock or "" }}</time>
       {% if h.album_id %}
-        <img src="/art/{{ h.album_id }}?v={{ h.cover_tag }}" alt=""
+        <img src="/art/{{ h.album_id }}?v={{ h.cover_tag }}&amp;size={{ thumb }}"
+             alt="" loading="lazy" decoding="async"
              onerror="this.outerHTML='&lt;span class=\'noart\'&gt;&lt;/span&gt;'">
       {% else %}
         <span class="noart"></span>
