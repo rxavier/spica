@@ -1,17 +1,63 @@
+<p align="center"><img src="spica/static/logo.png" width="120" alt="Spica"></p>
+
 # Spica
 
-Internet radio for a local music library: a station per mood, a DJ that picks, and a
-page you can leave open. Four containers:
+Internet radio for a local music library: several stations on air at once, an LLM DJ
+that picks, and a page you can leave open.
 
-- **icecast**: the stream server, one mount per station.
-- **mixer**: one Liquidsoap output per station, all live at the same time.
-- **picker**: FastAPI service that asks an LLM for the next track, but only on stations that have a listener.
-- **worker**: runs background batch jobs (genres, popularity, MusicBrainz).
+## Where it comes from
 
-The library is read through Navidrome's Subsonic API and tracks are played back as
-`rest/stream` URLs by id. No container mounts the music tree and none reads
-Navidrome's database: the boundary is the API. Nothing here writes tags, scrobbles
-or library data.
+Spica is inspired by [SUB/WAVE](https://github.com/nocomputer/subwave), the project it
+grew out of, and is built from the ground up around two things SUB/WAVE does not do.
+
+The first is **several stations at once**. SUB/WAVE puts one station on air: switching
+means restarting the broadcaster. Here every station has its own Icecast mount and its
+own Liquidsoap output, all live simultaneously, so switching is a player-side action and
+a station never goes silent because somebody chose another one.
+
+The second is a **deliberately trimmed feature set**, to spend almost nothing on
+resources. SUB/WAVE is a complete station product — DJ voice, shows, jingles, ducking,
+audio analysis, moods, embeddings — and pays for it in a broadcast container, an
+analyser, a TTS service and about a gigabyte of RAM. Spica drops all of that and keeps
+the picking: rules, pools, an LLM that reads a brief, and a ledger. What remains runs
+continuously in roughly 190 MB and about 4% of one core with two stations on air,
+because a station nobody is listening to costs a decode, not an encode.
+
+It is the same idea, at a different point on the cost curve.
+
+## What it does
+
+Every station is a rule set plus an optional brief. The rules decide which tracks may
+play; the brief tells the DJ what to reach for inside that set.
+
+```
+rules     genres picked from the vocabulary, artists to include or exclude,
+          year range, how the rotation leans (deep / balanced / hits)
+brief     free text the DJ reads on every pick
+pool      rules applied to the library, ordered deterministically, written as an m3u
+```
+
+**A station is always on air.** Each station's Liquidsoap clock runs whether or not
+anyone is connected: it decodes the next track, crossfades, and throws the audio away.
+Tuning in joins a track already in progress, the way radio works. Connecting also
+attaches the Icecast output to that same source, which is where the encoder starts —
+one MP3 encode per station, fanned out by Icecast to every listener.
+
+**The DJ only speaks to somebody.** Every few seconds the picker checks who is really
+listening and, for a station with an audience, asks the LLM to choose the next track;
+the choice goes to `state/queue/<station>.txt`, Liquidsoap polls that file, pushes it
+into the station's request queue and deletes it. With nobody there, the station keeps
+walking its pool and the DJ is not called at all.
+
+**The ledger records what aired.** The mixer writes each track it starts to
+`state/now/<station>.txt`; the picker tails that file and appends to the play log. It
+is a record of the station, not of your listening — it fills whether or not anyone is
+tuned in, and each entry carries the time that track started.
+
+"Listening" is not the same as an open socket. The browser says so — the player posts a
+heartbeat every 20 s while it plays. A player on the relay counts while it is taking
+bytes. A connection straight to a mount counts if it did not come from the relay. A tab
+left in the background, or a stream that died holding its socket open, does not.
 
 ## Quick start
 
@@ -19,143 +65,140 @@ or library data.
 mkdir spica && cd spica
 curl -O https://raw.githubusercontent.com/rxavier/spica/main/deploy/compose.yaml
 curl -o .env https://raw.githubusercontent.com/rxavier/spica/main/deploy/.env.example
-# fill in the three passwords, your Navidrome address, and your timezone
+chmod 600 .env
+$EDITOR .env        # the three passwords, your Navidrome address, your timezone
 docker compose up -d
 ```
 
-Then open `http://localhost:8030`. The first run writes the Icecast config, one
-starter station and the Liquidsoap script, so there is nothing else to create.
-Full instructions, including building the image yourself and running behind a
-reverse proxy: [`deploy/README.md`](deploy/README.md).
+Then open `http://localhost:8030`; the console is at `/admin`, with the password you put
+in `SPICA_ADMIN_PASSWORD`. The first run writes `config/icecast.xml`,
+`config/stations.json` and `config/spica.liq` and starts one station called
+**Everything** that plays the whole library, so there is nothing else to create.
 
-## What it does
+**Where the credentials go**, all of them in that one `.env` file next to
+`compose.yaml`, mode 600:
 
-Each station is a rule set plus an optional brief. The rules decide which tracks
-may play; the brief tells the DJ what to reach for inside that set.
+- `ICECAST_SOURCE_PASSWORD` — what the mixer publishes with. Written into `icecast.xml`
+  on first run, so set it before the first start.
+- `ICECAST_ADMIN_PASSWORD` — Icecast's own `/admin` pages.
+- `SPICA_ADMIN_PASSWORD` — the console. Empty disables admin writes.
+- `NAVIDROME_URL`, `NAVIDROME_USER`, `NAVIDROME_PASS` — a Navidrome account for the
+  radio. Nothing is ever written to it, and no scrobbles are sent.
+- `LLM_BASE`, `LLM_KEY`, `LLM_MODEL`, `LLM_HEADERS` — defaults for the endpoint. The
+  admin's *settings* page can override them, and what it saves to
+  `config/llm.json` (mode 600) wins.
+- `LASTFM_KEY` — optional: name-based similarity and tag backfill.
+- `MB_USER_AGENT` — optional contact string for MusicBrainz.
 
-```
-rules     genres picked from the vocabulary, artists to exclude, year range, how
-          the rotation leans (deep / balanced / hits)
-brief     free text the DJ reads on every pick
-pool      rules applied to the library, ordered deterministically, written as an m3u
-```
-
-A listener connects to `https://host/listen/<station>`. The mixer plays the pool in
-order. Every 20 seconds the picker checks who is actually listening and, for any
-station with somebody there, asks the LLM to choose the next track and writes the
-choice to `state/queue/<station>.txt`; Liquidsoap polls that file, pushes it into
-the station's request queue and deletes it. Stations with nobody listening keep
-walking their pool and cost nothing.
-
-"Listening" is not the same as an open socket. The browser says so — the player
-posts a heartbeat every 20 s while it plays. A player on the relay counts while it
-is taking bytes (a paused one stops, once its buffers fill). A connection straight
-to a mount counts if it did not come from the relay. A tab left in the background
-holds a socket for hours and is deliberately *not* an audience.
+Running behind a reverse proxy, building the image yourself, and the full file-by-file
+deployment story: [`deploy/README.md`](deploy/README.md).
 
 ## Features
 
-- **Several stations at once.** Every station has its own mount and its own
-  Liquidsoap output. Switching station is a player-side action, not a server
-  restart. No fixed number of stations.
-- **Deterministic pools.** Sequencing is `blake2b(station, day, track_id)`, blended
-  with the station's popularity lean, then two constraints: no two tracks from one
-  album adjacent, no artist repeat within 12 placed tracks. A station has the same
-  shape all day and reshuffles tomorrow.
-- **LLM picks with real tools.** `search`, `filter` (genre, year) and
-  `similar`. Every tool result is filtered through the station's rules, so a narrow
-  station cannot return something outside its palette.
-- **Similarity without a hard dependency.** Cached, then artist MBID from
-  Navidrome, then MusicBrainz, then ListenBrainz, then Last.fm by name, then
-  local genre. No provider is required; a library with no ids and no API key
-  still gets an answer.
-- **Listener requests that last more than one song.** Free text, kept for N
-  tracks, and the DJ is told both how many songs have passed and how many remain.
-  The system prompt tells it to honour requests, including mood changes, without
-  ever moving the station away from its own identity.
+- **Several stations at once.** Every station has its own mount and its own output. No
+  fixed number of stations, though `icecast.xml` ships with a limit of eight sources.
+- **Always on air, cheap when unheard.** The clock keeps decoding; the encoder only runs
+  while a mount is open. See [Resources](#resources).
+- **Deterministic pools.** Sequencing is `blake2b(station, day, track_id)`, blended with
+  the station's popularity lean, then two constraints: no two tracks from one album
+  adjacent, no artist repeat within 12 placed tracks. A station has the same shape all
+  day and reshuffles tomorrow.
+- **LLM picks with real tools.** Six of them: `history` (what the station just played,
+  with how many songs ago), `search`, `filter` (genre and years), `catalogue` (an
+  artist's holdings or one album in running order), `similar`, and `station_map` (the
+  genres, decades and artists the station is actually made of). Every result is filtered
+  through the station's rules, so a narrow station cannot return something outside its
+  palette. Track ids exist only inside tool results, so a pick is always grounded in a
+  lookup rather than a remembered name.
+- **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
+  then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
+  provider is required; a library with no ids and no API key still gets an answer.
+- **Listener requests that last more than one song.** Free text, kept for N tracks, and
+  the DJ is told both how many songs have passed and how many remain. The system prompt
+  tells it to honour requests, including mood changes, without ever moving the station
+  away from its own identity.
 - **Genres from the best source available, not from guesses.** Your file tags, then
-  MusicBrainz genres with their vote counts, and Last.fm only for artists
-  MusicBrainz does not know. Every label records where it came from — `file`,
-  `musicbrainz`, `last.fm`, or `by hand`.
-- **One label unless the artist has range.** MusicBrainz votes decide: 23 for
-  progressive rock against 7 for art rock is a progressive rock band, while a tie
-  at 2 and 2 is genuinely both. Stations then pick labels from that vocabulary, so
-  matching is set membership and not string guessing.
-- **Popularity from real play counts.** ListenBrainz listen counts per track
-  (batched), ranked inside the artist's own catalogue, so "hits" and "deep cuts"
-  mean which of their songs people know rather than how big the artist is. Nothing
-  is read from your own listening.
-- **Coverage reporting and background jobs.** `GET /coverage` reports how much of
-  the library the DJ actually knows. `POST /jobs` queues work for the worker.
-- **No storage coupling.** The library is read through the Subsonic API and played
-  back as stream URLs, so no container mounts the music tree or reads another
-  service's database. The picker API binds to `127.0.0.1` only.
+  MusicBrainz genres with their vote counts, and Last.fm only for artists MusicBrainz
+  does not know. Every label records where it came from — `file`, `musicbrainz`,
+  `last.fm`, or `by hand`.
+- **One label unless the artist has range.** MusicBrainz votes decide: 23 for progressive
+  rock against 7 for art rock is a progressive rock band, while a tie at 2 and 2 is
+  genuinely both. Stations pick labels from that vocabulary, so matching is set
+  membership and not string guessing.
+- **Popularity from real play counts.** ListenBrainz listen counts per track (batched),
+  ranked inside the artist's own catalogue, so "hits" and "deep cuts" mean which of their
+  songs people know rather than how big the artist is. Nothing is read from your own
+  listening.
+- **Coverage reporting and background jobs.** `GET /coverage` reports how much of the
+  library the DJ actually knows. `POST /jobs` queues work for the worker.
+- **No storage coupling.** The library is read through the Subsonic API and played back
+  as stream URLs, so no container mounts the music tree or reads another service's
+  database.
 
 ## Non-features
 
 Deliberate omissions, not backlog:
 
-- **No listener-facing skip.** The answer to "I don't like this" is another
-  station. There is a DJ pick endpoint, but it is for the operator.
+- **No listener-facing skip.** The answer to "I don't like this" is another station.
+  There is a DJ pick endpoint, but it is for the operator.
 - **No accounts.** One admin password, no listener accounts, no per-user history.
 - **No DJ voice.** No TTS, no spoken links, no jingles, no ducking.
 - **No shows or scheduling.** A station is one continuous stream.
-- **No scrobbling anywhere.** Plays are written to a local JSONL history and
-  nowhere else. Nothing is sent to Last.fm or to Navidrome.
-- **No loudness normalisation, no archive recording, no transcoding options.**
-  One MP3 mount per station, 192 kbit/s.
-- **No tempo.** A BPM axis was prototyped and dropped: on synthetic click tracks
-  with exact ground truth the best estimator got 20 of 24, failing precisely on
-  the slow-tempo-versus-half-time case that "play something slower" depends on,
-  and 70% on a real library. No BPM field, tool parameter or station rule exists.
-- **No mood or energy metric.** Loudness was measured and rejected as a proxy:
-  in measurement it separated albums by mastering level, not tracks by intensity.
-- **No play-counts of yours.** The popularity dial reads public ListenBrainz and
-  Last.fm totals — never your Navidrome history, which is not consulted at all.
+- **No scrobbling anywhere.** Plays are written to a local JSONL history and nowhere
+  else. Nothing is sent to Last.fm or to Navidrome.
+- **No per-station formats.** One MP3 mount per station, 192 kbit/s, 48 kHz, fixed.
+- **No tempo.** A BPM axis was prototyped and dropped: on synthetic click tracks with
+  exact ground truth the best estimator got 20 of 24, failing precisely on the
+  slow-tempo-versus-half-time case that "play something slower" depends on, and 70% on a
+  real library. No BPM field, tool parameter or station rule exists.
+- **No mood or energy metric.** Loudness was measured and rejected as a proxy: in
+  measurement it separated albums by mastering level, not tracks by intensity.
+- **No play-counts of yours.** The popularity lean reads public ListenBrainz and Last.fm
+  totals — never your Navidrome history, which is not consulted at all.
 - **No multi-user auth, no HA, no failover.** One host, one library.
-- **No tag writing.** Genre fixes in the library are a separate job done with
-  beets and a rescan; this project only reads the result.
+- **No tag writing.** Genre fixes in the library are a separate job done with beets and a
+  rescan; this project only reads the result.
 
-## Differences from SUB/WAVE
+## Resources
 
-SUB/WAVE is a complete station product: one station on air at a time with a DJ
-voice, shows, jingles, ducking, audio analysis, moods, embeddings and a web UI.
-This project keeps three things and drops the rest: several stations live at once,
-LLM track selection, and cheap operation.
+Measured on one host (8 cores), a 4,800-track library, two stations running:
 
-Measured on one host, same library, both running for real:
+- **A station on air and unheard costs about 1.5–2% of one core.** That is decoding the
+  next track from the library (mostly FLAC over the Navidrome API, resampled to 48 kHz),
+  crossfading it and discarding the audio.
+- **A station being listened to costs about 12% of one core**, independent of how many
+  people are listening — one encoder per station, and Icecast copies those bytes to every
+  client.
+- **A listener costs about 0.07% on Icecast, 10 KB of memory and 192 kbit/s of
+  bandwidth.** One core of encoding serves all of them.
+- **The whole stack idle** — picker, worker, Icecast and both station clocks — is about
+  4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
+  0.2%.
 
-| | SUB/WAVE | radio |
-|---|---|---|
-| Stations on air | one (station switch restarts the broadcaster, ~10 s of silence) | all of them, each on its own mount |
-| CPU per stream | 23.5% of a core (broadcast container) | ~40% of a core total for three streams |
-| RAM | ~1.07 GB (controller, broadcast, analyser, web, TTS) | ~170 MB (picker, mixer) |
-| DJ voice, shows, jingles, ducking | yes | no |
-| Scrobbling | enabled | never |
-| Library writes | tag and library management features | none, read-only |
-| Web UI | yes | yes: listener page and admin |
-
-Both read the same Navidrome library. SUB/WAVE does more, and pays for it; this
-does less, and runs continuously on almost nothing.
+For scale: `icecast.xml` allows 25 concurrent clients and 8 sources by default. Both are
+in the generated file, not compiled in.
 
 ## Layout
 
 ```
-this repo                code, Dockerfile
-$SPICA_CONFIG            stations.json, spica.liq (generated), icecast.xml
-$SPICA_STATE             index.db, pools/, queue/, history/, now/, requests/, genre-aliases.json
-your deployment dir      compose file, .env, radio.env
+this repo                code, Dockerfile, deploy/
+deployment dir           compose.yaml, .env, optional compose.override.yaml
+config/                  stations.json, spica.liq (generated), icecast.xml,
+                         dj-persona.md, llm.json, artist-mbids.json
+state/                   index.db, pools/, queue/, history/, now/, requests/,
+                         art/, genre-aliases.json, logs/
 ```
 
-The code has no default paths of its own: state and config locations, the
-Navidrome database, the music root and the Icecast URL all come from the
-environment. See `.env.example`.
+`config/` is the part worth backing up: it is your stations and your DJ. Everything in
+`state/` can be rebuilt from Navidrome except the history and the request log. Both
+directories are bind mounts; the paths inside the containers are `/config` and `/state`
+and nothing about them is compiled into the code.
 
 ## Stations
 
-`stations.json` in `$SPICA_CONFIG`. It is deployment data, not part of this
-repo; the admin writes it, or copy the shape below. Every list is optional and an
-empty one means no constraint.
+`stations.json` in `config/`. It is deployment data, not part of this repo; the admin
+writes it, or copy the shape below. Every list is optional and an empty one means no
+constraint.
 
 ```json
 {
@@ -173,34 +216,33 @@ empty one means no constraint.
 ```
 
 - `include_genres` / `exclude_genres` are **labels from the vocabulary**, compared
-  exactly (case and punctuation fold). There is no substring matching: a station
-  asking for `Alternative` does not sweep up `Alternative Metal` because the word
-  appears; `Alternative` is not a label, and the picker will not store it.
-- `include_artists` is a second way *in*, not a filter on the genres: a track plays
-  if it carries an included label **or** is by an included artist. That is how a
-  station reaches outside its genres — tick `Progressive Rock`, add
-  `Bloc Party`, and those Bloc Party tracks play beside the prog. Artists alone
-  make a shortlist station; genres alone make a genre station.
-- `exclude_genres` / `exclude_artists` are absolute: they win over either list, and
-  names are compared case-insensitively.
-- `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order
-  of the pool — it never filters. `deep` opens on the tracks that fewest people
-  know, `hits` on the ones they do.
+  exactly (case and punctuation fold). There is no substring matching: a station asking
+  for `Alternative` does not sweep up `Alternative Metal` because the word appears;
+  `Alternative` is not a label, and the picker will not store it.
+- `include_artists` is a second way *in*, not a filter on the genres: a track plays if it
+  carries an included label **or** is by an included artist. That is how a station
+  reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
+  Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
+  make a genre station.
+- `exclude_genres` / `exclude_artists` are absolute: they win over either list, and names
+  are compared case-insensitively.
+- `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order of the
+  pool — it never filters. `deep` opens on the tracks that fewest people know, `hits` on
+  the ones they do.
 - No rules at all means the whole library.
 
-A station whose rules match nothing logs a warning and plays the whole library
-rather than going silent.
+A station whose rules match nothing logs a warning and plays the whole library rather
+than going silent.
 
 Editing in the admin saves and rebuilds the pools immediately. Adding, renaming or
-deleting a station regenerates `spica.liq` and restarts the mixer for you; renaming
-the id moves the station's pool, history and queue along with it, so the ledger
-survives the rename. Deleting keeps the history on disk — re-creating the same id
-picks it back up.
+deleting a station regenerates `spica.liq` and restarts the mixer for you; renaming the
+id moves the station's pool, history and queue along with it, so the ledger survives the
+rename. Deleting keeps the history on disk — re-creating the same id picks it back up.
 
 ## Genres
 
-A genre is a label, and every label carries where it came from. Two sources speak,
-and one fills the gaps:
+A genre is a label, and every label carries where it came from. Two sources speak, and
+one fills the gaps:
 
 1. **file** — the genre in the files, as Navidrome reports it. Split on commas,
    semicolons, pipes and spaced slashes, so `Disco | Indie Pop` is two labels.
@@ -209,18 +251,19 @@ and one fills the gaps:
    also an ambient producer, `Frost*` loses the search to Celtic Frost — so when several
    artists share a name the candidates are checked against **the album titles in the
    library** and the one that owns those records wins. If none does, the artist gets no
-   genre from MusicBrainz rather than a confident wrong one, and `$SPICA_CONFIG/artist-mbids.json`
-   (`{"frost*": "<mbid>"}`) settles a case by hand if the database itself is wrong. Consulted for **every artist it knows**, tag or no tag,
+   genre from MusicBrainz rather than a confident wrong one, and
+   `config/artist-mbids.json` (`{"frost*": "<mbid>"}`) settles a case by hand if the
+   database itself is wrong. Consulted for **every artist it knows**, tag or no tag,
    because the tags themselves are the least reliable layer: Banco's *Darwin!* says
    `Rock` on disk and MusicBrainz answers `progressive rock`, so the track ends up
-   carrying both. Of those genres it keeps **the top one**, and every name tied with
-   it — a tie is the data saying it cannot choose. Everything below is a single
-   editor's opinion that happens to be written down.
+   carrying both. Of those genres it keeps **the top one**, and every name tied with it —
+   a tie is the data saying it cannot choose. Everything below is a single editor's
+   opinion that happens to be written down.
 3. **last.fm** — only for artists MusicBrainz has no genres for, as imported tags.
 
 Provider tags are checked against **MusicBrainz's own genre list** — 2,222 names it
-considers genres, cached in `mb-genres.json` for a month. `psychedelic rock`, `nu
-disco` and `stoner rock` are on it; `France`, `Genius`, `Cuatro Puertorriqueno` and
+considers genres, cached in `mb-genres.json` for a month. `psychedelic rock`, `nu disco`
+and `stoner rock` are on it; `France`, `Genius`, `Cuatro Puertorriqueno` and
 `Www.mp3 Ogg.ru` are not, and never become labels. A short blocklist covers what the
 genre list itself still lets through — nationalities, decades, `instrumental`,
 `atmospheric`, `live`, `cover`, `karaoke` — because the most-voted tag for an
@@ -228,48 +271,51 @@ instrumental band is `instrumental` and the genre would never surface.
 
 Before any of that, labels are normalised:
 
-- **fold**: case, padding, punctuation and hyphens fold, so `Post-Rock`,
-  `post rock` and `Post  Rock` are one key, and one spelling survives — the one the
-  library uses most, in a consistent house style (`Post Rock`, not `Post-Rock`).
+- **fold**: case, padding, punctuation and hyphens fold, so `Post-Rock`, `post rock` and
+  `Post  Rock` are one key, and one spelling survives — the one the library uses most, in
+  a consistent house style (`Post Rock`, not `Post-Rock`).
 - **builtin merges**: a short list of spelling and translation noise
   (`rock progresivo` → `Progressive Rock`, `alt rock` → `Alternative Rock`).
-- **operator rules**: `genre-aliases.json` in `$SPICA_STATE`, which win over the
-  builtin list. Merging in the admin writes one of these, so a rebuild lands in the
-  same place.
+- **operator rules**: `genre-aliases.json` in `state/`, which win over the builtin list.
+  Merging in the admin writes one of these, so a rebuild lands in the same place.
 
 Two things outrank all of it, set in the admin's genres pane:
 
-- **by hand** (`source = 'manual'`) — a label assigned to selected tracks. It
-  survives every rebuild.
-- **a veto** — removing a label from one or more tracks records the refusal, so a
-  rebuild cannot quietly hand it back.
+- **by hand** (`source = 'manual'`) — a label assigned to selected tracks. It survives
+  every rebuild.
+- **a veto** — removing a label from one or more tracks records the refusal, so a rebuild
+  cannot quietly hand it back.
 
-Labels live in `track_genres` (canonical, with source) and `track_raw_genres` (as
-the library spells it). `GET /genres` reports both.
+Labels live in `track_genres` (canonical, with source) and `track_raw_genres` (as the
+library spells it). `GET /genres` reports both.
 
 ## Where the library comes from
 
 Navidrome's Subsonic API. The index pages `getAlbumList2` (albums) and `getAlbum`
 (songs), which for a 4,500-track library is 448 calls and about five seconds.
 
-This is deliberate, and the alternative was tried: reading Navidrome's SQLite
-database directly works, gives exact file paths and needs no credentials, but it
-couples this project to a schema that changes between Navidrome versions, requires
-the database file to be reachable, and hands one service a view into another's
-storage. The API route has none of those properties; the price is an HTTP hop for
-every track, which on a local Docker network is nothing.
+This is deliberate, and the alternative was tried: reading Navidrome's SQLite database
+directly works, gives exact file paths and needs no credentials, but it couples this
+project to a schema that changes between Navidrome versions, requires the database file
+to be reachable, and hands one service a view into another's storage. The API route has
+none of those properties; the price is an HTTP hop for every track, which on a local
+Docker network is nothing.
 
 Playback follows the same rule. Pools and queue files carry
-`/rest/stream?id=<songId>` URLs with Subsonic token auth (salted md5), so
-Liquidsoap plays them over HTTP and no container needs the filesystem layout.
-A library mount would let Liquidsoap read files instead, but only with path
-resolution heuristics and existence proofs, because the API's `path` is built
-from tags rather than read off disk.
+`/rest/stream?id=<songId>` URLs with Subsonic token auth (salted md5), so Liquidsoap
+plays them over HTTP and no container needs the filesystem layout. A library mount would
+let Liquidsoap read files instead, but only with path resolution heuristics and existence
+proofs, because the API's `path` is built from tags rather than read off disk.
+
+The files themselves are served as they are — mostly FLAC in this library, resampled to
+48 kHz inside Liquidsoap and encoded to 192 kbit/s MP3 for the stream. Asking Navidrome
+to transcode would move that work from one container to another on the same host for no
+gain.
 
 ## Web UI
 
-One process serves both sides. The listener side is public; everything that writes
-is under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
+One process serves both sides. The listener side is public; everything that writes is
+under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
 
 ```
 /                    lands on the first station
@@ -292,91 +338,89 @@ centred — with the artist, title, listener count and the DJ's line under it, t
 play button on the centre line. There is no tuning dial: with a handful of stations it
 was decoration.
 
-**Nothing plays until you press play.** Landing on a station opens its mount about a
-second later, so the first press is near-instant, but the audio element is never given
-a source and no sound is made. A mount nobody listens to closes after
-`IDLE_STOP_S` (90 s), so a page left open costs a minute and a half of encoding.
-Switching stations while listening follows you across; switching on a silent page
-stays silent.
+**Nothing plays until you press play.** Landing on a station opens its mount a second
+later so the first press is near-instant, and because the station is already on air the
+audio starts mid-track. No source is attached to the audio element until you press, so no
+sound is made. A mount nobody listens to closes after `IDLE_STOP_S` (90 s), which stops
+the encoder and not the station — a page left open therefore costs a minute and a half of
+encoding, not a stream. Switching stations while listening follows you across; switching
+on a silent page stays silent.
 
-**The ledger shows what played, in your clock.** Every row carries an ISO timestamp
-that the browser rewrites in its own timezone; the server fallback is `SPICA_TZ`
-(default `America/Montevideo`). A track that comes round again
-after a gap — a mount that closed overnight reopens on the track it was holding — is
-recorded as a new play rather than mistaken for the one already logged.
+**The ledger shows what aired, in your clock.** Every row carries an ISO timestamp that
+the browser rewrites in its own timezone; the server fallback is `SPICA_TZ` (default
+`America/Montevideo`). Entries come from the mixer, so they appear whether or not anyone
+was listening, and a track that airs twice keeps both times rather than being mistaken
+for a duplicate.
 
 **The admin can add, rename and delete stations.** Renaming the id moves the pool,
 history, queue and request files with it; deleting keeps the history on disk so
-re-creating the id resumes the ledger. Both regenerate `spica.liq` and restart the
-mixer, which is a few seconds of silence on every station.
+re-creating the id resumes the ledger. Both regenerate `spica.liq` and restart the mixer,
+which is a few seconds of silence on every station.
 
-Cover art is proxied through `/art/<albumId>` and cached in `$SPICA_STATE/art`, so the
-browser never sees Subsonic credentials. A track the index cannot identify — the mixer
-sometimes reports a title Icecast has mangled — still gets artwork, because the lookup
-falls back to the same artist and a title that matches once the holes stand for
-anything.
+Cover art is proxied through `/art/<albumId>` and cached in `state/art`, so the browser
+never sees Subsonic credentials. A track the index cannot identify — the mixer sometimes
+reports a title Icecast has mangled — still gets artwork, because the lookup falls back
+to the same artist and a title that matches once the holes stand for anything.
 
 **The model endpoint lives in the admin**, under *settings*: base URL, model name, key
-and any extra headers, saved to `$SPICA_CONFIG/llm.json` (mode 600). It is read on every
-pick, so a save applies immediately with no restart, and the environment
+and any extra headers, saved to `config/llm.json` (mode 600). It is read on every pick,
+so a save applies immediately with no restart, and the environment
 (`LLM_BASE`/`LLM_KEY`/`LLM_MODEL`/`LLM_HEADERS`) is only the default. *Test this
 endpoint* sends one small request with a tool attached and reports what came back —
 latency, the model that answered, and whether it actually called the tool, which is the
 one thing picking needs and which not every "OpenAI-compatible" server does.
 
-The global prompt is the DJ's character — the voice it speaks in, which is also the
-line listeners read under each song. It is prepended to every pick on every station;
-each station's brief is added on top, and the mechanics of picking (one track at a
-time, tools only, the JSON reply) stay in the code so an edit cannot break them. It
-lives in `$SPICA_CONFIG/dj-persona.md`; with no file the built-in voice is used, and
-*restore the built-in voice* deletes it.
+The global prompt is the DJ's character — the voice it speaks in, which is also the line
+listeners read under each song. It is prepended to every pick on every station; each
+station's brief is added on top, and the mechanics of picking (one track at a time, tools
+only, the JSON reply) stay in the code so an edit cannot break them. It lives in
+`config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
+voice* deletes it.
 
-The genres pane is the operator's whole tool for taxonomy: tick any number of labels
-and merge them into one name (rows move, a rule is recorded, pools follow); or open
-*explore*, pick genres, and read the tracks under them, each with every genre it
-really carries and where each came from. Ticked tracks can be given a label by hand or
-have one taken away, and both decisions outlive a rebuild.
+The genres pane is the operator's whole tool for taxonomy: tick any number of labels and
+merge them into one name (rows move, a rule is recorded, pools follow); or open
+*explore*, pick genres, and read the tracks under them, each with every genre it really
+carries and where each came from. Ticked tracks can be given a label by hand or have one
+taken away, and both decisions outlive a rebuild.
 
-**Jobs say what they did.** The library pane lists each run with its name, its state,
-the result as a sentence (*4,832 tracks · todo 4,832, prog 2,210, alt 1,545 in pools*),
-the local finish time and how long it took.
+**Jobs say what they did.** The library pane lists each run with its name, its state, the
+result as a sentence (*4,832 tracks · todo 4,832, prog 2,210, alt 1,545 in pools*), the
+local finish time and how long it took.
 
-**The look** is a radio in a lit room: warm paper as the ground, and the leather kept
-for objects — a band across the top with the badge, the play button, the level bars.
-Cream is the paper the tracks are printed on. Values were chosen by contrast, not by
-taste: `#bf5c35` cannot carry small text in either polarity (cream 3.5:1, ink 4.1:1),
-so it holds only the large wordmark and fills; surfaces with small text step down to
-`#8a4a2c` (cream 5.4:1); leather used as text on paper is `#6f3a22` (8.0:1); red
-survives as a signal because on paper it reads 5.7:1.
+**The look** is a radio in a lit room: warm paper as the ground, and the leather kept for
+objects — a band across the top with the badge, the play button, the level bars. Cream is
+the paper the tracks are printed on. Values were chosen by contrast, not by taste:
+`#bf5c35` cannot carry small text in either polarity (cream 3.5:1, ink 4.1:1), so it
+holds only the large wordmark and fills; surfaces with small text step down to `#8a4a2c`
+(cream 5.4:1); leather used as text on paper is `#6f3a22` (8.0:1); red survives as a
+signal because on paper it reads 5.7:1.
 
 ## Listening elsewhere
 
-The browser player streams through `https://<host>/listen/<station>`, which is also
-the URL to hand to VLC, Music Assistant, a Sonos or a car head unit. It opens the
-mount if it is closed, waits for Icecast, then copies the stream, so the client sees
-an ordinary always-on radio URL instead of a 404.
+The browser player streams through `https://<host>/listen/<station>`, which is also the
+URL to hand to VLC, Music Assistant, a Sonos or a car head unit. It opens the mount if it
+is closed, waits for Icecast, then copies the stream, so the client sees an ordinary
+always-on radio URL instead of a 404.
 
-Each relayed client costs the picker a fraction of a core, and the relay is what
-lets the picker tell a browser from a player: the `User-Agent` decides whether a
-connection is an audience or a tab somebody forgot to close.
-
-A station with nobody listening is closed after `IDLE_STOP_S` (90 s) and its mount
-stops existing, which is why the relay exists at all. The rules for "nobody":
+A station's mount closes after `IDLE_STOP_S` (90 s) with nobody reading it — the station
+itself keeps playing — which is why the relay exists. The rules for "nobody":
 
 | client | counts as listening | stops counting |
 |---|---|---|
-| this web player | while it heartbeats (every 20 s) | 60 s after the last beat |
+| this web player | while it heartbeats (every 20 s) and the audio is advancing | 60 s after the last beat, or ~40 s after the audio stops moving |
 | VLC / Sonos / Music Assistant via `/listen` | while it reads bytes | when it disconnects, or once its buffers fill after a pause |
 | anything straight on `/<station>.mp3` | while connected | when it disconnects |
 | a backgrounded browser tab | never | — |
 
-The pause case is bounded by TCP, not by our timer: a paused player stops reading,
-but its socket buffers absorb a few minutes of audio before the connection stops
-accepting bytes. `GET /status` shows the presence picture per station.
+The pause case is bounded by TCP, not by our timer: a paused player stops reading, but
+its socket buffers absorb a few minutes of audio before the connection stops accepting
+bytes. `GET /status` shows the presence picture per station.
 
 ## API
 
-Host-local on `127.0.0.1:8030`.
+Bound to `0.0.0.0:8030` inside the network and published on `SPICA_PORT`; put it behind
+your proxy or firewall rather than the open internet, except for the paths the listener
+page uses.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -392,6 +436,8 @@ Host-local on `127.0.0.1:8030`.
 | POST | `/rebuild` | re-index Navidrome and rewrite every pool |
 | POST | `/liq` | render `spica.liq` from `stations.json` |
 | POST | `/enrich?limit=N` | fill artist MBIDs, 0 for all |
+| POST | `/s/<station>/start` | open the station's mount (what the play button calls) |
+| GET | `/s/<station>/state` | live/presence json for the player |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
 | POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "musicbrainz" \| "refresh"}` |
 | GET | `/jobs` | recent jobs with progress |
@@ -399,45 +445,43 @@ Host-local on `127.0.0.1:8030`.
 
 ## Configuration
 
-Everything deployment-specific comes from the environment; `deploy/.env.example`
-lists the keys, and that is the file to start from.
+Everything deployment-specific comes from the environment; `deploy/.env.example` lists
+the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_STATE` | state directory: index, pools, queues, history, requests |
-| `SPICA_CONFIG` | config directory: `stations.json`, generated `spica.liq` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.2.0` |
+| `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
+| `TZ` | the container timezone, for logs and the ledger's server fallback |
+| `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
+| `ICECAST_ADMIN_PASSWORD` | Icecast's own `/admin` pages |
+| `SPICA_ADMIN_PASSWORD` | admin login for the web UI; empty disables admin writes |
+| `SPICA_HOSTNAME` | the host Icecast puts in its stream URLs |
+| `ICECAST_PORT`, `SPICA_PORT` | the two published ports (default `8000` audio, `8030` web) |
 | `NAVIDROME_URL` | Navidrome base URL as the containers reach it |
 | `NAVIDROME_USER`, `NAVIDROME_PASS` | a Navidrome account for the radio |
-| `ICECAST_URL` | Icecast base URL as the picker sees it |
 | `LLM_BASE`, `LLM_KEY`, `LLM_MODEL` | defaults for the endpoint; the admin's settings page wins |
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
 | `LASTFM_KEY` | optional: name-based similarity and tag backfill |
-| `MB_USER_AGENT` | optional: contact string for MusicBrainz. Defaults to the project's own name and URL |
-| `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
+| `MB_USER_AGENT` | optional: contact string for MusicBrainz |
+| `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
+| `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
+| `ICECAST_OUTPUT_HOST`, `ICECAST_OUTPUT_PORT` | where the mixer publishes — separate from `ICECAST_URL` because the two containers see Icecast at different addresses |
+| `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |
 | `SPICA_TZ` | the timezone the server falls back to when the browser cannot say (default `America/Montevideo`) |
-| `SPICA_ADMIN_PASSWORD` | admin login for the web UI; empty disables admin writes |
-| `LIQ_TELNET` | Liquidsoap control server, `host:port` (default `mixer:1234`) |
 
-On first start the picker writes `icecast.xml`, `stations.json` and `spica.liq` if
-they are missing — one starter station, called *Everything*, with no rules — so a
-fresh install has something on the air without any file editing.
-`python -m spica.bootstrap` does the same thing by hand and never overwrites a file
-that exists.
-
-The stream server is `infiniteproject/icecast`, pinned by digest, and the mixer is
-`savonet/liquidsoap:v2.4.6`, the version the graph is tested against. The picker
-and worker are built from this repo. Nothing from another radio project is needed
-at runtime. `ICECAST_OUTPUT_HOST` / `ICECAST_OUTPUT_PORT` tell Liquidsoap where to
-publish, which is a separate setting from `ICECAST_URL` because the two containers
-see Icecast at different addresses.
+On first start the `init` service writes `icecast.xml`, `stations.json` and `spica.liq` if
+they are missing — one starter station, called *Everything*, with no rules — so a fresh
+install has something on the air without any file editing. `python -m spica.bootstrap`
+does the same thing by hand and never overwrites a file that exists.
 
 ## Operations
 
 ```bash
-cd "$RADIO_DEPLOY"                  # wherever your compose file lives
-docker compose up -d --build        # mixer, picker, worker
+cd /path/to/deployment          # wherever compose.yaml lives
+docker compose up -d            # start; pull the tag in SPICA_TAG
 docker compose logs -f picker
-docker compose stop                 # park everything, state is untouched
+docker compose down             # stop everything, state untouched
 
 A=http://127.0.0.1:8030
 curl -X POST $A/rebuild             # after new music lands in Navidrome
@@ -445,30 +489,43 @@ curl $A/coverage                    # what the DJ knows
 curl -X POST $A/jobs -H 'content-type: application/json' -d '{"kind":"genre_tags"}'
 ```
 
-The worker watches the library for you: it compares Navidrome's track count every
-15 minutes, rebuilds the index and pools when it changes, and queues the cheap
-follow-ups — popularity for tracks that have none, MusicBrainz for artists without
-genres. The jobs are also on the admin's library page. Operator merges and the
-alias maps are applied at rebuild time, so a rebuild also re-canonicalises every
-label.
+Upgrading is a tag change: edit `SPICA_TAG`, then `docker compose pull` and
+`docker compose up -d`. If a release changes the generated Liquidsoap script, regenerate
+it and restart the mixer:
+
+```bash
+docker compose run --rm init            # writes nothing that already exists
+docker compose restart mixer
+```
+
+The worker watches the library for you: it compares Navidrome's track count every 15
+minutes, rebuilds the index and pools when it changes, and queues the cheap follow-ups —
+popularity for tracks that have none, MusicBrainz for artists without genres. The jobs
+are also on the admin's library page. Operator merges and the alias maps are applied at
+rebuild time, so a rebuild also re-canonicalises every label.
 
 ## State
 
-`$SPICA_STATE` holds everything that survives a restart:
+`state/` holds everything that survives a restart:
 
-- `index.db`: SQLite projection of the library. Disposable, rebuilt from
-  Navidrome.
-- `pools/<station>.m3u`: what Liquidsoap plays when nobody is steering; one
-  stream URL per line.
+- `index.db`: SQLite projection of the library. Disposable, rebuilt from Navidrome.
+- `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
+  per line.
 - `queue/<station>.txt`: the single-file hand-off between picker and mixer.
+- `now/<station>.txt` and `.offset`: the mixer's own record of each track it starts, and
+  how far the picker has read. This is what keeps the ledger honest when no mount is open.
 - `history/<station>.jsonl`: append-only play log, written by this project only.
+- `history/<station>.picks.jsonl`: the DJ's choices with their reasons and the presence
+  that justified them.
 - `requests/<station>.jsonl`: live listener requests.
+- `art/<albumId>`: cached cover art, one file per album.
 - `genre-aliases.json`: operator merge rules, empty by default.
+- `logs/`: worker and job output.
 
 Rebuilding the index wipes `index.db` content, not the other files, so history and
 requests survive it.
 
 ## Contributing
 
-`main` is release-only: changes arrive as squashed pull requests. The loop, the
-commit style and how to cut a release are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+`main` is release-only: changes arrive as squashed pull requests. The loop, the commit
+style and how to cut a release are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
