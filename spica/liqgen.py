@@ -49,6 +49,21 @@ def render(stations: list[config.Station], password: str) -> str:
             # crossfade() rejects a fallible source and returns a fallible one, so
             # it sits between two mksafe calls (verified on 2.4.6).
             f"s_{st.id} = mksafe(crossfade(duration=3.0, s_{st.id}))",
+            # The ledger has to be honest whether or not anybody is listening, so
+            # the station is stamped from the source rather than from Icecast: a
+            # closed mount has no title. Same "artist - title" shape Icecast would
+            # have shown, because that is what plays.note() already parses.
+            f"def stamp_{st.id}(m) =",
+            '  a = m["artist"]',
+            '  t = m["title"]',
+            '  if a != "" and t != "" then',
+            f'    file.write("{st.now_file}", data=a ^ " - " ^ t ^ "\\n", append=true)',
+            "  end",
+            "end",
+            f"s_{st.id}.on_metadata(synchronous=true, stamp_{st.id})",
+            # A silent sink keeps the clock alive with no listeners: decoding only,
+            # about 1% of a core per station, instead of the ~12% the encoder costs.
+            f"output.dummy(id=\"clock_{st.id}\", fallible=true, s_{st.id})",
             f"output.icecast(%mp3(bitrate=192, samplerate=48000, stereo=true),",
             f"  id=\"out_{st.id}\", start=false,",
             f"  host=\"{config.ICECAST_OUTPUT_HOST}\", port={config.ICECAST_OUTPUT_PORT}, "

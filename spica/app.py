@@ -49,7 +49,14 @@ async def loop() -> None:
                 INDEX_STAMP[0] = stamp
             states = await asyncio.to_thread(icecast.listen_states)
             for st in store.stations():
-                plays.note(st, states.get(st.mount).title if states.get(st.mount) else "")
+                # The mixer stamps every track it starts, which is the only witness
+                # that keeps working when the mount is closed and the station plays on.
+                fresh = await asyncio.to_thread(mixer.now_lines, st)
+                if st.now_file.exists():
+                    for line in fresh:
+                        plays.note(st, line)
+                else:
+                    plays.note(st, states.get(st.mount).title if states.get(st.mount) else "")
                 _close_if_silent(st, states)
                 if queue.queued(st):
                     continue

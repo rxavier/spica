@@ -85,6 +85,49 @@ def queued_ids(station) -> list[str]:
     return out
 
 
+_NOW_OFFSET: dict[str, int] = {}
+
+
+def now_lines(station) -> list[str]:
+    """Tracks the mixer has started since the last call, oldest first.
+
+    The ledger cannot come from Icecast once the clock outlives the mount: a closed
+    mount has no title. The mixer appends "artist - title" to a file as each track
+    starts, and this reads whatever is new. A half-written last line is left for the
+    next call rather than guessed at.
+    """
+    path = station.now_file
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    offset = _NOW_OFFSET.get(station.id, 0)
+    if size < offset:  # rewritten under us
+        offset = 0
+    if size == offset:
+        return []
+    try:
+        with path.open("rb") as fh:
+            fh.seek(offset)
+            chunk = fh.read(size - offset)
+    except OSError:
+        return []
+    text = chunk.decode("utf-8", "replace")
+    if not text.endswith("\n"):
+        tail = text.rsplit("\n", 1)[-1]
+        text = text[: len(text) - len(tail)]
+        _NOW_OFFSET[station.id] = size - len(tail.encode("utf-8"))
+    else:
+        _NOW_OFFSET[station.id] = size
+    if size > 512_000:  # the state file is a cursor, not the archive
+        try:
+            path.write_text("", encoding="utf-8")
+            _NOW_OFFSET[station.id] = 0
+        except OSError:
+            pass
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def close() -> None:
     """Ask Liquidsoap to exit; docker's restart policy brings it back."""
     try:
