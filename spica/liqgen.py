@@ -24,7 +24,9 @@ def encoder(codec: str) -> str:
         bitrate = config.CODEC_BITRATE["opus"]
         return f"%opus(bitrate={bitrate}, samplerate=48000, channels=2)"
     if codec == "flac":
-        return "%ogg(%flac(samplerate=48000, channels=2))"
+        # 44.1 kHz, the library's own rate: resampling a lossless stream to 48 would
+        # make it not-lossless for nothing.
+        return "%ogg(%flac(samplerate=44100, channels=2))"
     bitrate = config.CODEC_BITRATE["mp3"]
     return f"%mp3(bitrate={bitrate}, samplerate=48000, stereo=true)"
 
@@ -36,6 +38,8 @@ def outputs_for(st: config.Station, password: str) -> list[str]:
         lines += [
             f"output.icecast({encoder(codec)},",
             f'  id="out_{st.id}_{codec}", start=false,',
+            # Icecast only applies ICY titles to mp3; the Ogg mounts carry their own.
+            f"  send_icy_metadata={'true' if codec == 'mp3' else 'false'},",
             f'  host="{config.ICECAST_OUTPUT_HOST}", port={config.ICECAST_OUTPUT_PORT}, '
             f'password="{password}", mount="{st.mount_for(codec)}",',
             f'  name="{st.name}", description="{st.description or st.name} · '

@@ -264,17 +264,22 @@ holding the URL.
 |---|---|---|---|
 | MP3 | `/<station>.mp3` | `%mp3(192, 48 kHz, stereo)` | ~12% of a core while listened to |
 | Opus | `/<station>.opus` | `%opus(128, 48 kHz, stereo)` | ~12% of a core, half the bits of MP3 |
-| FLAC | `/<station>.oga` | `%ogg(%flac(48 kHz, stereo))` | ~12% of a core, ~700 kbit/s per listener |
+| FLAC | `/<station>.flac` | `%ogg(%flac(44.1 kHz, stereo))` | ~12% of a core, ~700 kbit/s per listener |
 
 FLAC goes out as Ogg FLAC — bare FLAC over Icecast gives players no framing to resync
-on — which is why its extension is `.oga`.
+on — on a `.flac` mount, because the extension is what a player sniffs. It runs at
+44.1 kHz rather than 48 so a lossless stream is not resampled for nothing; MP3 and Opus
+run at 48.
+
+ICY titles are sent only on the MP3 mount: Icecast does not apply out-of-band titles to
+Ogg streams, which carry their own.
 
 **URLs to hand out.** Two shapes, one for players and one for people:
 
 ```
 https://host/alt.mp3                 straight to Icecast, and only alive while the mount is open
 https://host/alt.opus
-https://host/alt.oga
+https://host/alt.flac
 
 https://host/listen/alt              the default stream, opened on demand
 https://host/listen/alt/opus         a specific one, by codec

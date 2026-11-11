@@ -73,7 +73,7 @@ REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
 # Three streams, one per codec, each at a bitrate that suits it. No knobs: the
 # extension says what the stream is, so /<station>.mp3 and /<station>.opus cannot
 # disagree with the encoder behind them.
-CODEC_EXT = {"mp3": "mp3", "opus": "opus", "flac": "oga"}
+CODEC_EXT = {"mp3": "mp3", "opus": "opus", "flac": "flac"}
 CODEC_MEDIA = {"mp3": "audio/mpeg", "opus": "audio/ogg", "flac": "audio/ogg"}
 CODEC_BITRATE = {"mp3": 192, "opus": 128}
 CODEC_LABEL = {"mp3": "MP3 192k", "opus": "Opus 128k", "flac": "FLAC"}
