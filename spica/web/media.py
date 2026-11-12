@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 
 from .. import store
@@ -25,6 +26,11 @@ router = APIRouter()
 
 
 PLACEHOLDER_MD5 = "83d193cefca2810f217cffd533241508"
+
+# How long "this album has no cover" is believed. Long enough to save a round trip on
+# every page load, short enough that one bad minute cannot cost an album its artwork
+# for good — which is what a marker with no expiry did.
+MISSING_TTL_S = 3600
 
 
 def _playlist(request: Request, stations: list) -> Response:
@@ -110,7 +116,20 @@ def art(album_id: str, size: int | None = None):
     # each of those is a blocking round trip. One marker covers every size.
     missing = ART_DIR / f"{album_id}.none"
     if missing.exists():
-        raise HTTPException(404, "no cover", headers={"cache-control": "public, max-age=86400"})
+        # A marker says "Navidrome had nothing for this album" — but it can also be
+        # the ghost of one bad afternoon, and a marker never aged out, so an album
+        # that was briefly unreachable lost its artwork for good. Ask again after an
+        # hour; a real "no cover" simply writes the marker back below.
+        try:
+            stale = time.time() - missing.stat().st_mtime > MISSING_TTL_S
+        except OSError:
+            stale = True
+        if not stale:
+            raise HTTPException(404, "no cover", headers={"cache-control": "public, max-age=86400"})
+        try:
+            missing.unlink()
+        except OSError:
+            pass
 
     cover = store.cover_for(album_id)
     try:
