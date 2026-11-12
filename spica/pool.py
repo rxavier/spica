@@ -38,7 +38,7 @@ def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -
         hit = stats.get(row["id"])
         if not hit:
             continue
-        by_group.setdefault((row["artist"] or "", hit[1]), []).append((hit[0], row["id"]))
+        by_group.setdefault((row["album_artist"] or row["artist"] or "", hit[1]), []).append((hit[0], row["id"]))
     out: dict[str, float] = {}
     for songs in by_group.values():
         if len(songs) < 2:
@@ -82,10 +82,11 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
         for i, row in enumerate(pool):
             if row["album_id"] in recent_albums[-1:]:
                 continue
-            if recent_artists.count(row["artist"]) and row["artist"] in recent_artists[-ARTIST_WINDOW:]:
+            who = row["album_artist"] or row["artist"]
+            if who in recent_artists[-ARTIST_WINDOW:]:
                 continue
             out.append(row)
-            recent_artists.append(row["artist"])
+            recent_artists.append(who)
             recent_albums.append(row["album_id"])
             pool.pop(i)
             break
@@ -93,7 +94,7 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
             # Every remaining candidate is blocked: relax and take the first.
             row = pool.pop(0)
             out.append(row)
-            recent_artists.append(row["artist"])
+            recent_artists.append(row["album_artist"] or row["artist"])
             recent_albums.append(row["album_id"])
     return out
 

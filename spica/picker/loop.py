@@ -163,7 +163,9 @@ def pick_next(
                     "results": [],
                     "note": "nothing has played on this station yet; look something up instead",
                 }
-            elif isinstance(result, list) and not result:
+            elif (isinstance(result, list) and not result) or (
+                isinstance(result, dict) and "results" in result and not result["results"]
+            ):
                 # Empty almost always means "exists but not on this station" —
                 # saying so stops the model retrying the same dead end.
                 payload = {

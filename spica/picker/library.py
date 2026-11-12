@@ -28,6 +28,10 @@ def clamp(value, default: int, high: int) -> int:
     return max(1, min(number, high))
 
 
+# How many tracks one act may contribute to a page of `filter` results.
+PER_ARTIST = 3
+
+
 class Library:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
@@ -48,9 +52,11 @@ class Library:
         limit = clamp(limit, 20, 200)
         like = f"%{query.strip()}%"
         rows = self.conn.execute(
-            """SELECT * FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
-               ORDER BY artist, album, track_no LIMIT ?""",
-            (like, like, like, limit * 40),
+            """SELECT * FROM tracks
+               WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR album_artist LIKE ?
+                  OR album_artist_key LIKE ?
+               ORDER BY album_artist, album, track_no LIMIT ?""",
+            (like, like, like, like, navidrome.name_key(query), limit * 40),
         ).fetchall()
         rows = self.rows_on_station(rows, station)
         return [self._brief(r) for r in rows[:limit]]
@@ -75,9 +81,75 @@ class Library:
             rows = [r for r in rows if genres_module.matches(by_track.get(r["id"], ()), target)]
 
         rows = self.rows_on_station(rows, station)
+        total = len(rows)
 
         limit = clamp(kw.get("limit"), 30, 200)
-        return [self._brief(r) for r in rows[:limit]]
+        offset = max(0, int(kw.get("offset") or 0))
+        # Spread the page across acts. A random draw over a label with one big name in
+        # it hands back five tracks by the same band and looks like variety; three is
+        # enough to show a record exists without letting it fill the page.
+        seen: Counter = Counter()
+        picked = []
+        for row in rows[offset:]:
+            who = row["album_artist"] or row["artist"]
+            if seen[who] >= PER_ARTIST:
+                continue
+            seen[who] += 1
+            picked.append(row)
+            if len(picked) >= limit:
+                break
+        return {
+            "matching": total,
+            "offset": offset,
+            "returned": len(picked),
+            "results": [self._brief(r) for r in picked],
+        }
+
+    def browse(
+        self,
+        dimension: str = "artists",
+        limit: int = 40,
+        offset: int = 0,
+        station: config.Station | None = None,
+        **_,
+    ) -> dict:
+        """The station's own shape, as a list that can be paged through.
+
+        `station_map` gives the top few of each; this gives the whole thing, in pages,
+        so "who else is in here?" has an answer. Three dimensions because they are the
+        three ways this library can be walked: the acts, the labels, the decades.
+        """
+        rows = navidrome.rows_for_station(self.conn, station) if station else \
+            self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        counts: Counter = Counter()
+        dim = (dimension or "artists").strip().casefold()
+        if dim == "labels":
+            by_track = navidrome.labels_by_track(self.conn)
+            for row in rows:
+                for label in by_track.get(row["id"], ()):
+                    counts[label] += 1
+        elif dim == "decades":
+            for row in rows:
+                year = row["year"] or 0
+                if year >= 1900:
+                    counts[f"{(year // 10) * 10}s"] += 1
+        else:
+            dim = "artists"
+            for row in rows:
+                counts[(row["album_artist"] or row["artist"]) or "?"] += 1
+
+        ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        start = max(0, int(offset or 0))
+        size = clamp(limit, 40, 200)
+        page = ordered[start: start + size]
+        return {
+            "dimension": dim,
+            "total": len(ordered),
+            "offset": start,
+            "returned": len(page),
+            "items": [{"name": name, "tracks": n} for name, n in page],
+            "next_offset": start + len(page) if start + len(page) < len(ordered) else None,
+        }
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
         row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
@@ -135,17 +207,21 @@ class Library:
                 "owned": bool(rows),
             }
 
+        # Grouped by the record's artist, so "L’Impératrice & Fabiana Martone" shares
+        # the band's dominant genre instead of having none. Matched on the folded key,
+        # because the caller types the name.
+        key = navidrome.name_key(artist)
         row = self.conn.execute(
-            """SELECT genre FROM tracks WHERE artist = ? AND genre != ''
+            """SELECT genre FROM tracks WHERE album_artist_key = ? AND genre != ''
                GROUP BY genre ORDER BY COUNT(*) DESC LIMIT 1""",
-            (artist,),
+            (key,),
         ).fetchone()
         if row:
             # The one branch that had no station filter at all, so it could hand the
             # DJ a track the station is not allowed to play.
             rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE genre = ? AND artist <> ? ORDER BY RANDOM()",
-                (row["genre"], artist),
+                "SELECT * FROM tracks WHERE genre = ? AND album_artist_key <> ? ORDER BY RANDOM()",
+                (row["genre"], key),
             ).fetchall()
             rows = self.rows_on_station(rows, station)
             rows = rows[: int(limit)]
@@ -195,8 +271,12 @@ class Library:
         limit = clamp(limit, 25, 100)
         where, args = ["uri != ''"], []
         if artist:
-            where.append("artist = ? COLLATE NOCASE")
-            args.append(artist.strip())
+            # Either name finds the record: the credit ("& Fabiana Martone") and the
+            # act are the same shelf, and a listener naming the guest should land on it.
+            # Matched on the key, so an ASCII apostrophe finds the typographic one and
+            # a missing accent still lands: the model types names, it does not copy them.
+            where.append("(album_artist_key = ? OR artist = ? COLLATE NOCASE)")
+            args.extend([navidrome.name_key(artist), artist.strip()])
         if album:
             where.append("album LIKE ?")
             args.append(f"%{album.strip()}%")
@@ -220,9 +300,10 @@ class Library:
         if album and not artist:
             counts: dict[str, int] = {}
             for row in rows:
-                counts[row["artist"]] = counts.get(row["artist"], 0) + 1
+                key = (row["album_artist"] or row["artist"])
+                counts[key] = counts.get(key, 0) + 1
             artist = max(counts, key=counts.get)
-            rows = [r for r in rows if r["artist"] == artist]
+            rows = [r for r in rows if (r["album_artist"] or r["artist"]) == artist]
 
         played = {e["id"] for e in queue.recent(station, 40) if e.get("id")} if station else set()
         queued = set(mixer.queued_ids(station)) if station else set()
@@ -238,7 +319,7 @@ class Library:
             albums.setdefault(key, {"album": key, "year": row["year"], "tracks": []})
             albums[key]["tracks"].append(item)
         return {
-            "artist": rows[0]["artist"],
+            "artist": rows[0]["album_artist"] or rows[0]["artist"],
             "album": album or "",
             "albums": list(albums.values()),
             "tracks": tracks,
@@ -255,7 +336,7 @@ class Library:
         for row in rows:
             for label in labels.get(row["id"], ()):
                 genre_counts[label] += 1
-            artist_counts[row["artist"] or "?"] += 1
+            artist_counts[(row["album_artist"] or row["artist"]) or "?"] += 1
             year = row["year"] or 0
             if year >= 1900:
                 decades[(year // 10) * 10] += 1
@@ -296,10 +377,13 @@ class Library:
 
     @staticmethod
     def _brief(row: sqlite3.Row) -> dict:
+        # The record's artist, not the track credit: the DJ reasons about acts, and
+        # "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
+        keys = row.keys()
         return {
             "id": row["id"],
             "title": row["title"],
-            "artist": row["artist"],
+            "artist": (row["album_artist"] if "album_artist" in keys else "") or row["artist"],
             "album": row["album"],
             "year": row["year"],
             "genre": row["genre"],
@@ -312,6 +396,7 @@ class Library:
             uri=row["uri"],
             title=row["title"],
             artist=row["artist"],
+            album_artist=(row["album_artist"] if "album_artist" in row.keys() else "") or row["artist"],
             album=row["album"],
             album_id=row["album_id"],
             track_no=row["track_no"],
@@ -327,6 +412,7 @@ class Library:
 # schemas at import, because a tool the model can call with nothing behind it used to
 # be a runtime "no such tool" that cost a round trip and read like a library problem.
 HANDLERS = {
+    "browse": Library.browse,
     "history": Library.history,
     "catalogue": Library.catalogue,
     "station_map": Library.station_map,
