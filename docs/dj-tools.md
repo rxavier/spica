@@ -23,8 +23,9 @@ its own pool.
 ## Why a pick cannot skip a lookup
 
 Track ids exist only inside tool results. The brief carries titles and artists, never
-ids, and `_parse_final` then requires the id to exist, to have a playable `uri`, and to
-be outside the last 40 played ids.
+ids, and `_parse_final` then requires the id to exist, to have a playable `uri`, to
+be outside the last 40 played ids, and to pass the station's own matcher — the same
+check the tools apply, so a guessed id cannot leave the palette either.
 
 So a reply written without calling a tool can only pass by guessing a 21-character
 Navidrome id. `tool_choice: "required"` on round 0 makes that explicit instead of
@@ -57,8 +58,9 @@ may play*, not *your library*. An empty list is never `[]`; it is
 {"results": [], "note": "nothing on station 'Alternative' matched this; the station's palette is applied to every tool result, so try a different angle or pick from results you already have"}
 ```
 
-Results are JSON, truncated at 6,000 characters per call. A tool that raises returns
-`{"error": "…"}` rather than taking the pick down with it.
+Results are JSON, trimmed by whole rows to fit 6,000 characters per call — never cut
+mid-object, because the ids the model has to answer with are inside them. A tool
+that raises returns `{"error": "…"}` rather than taking the pick down with it.
 
 ### `history` — what has been playing
 
