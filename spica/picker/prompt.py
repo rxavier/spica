@@ -65,8 +65,11 @@ def system_prompt(station: config.Station, pool_size: int) -> str:
     )
     bits.append(
         "Pick exactly ONE track to play next, using the tools to look things up — never "
-        "invent a track id. Keep the set moving: don't follow a song with the same artist, "
-        "and don't circle back to something that just played."
+        "invent a track id. Keep the set moving: not the artist on air, not the album on "
+        "air, not anything already queued. The exception is somebody asking for exactly "
+        "that — two songs off one album is a good set when a listener wants it, and "
+        "following one song with another by the same artist is worth it when the second "
+        "one earns it. Neither is a rule, they are your judgement."
     )
     bits.append(
         "Take listener requests as what they are: somebody in the room asking for "
