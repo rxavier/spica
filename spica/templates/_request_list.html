@@ -1,16 +1,3 @@
-<div class="slip">
-  <h3>Ask the DJ</h3>
-  <form hx-post="/s/{{ station.id }}/request" hx-target="#request-result" hx-swap="innerHTML"
-        hx-disabled-elt="find fieldset" hx-indicator="#req-wait">
-    <fieldset class="inline">
-      <input type="text" name="text" placeholder="something calmer, some Camel, no metal…" required>
-      <button class="primary" type="submit">Ask</button>
-      <span id="req-wait" class="htmx-indicator sub">asking the DJ…</span>
-    </fieldset>
-  </form>
-  <div id="request-result"></div>
-</div>
-
 {% if requests %}
 <div class="paper" style="margin-top:1rem">
   <h2 style="margin-top:0">Requests in force</h2>

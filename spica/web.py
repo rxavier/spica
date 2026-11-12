@@ -334,17 +334,11 @@ async def station_body(request: Request, station_id: str):
 
 @router.get("/s/{station_id}/live", response_class=HTMLResponse)
 async def station_live(request: Request, station_id: str):
+    """The now-playing block on its own — what the page polls every five seconds."""
     st = station_or_404(station_id)
-    return templates.TemplateResponse(
-        request,
-        "_live.html",
-        {
-            "station": st,
-            "now": now_playing(st),
-            "history": history_of(st, 15, now_playing(st)),
-            "requests": request_rows(st),
-        },
-    )
+    # One reading, and only what the fragment renders: the ledger has its own
+    # endpoint, and this used to build history and the request list as well.
+    return templates.TemplateResponse(request, "_live.html", {"now": now_playing(st)})
 
 
 @router.post("/s/{station_id}/hear", status_code=204)
@@ -479,12 +473,9 @@ async def station_history(request: Request, station_id: str):
 
 @router.get("/s/{station_id}/requests", response_class=HTMLResponse)
 async def station_requests(request: Request, station_id: str):
+    """The list of requests in force. The form beside it is never replaced."""
     st = station_or_404(station_id)
-    return templates.TemplateResponse(
-        request,
-        "_requests.html",
-        {"station": st, "requests": request_rows(st)},
-    )
+    return templates.TemplateResponse(request, "_request_list.html", {"requests": request_rows(st)})
 
 
 @router.post("/s/{station_id}/request", response_class=HTMLResponse)
