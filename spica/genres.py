@@ -272,18 +272,19 @@ def unify_spellings(conn) -> int:
         if current is None or count > current[1] or (count == current[1] and label < current[0]):
             best[key] = (label, count)
     merged = 0
+    # No transaction of its own: this runs inside the rebuild's, and the per-label
+    # commit it used to do released a half-finished index.
     for row in rows:
         label = row["label"]
         target = pretty(best[fold(label)][0])
         if label == target:
             continue
-        with conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
-                " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
-                (target, label),
-            )
-            conn.execute("DELETE FROM track_genres WHERE label = ?", (label,))
+        conn.execute(
+            "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
+            " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
+            (target, label),
+        )
+        conn.execute("DELETE FROM track_genres WHERE label = ?", (label,))
         merged += 1
     return merged
 
