@@ -4,7 +4,7 @@ Names are the baseline — every library has them. IDs are a cache: each provide
 fills what it can, and anything it cannot answer stays unresolved without
 breaking a pick. Providers, cheapest first:
 
-  1. cached MBIDs from the index (Navidrome's API reports them per track)
+  1. Navidrome's own artist records — one call per artist, no search, no guessing
   2. MusicBrainz web service  — album MBID -> release -> artist MBID (1 req/s)
   3. ListenBrainz             — artist MBID -> similar artists (keyless)
   4. Last.fm                  — artist NAME -> similar artists / tags (needs a key)
@@ -21,7 +21,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import config
+from . import config, subsonic
 
 MB = "https://musicbrainz.org/ws/2"
 LB = "https://labs.api.listenbrainz.org"
@@ -186,23 +186,14 @@ def remember_similar(conn: sqlite3.Connection, name: str, names: list[str], sour
 def similar_artists(conn: sqlite3.Connection, name: str, limit: int = 25) -> tuple[list[str], str]:
     """Cache -> ListenBrainz (by MBID) -> Last.fm (by name). Returns (names, source).
 
-    The MBID comes from the cache, and failing that from the index itself: every
-    Navidrome track row carries its artist's id, which is where most libraries
-    already keep it — no external lookup needed.
+    The MBID comes from the cache, which `/enrich` fills from Navidrome's own
+    artist records and, failing those, from a MusicBrainz release lookup.
     """
     hit = cached_similar(conn, name)
     if hit:
         return hit[:limit], "cache"
 
     mbid = cached_mbid(conn, name)
-    if not mbid:
-        row = conn.execute(
-            "SELECT mbz_artist FROM tracks WHERE artist = ? AND mbz_artist != '' LIMIT 1",
-            (name,),
-        ).fetchone()
-        if row:
-            mbid = row["mbz_artist"]
-            remember_mbid(conn, name, mbid, "navidrome")
     if mbid:
         names = lb_similar_artists(mbid, limit)
         if names:
@@ -217,19 +208,19 @@ def similar_artists(conn: sqlite3.Connection, name: str, limit: int = 25) -> tup
     return [], "none"
 
 
-def resolve_artist_mbid(
-    conn: sqlite3.Connection, name: str, album_mbid: str | None = None
-) -> str | None:
-    """Cache -> file/Navidrome hint (album MBID) -> give up. Never guess by name here."""
-    hit = cached_mbid(conn, name)
-    if hit:
-        return hit
-    if album_mbid:
-        mbid, _ = mb_release_artist(album_mbid)
-        if mbid:
-            remember_mbid(conn, name, mbid, "musicbrainz-release")
-            return mbid
-    return None
+def navidrome_artist_mbid(artist_id: str) -> str:
+    """The artist's MusicBrainz id straight out of Navidrome, or "".
+
+    Most libraries already carry this: `getArtist` answers with a `musicBrainzId`,
+    which is a name turned into an id by the thing that knows the answer rather
+    than by a search.
+    """
+    if not artist_id:
+        return ""
+    try:
+        return str(subsonic.get_artist(artist_id).get("musicBrainzId") or "")
+    except Exception:
+        return ""
 
 
 

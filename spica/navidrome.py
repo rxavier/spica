@@ -37,7 +37,6 @@ class Track:
     duration: int
     mbz_album: str = ""
     mbz_recording: str = ""
-    mbz_artist: str = ""
 
     def as_line(self) -> str:
         return f"{self.title} — {self.artist} ({self.year or '?'})"
@@ -74,10 +73,16 @@ def connect(db_path: Path) -> sqlite3.Connection:
             fetched_at INTEGER,
             mbz_album TEXT DEFAULT '',
             mbz_recording TEXT DEFAULT '',
-            mbz_artist TEXT DEFAULT ''
+            artist_id TEXT DEFAULT ''
         )
         """
     )
+    # `artist_id` is Navidrome's own handle for the artist, which is what turns a
+    # name into a MusicBrainz id without guessing: getArtist answers with the
+    # artist's `musicBrainzId`. Older indexes get the column rather than a rebuild,
+    # so manual labels and cached provider answers survive the upgrade.
+    if "artist_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}:
+        conn.execute("ALTER TABLE tracks ADD COLUMN artist_id TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
@@ -275,7 +280,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
                     now,
                     str(album.get("musicBrainzId") or ""),
                     str(song.get("musicBrainzId") or ""),
-                    "",
+                    str(song.get("artistId") or album.get("artistId") or ""),
                 )
             )
             native[track_id] = canon
@@ -293,7 +298,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
         conn.executemany(
             """INSERT INTO tracks
                  (id,uri,title,artist,album,album_id,track_no,year,genre,duration,fetched_at,
-                  mbz_album,mbz_recording,mbz_artist)
+                  mbz_album,mbz_recording,artist_id)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )

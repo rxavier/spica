@@ -429,7 +429,6 @@ class Library:
             duration=row["duration"],
             mbz_album=row["mbz_album"] or "",
             mbz_recording=row["mbz_recording"] or "",
-            mbz_artist=row["mbz_artist"] or "",
         )
 
 

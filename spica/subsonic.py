@@ -103,6 +103,11 @@ def album_songs(album_id: str) -> list[dict]:
     return album.get("song") or []
 
 
+def get_artist(artist_id: str) -> dict:
+    """One artist, including the `musicBrainzId` Navidrome holds for it."""
+    return call("getArtist", id=artist_id).get("artist") or {}
+
+
 def song_genres(song: dict) -> list[str]:
     """OpenSubsonic gives a `genres` array; stock Subsonic gives one string."""
     out = []
