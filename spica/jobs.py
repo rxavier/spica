@@ -97,6 +97,13 @@ def fail(conn: sqlite3.Connection, job_id: int, message: str) -> None:
         )
 
 
+def last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
+    """The most recent job of this kind, whatever became of it."""
+    return conn.execute(
+        "SELECT * FROM jobs WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)
+    ).fetchone()
+
+
 def get(conn: sqlite3.Connection, job_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return dict(row) if row else None

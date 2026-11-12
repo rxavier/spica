@@ -7,13 +7,15 @@ stays responsive and the worker can be capped or stopped on its own.
 The job is resumable: it recomputes what is still missing when it starts, so a
 restart continues rather than redoing the work.
 
-    genre_tags  Last.fm artist tags for artists that have no label at all, written
-                to `track_genres` with source='external'. Cheap (one call per
-                artist, cached forever).
+Kinds: refresh (re-index, rewrite the pools), genre_tags (Last.fm tags for artists
+with no label), musicbrainz (genres per artist), popularity (ListenBrainz, then
+Last.fm, play counts). While idle, one tick every REFRESH_CHECK_S notices a
+changed library and queues the follow-ups the new gaps call for.
 """
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import time
 
@@ -235,6 +237,44 @@ def stale_reason(conn) -> str:
 
 HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz}
 
+# The follow-ups worth queueing when the index changes, in the order they matter:
+# MusicBrainz decides the genre for anything without a file tag, so it should be
+# in place before the pools are judged again.
+FOLLOWUPS = (
+    ("musicbrainz", missing_musicbrainz, "artist(s) without musicbrainz genres"),
+    ("popularity", missing_popularity, "track(s) without popularity"),
+)
+
+
+def _retry_due(conn: sqlite3.Connection, kind: str, after: float = 3600.0) -> bool:
+    """True when the last attempt at this job failed long enough ago to try again."""
+    last = jobs.last(conn, kind)
+    if last is None or last["status"] != "failed":
+        return False
+    return time.time() - float(last["finished_at"] or 0) > after
+
+
+def queue_followups(conn: sqlite3.Connection, seen: dict[str, int]) -> bool:
+    """Queue the cheap jobs the index's gaps call for. True if one was queued.
+
+    `seen` is the backlog this process last looked at. A track with no figure on any
+    provider never gets one, so the rule is "the backlog grew since last time", not
+    "there is a backlog" — otherwise the same unfillable gaps are retried forever.
+    """
+    for kind, counter, label in FOLLOWUPS:
+        try:
+            missing = counter(conn)
+        except Exception as exc:
+            print(f"{kind}: could not count the backlog: {exc}", flush=True)
+            continue
+        if (missing and missing > seen.get(kind, -1)) or _retry_due(conn, kind):
+            seen[kind] = missing
+            print(f"{missing} {label} — queueing", flush=True)
+            jobs.create(conn, kind)
+            return True
+        seen[kind] = missing
+    return False
+
 
 def main() -> int:
     bootstrap.ensure(verbose=False)
@@ -242,25 +282,40 @@ def main() -> int:
     conn = _db()
     jobs.ensure_schema(conn)
     # A job marked running belongs to a process that no longer exists: this one has
-    # just started. Leaving it there blocks every future job of that kind.
+    # just started. Leaving it there blocks every future job of that kind, and these
+    # jobs are resumable by construction — each one recomputes what is still missing
+    # when it starts — so it goes back in the queue rather than being called failed.
     with conn:
         stale = conn.execute(
-            "UPDATE jobs SET status = 'failed', message = 'interrupted by a restart'"
-            " WHERE status = 'running'"
+            "UPDATE jobs SET status = 'queued', started_at = NULL WHERE status = 'running'"
         ).rowcount
     if stale:
-        print(f"{stale} interrupted job(s) marked failed", flush=True)
+        print(f"{stale} interrupted job(s) queued again", flush=True)
     print(f"worker ready — polling for jobs every {POLL_SECONDS}s", flush=True)
     last_check = 0.0
-    # The most gaps we have already asked for: a track with no data anywhere would
-    # otherwise be retried forever, and only *new* gaps should wake the job up.
-    asked_for = 0
-    asked_mb = 0
+    # The backlog this process last saw, per job kind. Seeded from the current
+    # index so a restart does not re-ask for gaps no provider can fill; a real
+    # change still shows up as growth on the next tick.
+    seen: dict[str, int] = {}
+    for kind, counter, _ in FOLLOWUPS:
+        try:
+            seen[kind] = counter(conn)
+        except Exception:
+            seen[kind] = 0
     while True:
-        job = jobs.claim(conn)
+        try:
+            job = jobs.claim(conn)
+        except sqlite3.Error as exc:
+            # A locked database must not take the worker down with it: the job it
+            # was about to claim is still queued, and the next pass will get it.
+            print(f"could not claim a job: {exc}", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
         if not job:
-            # Nothing queued: the only thing left to do on its own is notice that
-            # the library changed since the last rebuild.
+            # Nothing queued. Every REFRESH_CHECK_S, notice whether the library
+            # changed and whether the gaps that follow changed with it. Doing this
+            # on a timer instead of every poll keeps two full-table scans off the
+            # idle path.
             if time.time() - last_check > config.REFRESH_CHECK_S:
                 last_check = time.time()
                 try:
@@ -272,32 +327,8 @@ def main() -> int:
                     print(f"index stale ({why}) — queueing refresh", flush=True)
                     jobs.create(conn, "refresh")
                     continue
-                # New albums come in without a popularity figure; the job is batched
-                # and cheap, so pick them up here instead of making it a chore.
-
-            # MusicBrainz first: it decides the genre for anything without a file
-            # tag, so it should be in place before the next index rebuild.
-            try:
-                mbm = missing_musicbrainz(conn)
-            except Exception:
-                mbm = 0
-            if mbm > asked_mb:
-                asked_mb = mbm
-                print(f"{mbm} artist(s) without musicbrainz genres — queueing", flush=True)
-                jobs.create(conn, "musicbrainz")
-                continue
-
-            # Independent of the library check: new albums arrive without a
-            # popularity figure and the job is cheap, so fetch them as they appear.
-            try:
-                missing = missing_popularity(conn)
-            except Exception:
-                missing = 0
-            if missing > asked_for:
-                asked_for = missing
-                print(f"{missing} track(s) without popularity — queueing", flush=True)
-                jobs.create(conn, "popularity")
-                continue
+                if queue_followups(conn, seen):
+                    continue
             time.sleep(POLL_SECONDS)
             continue
         kind, job_id = job["kind"], job["id"]
@@ -309,6 +340,8 @@ def main() -> int:
         except Exception as exc:  # a bad job must not kill the worker
             jobs.fail(conn, job_id, str(exc))
             print(f"job {job_id} {kind}: FAILED {exc}", flush=True)
+        # The backlog just moved; let the next timer tick judge it.
+        last_check = 0.0
 
 
 if __name__ == "__main__":
