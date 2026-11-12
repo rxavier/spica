@@ -37,6 +37,12 @@ ALBUM_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 templates = Jinja2Templates(directory=str(PACKAGE / "templates"))
+# The sizes the templates ask the art route for: the hero wants the big one, a
+# 38-pixel ledger stamp does not. Two `templates.env.globals[...]` lines used to sit
+# in web.py beside this constructor and the split dropped them without a word, so
+# every <img> asked for `size=` and FastAPI answered 422 — no artwork anywhere.
+templates.env.globals["hero"] = COVER_SIZE
+templates.env.globals["thumb"] = THUMB_SIZE
 
 
 ART_DIR = config.STATE_DIR / "art"
@@ -57,6 +63,12 @@ def now_playing(st) -> dict:
     live = icecast.live_mount(icecast.listen_states(), st)
     state = live[1] if live else None
     raw = ((state.title if state else "") or "").strip()
+    if not raw:
+        # No ICY to read: Ogg streams carry their metadata inside the stream, so a
+        # FLAC-only station leaves the mount blank. The mixer stamps a file the
+        # instant a track starts, which is the freshest answer for every codec —
+        # the ledger below is the picker's view and lands on its own 20-second tick.
+        raw = mixer.now_tail(st)
     # A station's title should be "Artist - Title". A URI here means the mixer
     # announced the request rather than the track, and printing it would put a wall
     # of credentials under the cover.

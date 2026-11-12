@@ -13,7 +13,8 @@
      request nobody is there to read, and a hidden tab would otherwise keep the
      ledger and the title moving for hours. #}
   <div id="live" hx-get="/s/{{ station.id }}/live"
-       hx-trigger="every 5s [document.visibilityState === 'visible']" hx-swap="innerHTML">
+       hx-trigger="every 5s [document.visibilityState === 'visible'], refresh"
+       data-refresh-visible hx-swap="innerHTML">
     {% include "_live.html" %}
   </div>
 
@@ -55,7 +56,8 @@
   <div class="panes">
     <section class="pane" id="pane-history" data-src="/s/{{ station.id }}/history" data-target="hist">
       <div id="hist" hx-get="/s/{{ station.id }}/history"
-           hx-trigger="every 10s [document.visibilityState === 'visible']" hx-swap="innerHTML">
+           hx-trigger="every 10s [document.visibilityState === 'visible'], refresh"
+           data-refresh-visible hx-swap="innerHTML">
         {% include "_history.html" %}
       </div>
     </section>
