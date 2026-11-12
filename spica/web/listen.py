@@ -50,16 +50,18 @@ async def index(request: Request):
 @router.get("/s/{station_id}", response_class=HTMLResponse)
 async def station_page(request: Request, station_id: str):
     st = station_or_404(station_id)
-    return templates.TemplateResponse(request, "station.html", station_context(st))
+    # station_context reads the ledger, the index and the mixer; as a sync call in an
+    # async handler that is the whole event loop waiting, page poll and relay included.
+    context = await asyncio.to_thread(station_context, st)
+    return templates.TemplateResponse(request, "station.html", context)
 
 
 @router.get("/s/{station_id}/body", response_class=HTMLResponse)
 async def station_body(request: Request, station_id: str):
     """Just the station, for the bar at the top to swap without a page load."""
     st = station_or_404(station_id)
-    return templates.TemplateResponse(
-        request, "_station_body.html", station_context(st)
-    )
+    context = await asyncio.to_thread(station_context, st)
+    return templates.TemplateResponse(request, "_station_body.html", context)
 
 
 @router.get("/s/{station_id}/live", response_class=HTMLResponse)
@@ -68,7 +70,8 @@ async def station_live(request: Request, station_id: str):
     st = station_or_404(station_id)
     # One reading, and only what the fragment renders: the ledger has its own
     # endpoint, and this used to build history and the request list as well.
-    return templates.TemplateResponse(request, "_live.html", {"now": now_playing(st)})
+    now = await asyncio.to_thread(now_playing, st)
+    return templates.TemplateResponse(request, "_live.html", {"now": now})
 
 
 @router.post("/s/{station_id}/hear", status_code=204)
