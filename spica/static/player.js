@@ -5,8 +5,9 @@
   const stream = document.getElementById("stream");
   const statik = document.getElementById("static");
 
-  let ctx = null, analyser = null, wave = null, raf = 0, wanted = false, busy = false;
+  let ctx = null, analyser = null, wave = null, raf = 0, wanted = false;
   let current = null;              // the station currently loaded
+  let playing = false;             // on air and wanted — kept here, not in the DOM
   let attempt = 0;                 // a newer listen() cancels an older one
   let level = 0;                   // smoothed 0..1 for the arc
 
@@ -164,8 +165,11 @@
     beat = setInterval(ping, 20000);
   }
 
+  // Playback is the audio element's own state, kept in a variable: the play button
+  // is part of the panel, and the panel is replaced whenever htmx redraws it, so a
+  // class on that button said "not playing" the moment a station was switched.
   function isPlaying() {
-    return playerbar()?.querySelector(".play")?.classList.contains("is-playing") ?? false;
+    return playing;
   }
 
   async function join(src) {
@@ -186,7 +190,6 @@
     const bar = playerbar();
     if (!bar) return;
     const mine = ++attempt;
-    busy = true;
     wanted = true;
     const { start, state: stateUrl, station } = bar.dataset;
     // Through the relay, so the picker can tell a browser from a VLC. A station
@@ -204,7 +207,6 @@
       if (mine !== attempt) return;
       if (!(await join(src))) setPill("off air");
       else startBeat(station);
-      busy = false;
       return;
     }
 
@@ -217,19 +219,18 @@
       if (mine !== attempt) return;
       if (await isLive(stateUrl + streamQuery())) {
         if (mine !== attempt) return;
-        if (await join(src)) { startBeat(station); busy = false; return; }
+        if (await join(src)) { startBeat(station); return; }
         break;
       }
     }
     if (mine !== attempt) return;
     statik.pause();
     setPill("off air");
-    busy = false;
   }
 
   function stop() {
     attempt++;
-    busy = false;
+    playing = false;
     wanted = false;
     stopBeat();
     statik.pause();
@@ -361,6 +362,7 @@
   }
 
   stream.addEventListener("playing", () => {
+    playing = true;
     setPill("live", "live");
     const fade = setInterval(() => {
       statik.volume = Math.max(0, statik.volume - 0.1);
@@ -372,14 +374,16 @@
     }, 45);
     animate();
   });
-  stream.addEventListener("pause", () => { setPill("off air"); stopAnimation(); });
+  stream.addEventListener("pause", () => { playing = false; setPill("off air"); stopAnimation(); });
   stream.addEventListener("ended", () => {
+    playing = false;
     setPill("press play");
     stopAnimation();
     stopBeat();  // nothing is being heard any more, so stop claiming otherwise
   });
   stream.addEventListener("error", () => {
     if (!wanted) return;
+    playing = false;
     statik.pause();
     setPill("off air");
     stopAnimation();
@@ -390,10 +394,6 @@
 
   window.initPlayer = init;
   document.body.addEventListener("htmx:afterSettle", init);
-  document.addEventListener("pointerdown", () => {
-    const bar = playerbar();
-    if (wanted && bar && !isPlaying() && !busy) listen();
-  }, { once: true, capture: true });
 
   init();
 })();

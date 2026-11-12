@@ -55,8 +55,11 @@
         audio.style.width = "100%";
         audio.style.margin = "1rem 0";
         bar.replaceWith(audio);
-        fetch("/s/" + id + "/start", { method: "POST" }).catch(() => {});
-        audio.src = "/" + id + ".mp3";
+        // The relay opens the mount if it is closed, so this is the same URL the
+        // real player uses. A bare /<station>.mp3 answers 404 on this port: those
+        // URLs belong to Icecast, which is a different port and only serves a mount
+        // while somebody already has it open.
+        audio.src = "/listen/" + id;
       }, 3000);
     });
   </script>
