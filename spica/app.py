@@ -370,19 +370,27 @@ async def render_liq() -> dict:
 
 @app.post("/enrich")
 async def enrich_ids(limit: int = 0) -> dict:
-    """Fill artist MBIDs: Navidrome's columns first, MusicBrainz for the rest."""
+    """Fill artist MBIDs from Navidrome's own artist records, then MusicBrainz."""
     from . import enrich as en
 
     def _run() -> dict:
         conn = lib().conn
-        seeded = 0
-        for row in conn.execute(
-            """SELECT artist, MAX(mbz_artist) AS mbid FROM tracks
-               WHERE artist != '' AND mbz_artist != '' GROUP BY artist"""
-        ):
-            if not en.cached_mbid(conn, row["artist"]):
-                en.remember_mbid(conn, row["artist"], row["mbid"], "navidrome")
-                seeded += 1
+        outstanding = conn.execute(
+            """SELECT t.artist AS artist, MIN(t.artist_id) AS artist_id
+               FROM tracks t LEFT JOIN artist_mbids a ON a.name = t.artist
+               WHERE a.name IS NULL AND t.artist != '' AND t.artist_id != ''
+               GROUP BY t.artist"""
+        ).fetchall()
+        if limit:
+            outstanding = outstanding[:limit]
+        # Navidrome knows the artist it indexed, so ask it before asking anyone
+        # else: one call per artist, and no search that can land on a namesake.
+        resolved = 0
+        for row in outstanding:
+            mbid = en.navidrome_artist_mbid(row["artist_id"])
+            if mbid:
+                en.remember_mbid(conn, row["artist"], mbid, "navidrome")
+                resolved += 1
         todo = conn.execute(
             """SELECT t.artist AS artist, MAX(t.mbz_album) AS album
                FROM tracks t LEFT JOIN artist_mbids a ON a.name = t.artist
@@ -397,7 +405,7 @@ async def enrich_ids(limit: int = 0) -> dict:
             if mbid:
                 en.remember_mbid(conn, row["artist"], mbid, "musicbrainz-release")
                 ok += 1
-        return {"seeded_from_navidrome": seeded, "musicbrainz_resolved": ok, "requested": len(todo)}
+        return {"from_navidrome": resolved, "musicbrainz_resolved": ok, "requested": len(todo)}
 
     return await asyncio.to_thread(_run)
 
