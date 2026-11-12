@@ -16,7 +16,7 @@ import secrets
 import sqlite3
 import time
 
-from . import config, navidrome
+from . import config, navidrome, subsonic
 
 ARTIST_WINDOW = 12
 
@@ -98,23 +98,53 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
     return out
 
 
-def _rotate_after(st: config.Station, marker: str) -> bool:
-    """Move the head of the pool to just past `marker`. True if anything moved."""
+def _read_pool(st: config.Station) -> list[str]:
     try:
-        lines = [line for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [line for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     except FileNotFoundError:
-        return False
+        return []
+
+
+def _index_of(lines: list[str], track_id: str) -> int | None:
+    """Where a track sits in the pool. Compares whole ids, not prefixes: Navidrome
+    ids vary in length, so `id=abc` was matching `id=abcd` and rotating the wrong way."""
+    for i, line in enumerate(lines):
+        if subsonic.song_id(line) == track_id:
+            return i
+    return None
+
+
+def _rewrite(st: config.Station, lines: list[str]) -> None:
+    tmp = st.pool_file.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(st.pool_file)
+
+
+def _rotate_after(st: config.Station, track_id: str) -> bool:
+    """Move the head of the pool to just past a track. True if anything moved."""
+    lines = _read_pool(st)
     if len(lines) < 2:
         return False
-    at = next((i for i, line in enumerate(lines) if marker in line), None)
+    at = _index_of(lines, track_id)
     if at is None:
         return False
     rotated = lines[at + 1:] + lines[:at + 1]
     if rotated == lines:
         return False
-    tmp = st.pool_file.with_suffix(".tmp")
-    tmp.write_text("\n".join(rotated) + "\n", encoding="utf-8")
-    tmp.replace(st.pool_file)
+    _rewrite(st, rotated)
+    return True
+
+
+def _rotate_to(st: config.Station, track_id: str) -> bool:
+    """Move a track to the head of the pool. True if anything moved."""
+    lines = _read_pool(st)
+    if len(lines) < 2:
+        return False
+    at = _index_of(lines, track_id)
+    if not at:
+        return False
+    rotated = lines[at:] + lines[:at]
+    _rewrite(st, rotated)
     return True
 
 
@@ -128,10 +158,23 @@ def skip_past(stations: list[config.Station], track_id: str, log=print) -> None:
     """
     if not track_id:
         return
-    marker = f"id={track_id}"
     for st in stations:
-        if _rotate_after(st, marker):
+        if _rotate_after(st, track_id):
             log(f"pool {st.id}: skipped past {track_id}")
+
+
+def rewind_to(st: config.Station, track_id: str, log=print) -> bool:
+    """Put a track back at the head of the pool, after its slot was taken from it.
+
+    A request or a forced pick displaces whatever was waiting. That track never
+    aired, so it should not be a rotation away — it should be next.
+    """
+    if not track_id:
+        return False
+    if _rotate_to(st, track_id):
+        log(f"pool {st.id}: {track_id} is back at the head")
+        return True
+    return False
 
 
 def resume_after_last_played(stations: list[config.Station], last_played, log=print) -> None:
@@ -146,7 +189,7 @@ def resume_after_last_played(stations: list[config.Station], last_played, log=pr
         last = last_played(st)
         if not last or not last.get("id"):
             continue
-        if _rotate_after(st, f"id={last['id']}"):
+        if _rotate_after(st, last["id"]):
             log(f"pool {st.id}: resumed after {last.get('artist')} — {last.get('title')}")
 
 

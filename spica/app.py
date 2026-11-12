@@ -90,7 +90,14 @@ async def loop() -> None:
                 if p is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": "pick failed — playlist continues"}
                     continue
-                queue.push(st, p.track.uri, p.track.as_line())
+                if not queue.push(st, p.track.uri, p.track.as_line()):
+                    # Someone else filled the slot while the DJ was thinking — a
+                    # listener request, usually. Their track airs; this pick is
+                    # dropped rather than replacing it, and is not logged as played.
+                    LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n,
+                                   "why": "one already waiting — pick dropped"}
+                    log.info("[%s] dropped a pick: %s is already waiting", st.id, queue.queued(st))
+                    continue
                 queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                                   presence=presence.reason(st.id, n))
                 # The pool is the fallback whenever the queue runs dry; push this pick
@@ -269,8 +276,14 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     p = await asyncio.to_thread(picker.pick_next, lib(), st, text, queue.recent_ids(st))
     if p is None:
         return None
-    queue.push(st, p.track.uri, p.track.as_line())
-    await asyncio.to_thread(pool.skip_past, [st], p.track.id)
+    # A person asked for this, so it goes next even if something was already
+    # waiting. What it displaced never aired, so it returns to the top of the pool
+    # instead of being a full rotation away — the DJ's pick is delayed, not lost.
+    displaced = queue.replace(st, p.track.uri, p.track.as_line())
+    if displaced:
+        await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
+    else:
+        await asyncio.to_thread(pool.skip_past, [st], p.track.id)
     states = await asyncio.to_thread(icecast.listen_states)
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
@@ -319,8 +332,11 @@ async def force_pick(station_id: str) -> dict:
     p = await asyncio.to_thread(picker.pick_next, lib(), st, None, queue.recent_ids(st))
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
-    queue.push(st, p.track.uri, p.track.as_line())
-    await asyncio.to_thread(pool.skip_past, [st], p.track.id)
+    displaced = queue.replace(st, p.track.uri, p.track.as_line())
+    if displaced:
+        await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
+    else:
+        await asyncio.to_thread(pool.skip_past, [st], p.track.id)
     states = await asyncio.to_thread(icecast.listen_states)
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,

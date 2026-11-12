@@ -563,8 +563,8 @@ page uses.
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
 | GET | `/requests/<station>` | requests still in force, with age and remaining songs |
-| POST | `/pick/<station>` | force a DJ pick now |
-| POST | `/request` | `{"text", "station", "songs"}`: record a request and pick |
+| POST | `/pick/<station>` | force a DJ pick now; it takes the waiting slot and the pick it displaces goes to the top of the pool |
+| POST | `/request` | `{"text", "station", "songs"}`: record a request and play it next, displacing a waiting pick the same way |
 | POST | `/rebuild` | re-index Navidrome and rewrite every pool |
 | POST | `/liq` | render `spica.liq` from `stations.json` |
 | POST | `/enrich?limit=N` | fill artist MBIDs, 0 for all |
