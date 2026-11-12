@@ -88,7 +88,10 @@ async def loop() -> None:
                     # telnet can never stack picks again.
                     if time.time() - LAST.get(st.id, {}).get("pushed", 0.0) < config.PICK_COOLDOWN:
                         continue
-                elif ahead > config.KEEP_AHEAD:
+                elif ahead >= config.KEEP_AHEAD:
+                    # One waiting means one waiting: this used to be `>`, so the
+                    # loop stocked a second pick while the first was still queued,
+                    # and both were chosen blind to each other.
                     continue
                 p = await asyncio.to_thread(
                     picker.pick_next, lib(), st, None, queue.recent_ids(st)

@@ -34,7 +34,9 @@ def pick_next(
     llm = config.llm_settings()
     if not llm["key"] or not llm["base"]:
         return None
-    avoid = avoid or set()
+    # Nothing that is already airing or queued can air again — that is the one rule
+    # about repeats the code enforces. Artist and album spacing is the DJ's call.
+    avoid = (avoid or set()) | already_airing(lib, station)
     # The pick never plays next: whatever is already waiting goes first, and only
     # then the choice. So the brief has to describe that timeline — what is on air,
     # what is already queued, and which track will end right before the pick.
@@ -130,7 +132,8 @@ def pick_next(
                 {
                     "role": "user",
                     "content": "That reply could not be used. " + REPLY_CONTRACT
-                    + " Pick a track that is not in the recent list.",
+                    + " Pick a track that is not in the recent list and is not already "
+                    "playing or queued.",
                 }
             )
             retry = chat(messages, TOOLS, no_tools=True)
@@ -193,3 +196,16 @@ def parse_final(
     if not lib.on_station(station, track_id):
         return None
     return Pick(track=track, why=str(data.get("why") or "")[:200])
+
+
+def already_airing(lib: Library, station: config.Station) -> set[str]:
+    """Ids that cannot air again right now: the track on air, and what is queued.
+
+    Only ids. Whether the set wants another song by the same artist, or a second
+    one off the same album, is a judgement the DJ is better placed to make than a
+    set comparison — a listener asking for two songs off one album is a good request,
+    not a mistake, and a rule enforced here would refuse it.
+    """
+    ids = {entry.get("id") for entry in queue.recent(station, 1) if entry.get("id")}
+    ids |= set(mixer.queued_ids(station))
+    return ids
