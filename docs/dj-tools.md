@@ -5,7 +5,7 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one pick
 
-One pick is one `POST {base}/chat/completions` with six function schemas,
+One pick is one `POST {base}/chat/completions` with seven function schemas,
 `temperature: 0.7`, `max_tokens: 700`, a 90-second timeout, and
 
 - `tool_choice: "required"` on round 0,
@@ -55,7 +55,7 @@ system prompt adds one line taking the model further back than the brief does:
 > For anything further back — the last half hour, what you played before the current
 > record — call history."
 
-## The six tools
+## The seven tools
 
 Every tool result passes the station matcher first, so the toolbox is *what this station
 may play*, not *your library*. An empty list is never `[]`; it is
@@ -89,16 +89,24 @@ so `songs_ago` counts real advances.
 
 `{query, limit?: 20}`
 
-`LIKE %query%` across title, artist and album, over-fetching `limit×40` rows so the
-station filter has something left to keep.
+`LIKE %query%` across title, artist, album and the record's artist, over-fetching
+`limit×40` rows so the station filter has something left to keep. Names are compared on
+a folded key — apostrophes, accents, case — so `L'Impératrice` and `L’Impératrice` are
+the same query.
 
 ### `filter` — a kind of thing, not a name
 
 `{genre?, year_from?, year_to?, limit?: 30}`
 
-Year bounds in SQL, `ORDER BY RANDOM()`, genre matched loosely on purpose: `Punk` also
-brings `Punk Rock`. Results are a draw, not a ranking — call it twice for a different
-sample.
+**No arguments is the widest view of the station**: it samples everything the station
+can play, which is the right first move when nothing specific is in mind. Year bounds in
+SQL, `ORDER BY RANDOM()`, genre matched loosely on purpose: `Punk` also brings
+`Punk Rock`.
+
+It answers with shape, not just rows — `{matching, offset, returned, results}` — so the
+model can tell a 600-track slice from a 6-track one, and page through it with `offset`.
+No page carries more than three tracks by one artist, which is what stops a label with
+one big name in it from filling the whole answer.
 
 Note the asymmetry: station membership is exact label-set matching, while this tool
 refines. Deliberate — a listener asking for "punk" shouldn't get nothing because the
@@ -109,6 +117,8 @@ label says `Punk Rock`.
 `{artist?, album?, limit?: 25}`
 
 An artist's holdings grouped into albums, or one album's tracklist in running order.
+The artist is the record's — `catalogue {'artist': 'L’Impératrice'}` returns all 34
+tracks, guests included, and the lookup folds apostrophes and accents.
 Each track carries `track_no`, `played` (in the last 40) and `queued`, so the model can
 sequence a record instead of picking blind. `played_recently` summarises the lot.
 
@@ -123,6 +133,19 @@ case-insensitively and come back spelled the way the library spells them.
 Cached similar artists → ListenBrainz by MBID → Last.fm by name → shared local genre.
 Returns `{source, artists, tracks, owned}`; `owned: false` means the names are the
 answer, because the station holds none of their records.
+
+### `browse` — who is in the room
+
+`{dimension?: "artists" | "labels" | "decades", limit?: 40, offset?: 0}`
+
+The same shape as `station_map` but complete and paged: every artist with its track
+count, every label, every decade. Answers `{dimension, total, offset, returned, items,
+next_offset}`.
+
+`station_map` gives the top ten artists out of however many the station holds — on this
+library, ten out of sixty — and the difference matters: an artist the model was about to
+repeat looks like an obvious choice when it is one of ten visible names and a poor one
+when it is one act in a list of sixty.
 
 ### `station_map` — what the station is made of
 
@@ -155,5 +178,5 @@ spanned a millennium.
   a description.
 - **Genre matching exists twice** (exact for stations, loose for `filter`). Unifying
   them is still an open question, not an oversight.
-- **Schema cost** is roughly 600 tokens per call for the six definitions. Measure before
+- **Schema cost** is roughly 700 tokens per call for the seven definitions. Measure before
   adding a seventh.

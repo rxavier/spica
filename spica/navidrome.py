@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import unicodedata
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -28,7 +29,7 @@ class Track:
     id: str
     uri: str
     title: str
-    artist: str
+    artist: str          # the credit on this track
     album: str
     album_id: str
     track_no: int
@@ -37,9 +38,24 @@ class Track:
     duration: int
     mbz_album: str = ""
     mbz_recording: str = ""
+    album_artist: str = ""   # the record's artist: the identity everything groups by
 
     def as_line(self) -> str:
         return f"{self.title} — {self.artist} ({self.year or '?'})"
+
+
+def name_key(name: str) -> str:
+    """A name reduced to what it says, not how it was typed.
+
+    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one act; a model typing
+    an ASCII apostrophe used to get nothing back from a library that stores the
+    typographic one.
+    """
+    text = unicodedata.normalize("NFKD", str(name or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    for quote in "’‘`´":
+        text = text.replace(quote, "'")
+    return " ".join(text.casefold().split())
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -73,7 +89,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
             fetched_at INTEGER,
             mbz_album TEXT DEFAULT '',
             mbz_recording TEXT DEFAULT '',
-            artist_id TEXT DEFAULT ''
+            artist_id TEXT DEFAULT '',
+            album_artist TEXT DEFAULT '',
+            album_artist_id TEXT DEFAULT '',
+            album_artist_key TEXT DEFAULT ''
         )
         """
     )
@@ -83,9 +102,20 @@ def connect(db_path: Path) -> sqlite3.Connection:
     # so manual labels and cached provider answers survive the upgrade.
     if "artist_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}:
         conn.execute("ALTER TABLE tracks ADD COLUMN artist_id TEXT DEFAULT ''")
+    # The record's artist, which is the identity everything groups by: a guest on a
+    # track ("L’Impératrice & Fabiana Martone") is a credit, not a different act, and
+    # counting by the track artist split one band across five names.
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}
+    if "album_artist" not in columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist TEXT DEFAULT ''")
+    if "album_artist_id" not in columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_id TEXT DEFAULT ''")
+    if "album_artist_key" not in columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_key TEXT DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
+    conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_artist ON tracks(album_artist)")
     # now_playing() looks a track's album up by album_id on every poll, and the
     # ledger once per row; without this it is a scan of the whole library each time.
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_id ON tracks(album_id)")
@@ -254,10 +284,24 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
             if page_error:
                 log(f"album {album.get('name')!r}: {exc}")
             continue
+        album_artists = album.get("albumArtists") or []
         for song in songs:
             track_id = str(song.get("id") or "")
             if not track_id:
                 continue
+            # The record's artist, always, and the track credit only when the record
+            # has none: that is what makes "L’Impératrice & Fabiana Martone" one act
+            # with the rest of the album instead of a sixth spelling of the band.
+            own = (song.get("albumArtists") or album_artists or [{}])[0] or {}
+            album_artist = str(
+                own.get("name")
+                or song.get("displayAlbumArtist")
+                or album.get("displayAlbumArtist")
+                or song.get("artist")
+                or album.get("artist")
+                or ""
+            )
+            album_artist_id = str(own.get("id") or song.get("artistId") or "")
             canon: list[str] = []
             seen_raw: list[str] = []
             for raw in subsonic.song_genres(song):
@@ -284,6 +328,9 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
                     str(album.get("musicBrainzId") or ""),
                     str(song.get("musicBrainzId") or ""),
                     str(song.get("artistId") or album.get("artistId") or ""),
+                    album_artist,
+                    album_artist_id,
+                    name_key(album_artist),
                 )
             )
             native[track_id] = canon
@@ -301,8 +348,9 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
         conn.executemany(
             """INSERT INTO tracks
                  (id,uri,title,artist,album,album_id,track_no,year,genre,duration,fetched_at,
-                  mbz_album,mbz_recording,artist_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  mbz_album,mbz_recording,artist_id,album_artist,album_artist_id,
+                  album_artist_key)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
         labels.extend(_inherited_labels(meta, native))
@@ -467,8 +515,13 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
             return False
         if st.year_to and year and year > st.year_to:
             return False
-        artist = (row["artist"] or "").casefold()
-        if unwanted and artist in unwanted:
+        # Both names count as "this artist": a station that includes the act should
+        # catch its tracks with guests, and one that excludes it should not let them
+        # in through the credit.
+        keys = row.keys()
+        record_artist = (row["album_artist"] if "album_artist" in keys else "") or ""
+        names = {(row["artist"] or "").casefold(), record_artist.casefold()} - {""}
+        if unwanted and names & unwanted:
             return False
         # Genres and artists are both ways *in*: a track plays if it matches a
         # ticked genre OR belongs to a named artist. An artist list therefore
@@ -476,7 +529,7 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
         if include or wanted:
             labels = {genre_lib.fold(label) for label in by_track.get(row["id"], ())}
             by_genre = bool(include) and bool(labels & include)
-            by_artist = bool(wanted) and artist in wanted
+            by_artist = bool(wanted) and bool(names & wanted)
             if not (by_genre or by_artist):
                 return False
         if exclude:

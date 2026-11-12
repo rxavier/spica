@@ -115,10 +115,12 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
   tracks. Two rebuilds of the same library do not produce the same order, so the
   playlist on disk is the record of what a station was playing.
-- **LLM picks with real tools.** Six of them: `history` (what the station just played,
-  with how many songs ago), `search`, `filter` (genre and years), `catalogue` (an
-  artist's holdings or one album in running order), `similar`, and `station_map` (the
-  genres, decades and artists the station is actually made of). Every result is filtered
+- **LLM picks with real tools.** Seven of them: `history` (what the station just played,
+  with how many songs ago), `search`, `filter` (a draw from the station, narrowed by
+  genre and years, with totals and paging), `catalogue` (an artist's holdings or one
+  album in running order), `similar`, `browse` (every artist, label and decade the
+  station holds, paged), and `station_map` (the genres, decades and artists it is
+  actually made of, at a glance). Every result is filtered
   through the station's rules, so a narrow station cannot return something outside its
   palette. Track ids exist only inside tool results, so a pick is always grounded in a
   lookup rather than a remembered name. The toolbox and its contract are in
@@ -241,7 +243,8 @@ constraint.
   for `Alternative` does not sweep up `Alternative Metal` because the word appears;
   `Alternative` is not a label, and the picker will not store it.
 - `include_artists` is a second way *in*, not a filter on the genres: a track plays if it
-  carries an included label **or** is by an included artist. That is how a station
+  carries an included label **or** is by an included artist — the record's artist, so
+  naming an act also catches its tracks with guests. That is how a station
   reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
   Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
   make a genre station.
@@ -370,6 +373,14 @@ library spells it). `GET /genres` reports both.
 Navidrome's Subsonic API. The index pages `getAlbumList2` (albums) and `getAlbum`
 (songs): for a 4,832-track library that is one page of the album list plus one call per
 album — 486 calls, about eight seconds.
+
+Every track keeps two names: `artist`, the credit on the recording, and
+`album_artist`, the artist of the record it sits on. The second is the identity
+everything groups by — counts, `catalogue`, station artist rules, the pool's
+"don't repeat an artist for twelve tracks" — because a guest turns one act into two
+("L’Impératrice & Fabiana Martone" is L’Impératrice), and because names are typed,
+not copied: lookups compare a folded key, so `L'Impératrice` with an ASCII apostrophe
+finds the typographic one.
 
 This is deliberate, and the alternative was tried: reading Navidrome's SQLite database
 directly works, gives exact file paths and needs no credentials, but it couples this

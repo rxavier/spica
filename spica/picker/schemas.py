@@ -66,10 +66,14 @@ TOOLS = [
         "function": {
             "name": "filter",
             "description": (
-                "A random sample of what this station can play, narrowed by genre label and year "
-                "bounds. Genre matching is deliberately loose: 'Punk' also brings 'Punk Rock'. "
-                "Results are not ranked — call it twice for a different draw. Use it to explore, "
-                "not to find one specific track."
+                "A draw from everything this station can play. Call it with no arguments "
+                "at all to see the station itself — that is the widest look you get, and the "
+                "right first move when nothing in particular is in mind. Narrow it by genre "
+                "label or years when you want a corner of it; genre matching is deliberately "
+                "loose, so 'Punk' also brings 'Punk Rock'. It answers with how many tracks "
+                "matched and how many it returned, so you can tell a 600-track slice from a "
+                "6-track one. Page a long slice with offset. Never more than three tracks by "
+                "one artist per page."
             ),
             "parameters": {
                 "type": "object",
@@ -78,6 +82,7 @@ TOOLS = [
                     "year_from": {"type": "integer"},
                     "year_to": {"type": "integer"},
                     "limit": {"type": "integer", "default": 30},
+                    "offset": {"type": "integer", "default": 0},
                 },
             },
         },
@@ -122,6 +127,31 @@ TOOLS = [
                     "limit": {"type": "integer", "default": 12},
                 },
                 "required": ["artist"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse",
+            "description": (
+                "The station's own shape, paged: every artist with how many tracks each, or "
+                "every genre label, or every decade. station_map answers with the top few of "
+                "each and no ids; this answers with all of them and still no ids, so you can "
+                "see who is in the room before choosing — and see that an artist you were "
+                "about to repeat is one of eighty, not one of three. Page with next_offset."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dimension": {
+                        "type": "string",
+                        "enum": ["artists", "labels", "decades"],
+                        "description": "Which list to walk. Artists by default.",
+                    },
+                    "limit": {"type": "integer", "default": 40},
+                    "offset": {"type": "integer", "default": 0},
+                },
             },
         },
     },
