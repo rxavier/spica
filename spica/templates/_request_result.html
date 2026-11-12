@@ -1,10 +1,6 @@
 <div class="notice">
   {{ message }}
 </div>
-{% if requests %}
-<ul class="plain" style="margin-top:.5rem">
-  {% for r in requests %}
-    <li><span>“{{ r.text }}”</span></li>
-  {% endfor %}
-</ul>
-{% endif %}
+{# The list beside the form is not polled — a request is somebody's own action, not
+   a tick — so the answer carries the fresh list with it. #}
+<div id="reqs" hx-swap-oob="innerHTML">{% include "_request_list.html" %}</div>
