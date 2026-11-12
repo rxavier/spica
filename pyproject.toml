@@ -1,6 +1,6 @@
 [project]
 name = "spica"
-version = "0.3.1"
+version = "0.3.2"
 description = "Spica: multi-station internet radio from a local library, with a leather-and-brass face"
 requires-python = ">=3.11"
 dependencies = [
