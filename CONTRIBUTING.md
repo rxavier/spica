@@ -52,8 +52,8 @@ Tagging `main` publishes the image:
 
 ```sh
 git switch main && git pull
-git tag -a v0.1.1 -m "0.1.1"
-git push origin v0.1.1
+git tag -a v<version> -m "<version>"
+git push origin v<version>
 ```
 
 `.github/workflows/release.yml` builds `linux/amd64` and `linux/arm64` and pushes

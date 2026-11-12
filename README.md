@@ -43,8 +43,8 @@ Tuning in joins a track already in progress, the way radio works. Connecting als
 attaches the Icecast output to that same source, which is where the encoder starts —
 one MP3 encode per station, fanned out by Icecast to every listener.
 
-**The DJ only speaks to somebody.** Every few seconds the picker checks who is really
-listening and, for a station with an audience, asks the LLM to choose the next track;
+**The DJ only speaks to somebody.** Every twenty seconds the picker looks at who is
+really listening and, for a station with an audience, asks the LLM to choose the next track;
 the choice goes to `state/queue/<station>.txt`, Liquidsoap polls that file, pushes it
 into the station's request queue and deletes it. With nobody there, the station keeps
 walking its pool and the DJ is not called at all.
@@ -73,7 +73,8 @@ docker compose up -d
 Then open `http://localhost:8030`; the console is at `/admin`, with the password you put
 in `SPICA_ADMIN_PASSWORD`. The first run writes `config/icecast.xml`,
 `config/stations.json` and `config/spica.liq` and starts one station called
-**Everything** that plays the whole library, so there is nothing else to create.
+**Everything** (id `main`, so its stream is `/listen/main`) that plays the whole library,
+so there is nothing else to create.
 
 **Where the credentials go**, all of them in that one `.env` file next to
 `compose.yaml`, mode 600:
@@ -109,17 +110,19 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   See [Streams](#streams).
 - **Always on air, cheap when unheard.** The clock keeps decoding; the encoder only runs
   while a mount is open. See [Resources](#resources).
-- **Deterministic pools.** Sequencing is `blake2b(station, day, track_id)`, blended with
-  the station's popularity lean, then two constraints: no two tracks from one album
-  adjacent, no artist repeat within 12 placed tracks. A station has the same shape all
-  day and reshuffles tomorrow.
+- **Pools reshuffle on every rebuild.** Sequencing is a weighted random draw over the
+  station's rules — the popularity lean decides which tracks come sooner — then two
+  constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
+  tracks. Two rebuilds of the same library do not produce the same order, so the
+  playlist on disk is the record of what a station was playing.
 - **LLM picks with real tools.** Six of them: `history` (what the station just played,
   with how many songs ago), `search`, `filter` (genre and years), `catalogue` (an
   artist's holdings or one album in running order), `similar`, and `station_map` (the
   genres, decades and artists the station is actually made of). Every result is filtered
   through the station's rules, so a narrow station cannot return something outside its
   palette. Track ids exist only inside tool results, so a pick is always grounded in a
-  lookup rather than a remembered name.
+  lookup rather than a remembered name. The toolbox and its contract are in
+  [`docs/dj-tools.md`](docs/dj-tools.md).
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
   then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
   provider is required; a library with no ids and no API key still gets an answer.
@@ -173,7 +176,7 @@ Deliberate omissions, not backlog:
 
 ## Resources
 
-Measured on one host (8 cores), a 4,800-track library, two stations running:
+Measured on one host (8 cores), a 4,832-track library, two stations running:
 
 - **A station on air and unheard costs about 1.5–2% of one core.** That is decoding the
   next track from the library (mostly FLAC over the Navidrome API, resampled to 48 kHz),
@@ -184,13 +187,13 @@ Measured on one host (8 cores), a 4,800-track library, two stations running:
   one, because lossless at 48 kHz is roughly 700 kbit/s against MP3's 192.
 - **A listener costs about 0.07% on Icecast, 10 KB of memory and 192 kbit/s of
   bandwidth.** One encode per station serves every listener on it, so ten listeners cost
-the same as one.
+  the same as one.
 - **The whole stack idle** — picker, worker, Icecast and both station clocks — is about
   4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
   0.2%.
 
-For scale: `icecast.xml` allows 25 concurrent clients and 8 sources by default. Both are
-in the generated file, not compiled in.
+For scale: the generated `icecast.xml` allows 25 concurrent clients and 40 sources. Both
+are in the file, not compiled in.
 
 ## Layout
 
@@ -268,7 +271,7 @@ holding the URL.
 | codec | mount | encoder | cost |
 |---|---|---|---|
 | MP3 | `/<station>.mp3` | `%mp3(192, 48 kHz, stereo)` | ~12% of a core while listened to |
-| Opus | `/<station>.opus` | `%opus(128, 48 kHz, stereo)` | ~12% of a core, half the bits of MP3 |
+| Opus | `/<station>.opus` | `%opus(128, 48 kHz, stereo)` | ~12% of a core, two thirds of MP3's bits |
 | FLAC | `/<station>.flac` | `%ogg(%flac(44.1 kHz, stereo))` | ~12% of a core, ~700 kbit/s per listener |
 
 FLAC goes out as Ogg FLAC — bare FLAC over Icecast gives players no framing to resync
@@ -362,7 +365,8 @@ library spells it). `GET /genres` reports both.
 ## Where the library comes from
 
 Navidrome's Subsonic API. The index pages `getAlbumList2` (albums) and `getAlbum`
-(songs), which for a 4,500-track library is 448 calls and about five seconds.
+(songs): for a 4,832-track library that is one page of the album list plus one call per
+album — 486 calls, about eight seconds.
 
 This is deliberate, and the alternative was tried: reading Navidrome's SQLite database
 directly works, gives exact file paths and needs no credentials, but it couples this
@@ -400,8 +404,8 @@ under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
 ```
 
 Templates and `htmx.min.js` live in `spica/templates` and `spica/static`, so the
-container serves them with no build step. Now playing polls every five seconds; the
-ledger every ten; the job table every three.
+container serves them with no build step. Now playing polls every five seconds and the
+ledger every ten — both only while the tab is visible — and the job table every three.
 
 **The station page is a sleeve, not a dashboard.** The cover is the hero — large and
 centred — with the artist, title, listener count and the DJ's line under it, then the
@@ -540,7 +544,7 @@ itself keeps playing — which is why the relay exists. The rules for "nobody":
 
 | client | counts as listening | stops counting |
 |---|---|---|
-| this web player | while it heartbeats (every 20 s) and the audio is advancing | 60 s after the last beat, or ~40 s after the audio stops moving |
+| this web player | while it heartbeats (every 20 s) and the audio is advancing | 60 s after the last beat, or 45 s after the audio stops moving |
 | VLC / Sonos / Music Assistant via `/listen` | while it reads bytes | when it disconnects, or once its buffers fill after a pause |
 | anything straight on `/<station>.mp3` | while connected | when it disconnects |
 | a backgrounded browser tab | never | — |
@@ -589,14 +593,16 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.2.0` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.3.3` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
 | `ICECAST_ADMIN_PASSWORD` | Icecast's own `/admin` pages |
 | `SPICA_ADMIN_PASSWORD` | admin login for the web UI; empty disables admin writes |
 | `SPICA_HOSTNAME` | the host Icecast puts in its stream URLs |
+| `SPICA_LOCATION`, `SPICA_ADMIN_EMAIL` | the `<location>` and `<admin>` Icecast advertises |
 | `ICECAST_PORT`, `SPICA_PORT` | the two published ports (default `8000` audio, `8030` web) |
+| `HOST`, `PORT` | where the app binds inside the container (default `0.0.0.0:8030`) |
 | `NAVIDROME_URL` | Navidrome base URL as the containers reach it |
 | `NAVIDROME_USER`, `NAVIDROME_PASS` | a Navidrome account for the radio |
 | `LLM_BASE`, `LLM_KEY`, `LLM_MODEL` | defaults for the endpoint; the admin's settings page wins |
@@ -608,6 +614,13 @@ the keys, and that is the file to start from.
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
 | `ICECAST_OUTPUT_HOST`, `ICECAST_OUTPUT_PORT` | where the mixer publishes — separate from `ICECAST_URL` because the two containers see Icecast at different addresses |
 | `ICECAST_POLL_S` | how often the status page is read into the snapshot the page, `/status` and the DJ share (default `2`) |
+| `QUEUE_TARGET` | how far ahead of the mixer the picker keeps a listened-to station (default `1`) |
+| `POLL_S` | how often the picker looks at the mixer and the ledger (default `20`) |
+| `PICK_COOLDOWN` | seconds between DJ picks when Liquidsoap's control server cannot answer (default `240`) |
+| `KEEP_AHEAD` | requests left waiting while one plays (default `1`) |
+| `IDLE_STOP_S` | close a mount nobody is reading after this long; the station itself keeps playing (default `90`) |
+| `REFRESH_CHECK_S` | how often the worker compares the index with Navidrome's own count (default `900`) |
+| `SPICA_LIQ` | where the generated Liquidsoap script is written (default `config/spica.liq`) |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |
 | `SPICA_TZ` | the timezone the server falls back to when the browser cannot say (default `America/Montevideo`) |
 

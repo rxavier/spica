@@ -14,7 +14,7 @@ curl -o .env https://raw.githubusercontent.com/rxavier/spica/main/deploy/.env.ex
 
 ## 2. Fill in `.env`
 
-This file is the only place credentials live, and it sits next to `compose.yaml`, so
+This file is where your credentials live, and it sits next to `compose.yaml`, so
 `chmod 600 .env`. Three things must change, and everything else has a working default:
 
 ```sh
@@ -25,6 +25,10 @@ openssl rand -hex 16   # SPICA_ADMIN_PASSWORD
 ```
 
 Then set `NAVIDROME_URL`, `NAVIDROME_USER` and `NAVIDROME_PASS`, and `TZ`.
+
+`.env` is not quite the only place a credential lives: the radio's Subsonic token is
+derived from a salt kept in `state/` and never expires, so `state/` is worth as much as
+`.env` — see the credentials list in the main README.
 
 `SPICA_HOSTNAME` matters if you will listen from another machine: it is the host
 Icecast puts in its stream URLs.
@@ -37,8 +41,8 @@ docker compose logs -f picker
 ```
 
 The first run writes `config/icecast.xml`, `config/stations.json` and
-`config/spica.liq`, and starts one station called **Everything** that plays the
-whole library. Nothing else is required.
+`config/spica.liq`, and starts one station called **Everything** (id `main`) that plays
+the whole library. Nothing else is required.
 
 Open `http://localhost:8030` for the radio, `http://localhost:8030/admin` for the
 console (password: `SPICA_ADMIN_PASSWORD`), and give `http://localhost:8030/listen/main`
@@ -69,18 +73,18 @@ In the admin:
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.2.1`. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.3.3`. To build from source instead,
 replace the `image:` line in each of `init`, `picker` and `worker` with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.2.1
+    build: https://github.com/rxavier/spica.git#v0.3.3
 ```
 
 or, with a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.2.1 .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.3.3 .
 ```
 
 ## Behind a reverse proxy
