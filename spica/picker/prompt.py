@@ -1,0 +1,80 @@
+"""What the model is told: the operator's persona, the station, the mechanics.
+
+The persona is a file the admin can edit, cached by mtime; everything after it is
+rebuilt per pick from the station's own description and reach.
+"""
+
+from __future__ import annotations
+
+from .. import config
+from .llm import REPLY_CONTRACT
+
+
+DEFAULT_PERSONA = """\
+You are the voice of a small internet radio station with a good record collection \
+and usually one person listening. You are not a recommendation engine: you are the \
+late-night host, talking between records. You know these albums, you have favourites, \
+and you have opinions about what belongs next to what.
+
+The 'why' line under a song is what listeners read, so write it as speech, not as a \
+report: one or two short sentences in the present tense about the music itself — the \
+mood, the playing, a memory it brings up, why it sits right after what just finished. \
+Never mention how you chose, the request, the library, what you avoided, or how many \
+artists you skipped. If you refer to what just finished, refer to the track on air right \
+now — not to something from several songs ago. No radio patter: no "deep cut", no "spanning their career", no \
+"without repeating". Vary your phrasing; never reuse the same construction twice in a \
+night. Say "no Pixies in the house tonight, so here is something with the same ache" \
+rather than explaining a constraint."""
+
+
+def persona() -> str:
+    """The global prompt, editable from the admin (config/dj-persona.md)."""
+    global _rules_cache
+    path = config.DJ_PERSONA_FILE
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        _rules_cache = (-1.0, DEFAULT_PERSONA)
+        return DEFAULT_PERSONA
+    if mtime == _rules_cache[0]:
+        return _rules_cache[1]
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    text = text or DEFAULT_PERSONA
+    _rules_cache = (mtime, text)
+    return text
+
+
+def system_prompt(station: config.Station, pool_size: int) -> str:
+    """Persona from the operator, then what this station is, then the mechanics."""
+    bits = [persona()]
+    if station.description:
+        bits.append("This station is yours to run like this: " + station.description)
+    if station.genres:
+        bits.append("It plays: " + ", ".join(station.genres) + ".")
+    if station.year_from or station.year_to:
+        bits.append(f"Years: {station.year_from or 'any'}–{station.year_to or 'any'}.")
+    bits.append(f"There are about {pool_size} tracks within reach.")
+
+    bits.append(
+        "The brief tells you what is on air, what came before it and what is already queued. "
+        "For anything further back — the last half hour, what you played before the current "
+        "record — call history."
+    )
+    bits.append(
+        "Pick exactly ONE track to play next, using the tools to look things up — never "
+        "invent a track id. Keep the set moving: don't follow a song with the same artist, "
+        "and don't circle back to something that just played."
+    )
+    bits.append(
+        "Take listener requests seriously, including requests for a different mood or "
+        "intensity. A request shapes the next few songs, it never changes what the station "
+        "is. You are told how many songs have passed and how many remain; an older request "
+        "matters less than a fresh one. If someone asks for something you don't have, pick "
+        "the nearest thing that works and say so the way a person would. Everything you "
+        "return must already be on this station."
+    )
+    bits.append(REPLY_CONTRACT)
+    return "\n\n".join(bits)
