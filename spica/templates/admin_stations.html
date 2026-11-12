@@ -13,6 +13,9 @@
 {% if request.query_params.get('deleted') %}
   <p class="flash">“{{ request.query_params.get('deleted') }}” was removed. Its history is still on disk.</p>
 {% endif %}
+{% if request.query_params.get('error') %}
+  <p class="flash bad">{{ request.query_params.get('error') }}</p>
+{% endif %}
 
 <div class="merge-bar">
   <form method="post" action="/admin/new-station" class="inline">

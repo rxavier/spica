@@ -41,6 +41,7 @@
   <div class="merge-bar">
     <button class="primary" type="submit">Save</button>
     <button class="link" type="button" hx-post="/admin/settings/test"
+            hx-include="closest form"
             hx-target="#test-result" hx-swap="innerHTML">Test this endpoint</button>
     <span class="sub">saving applies to the next pick, no restart</span>
   </div>

@@ -9,7 +9,7 @@
   <textarea name="text" rows="14" placeholder="leave empty to use the built-in voice">{{ text }}</textarea>
   <div class="inline">
     <button class="primary" type="submit">Save</button>
-    <button type="button" class="link" hx-post="/admin/prompt/reset" hx-target="body" hx-swap="innerHTML">Restore the built-in voice</button>
+    <button type="button" class="link" hx-post="/admin/prompt/reset" hx-target="#prompt-result">Restore the built-in voice</button>
   </div>
 </form>
 <div id="prompt-result"></div>
