@@ -27,13 +27,37 @@ def _path(station: config.Station) -> Path:
     return station.history_file.parent / "requests" / f"{station.id}.jsonl"
 
 
+# path -> (bytes already counted, plays counted). The log only ever grows, so the
+# count is extended rather than redone; this used to walk the whole file once per
+# stored request, on every pick and on every refresh of the listener's request list.
+_counts: dict[str, tuple[int, int]] = {}
+
+
 def _plays(station: config.Station) -> int:
     """How many tracks this station has played — the clock these requests run on."""
+    path = station.history_file
+    key = str(path)
     try:
-        with station.history_file.open(encoding="utf-8") as fh:
-            return sum(1 for line in fh if line.strip())
+        size = path.stat().st_size
     except FileNotFoundError:
+        _counts.pop(key, None)
         return 0
+    seen, plays = _counts.get(key, (0, 0))
+    if size < seen:  # truncated or replaced under us
+        seen, plays = 0, 0
+    if size > seen:
+        try:
+            with path.open("rb") as fh:
+                fh.seek(seen)
+                chunk = fh.read(size - seen)
+        except OSError:
+            return plays
+        cut = chunk.rfind(b"\n")
+        if cut >= 0:  # anything after the last newline is a write in progress
+            plays += chunk[: cut + 1].count(b"\n")
+            seen += cut + 1
+    _counts[key] = (seen, plays)
+    return plays
 
 
 def _load(station: config.Station) -> list[dict]:

@@ -118,13 +118,39 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def recent_picks(station: config.Station, n: int = 12) -> list[dict]:
+def _tail_lines(path: Path, count: int, block: int = 65536) -> list[str]:
+    """The last `count` non-empty lines of a file, without reading the rest.
+
+    These files are append-only and never trimmed, so "the last fifteen plays" used
+    to mean parsing every line the station had ever aired — twice a minute, forever.
+    Reading backwards from the end costs the same at two hundred lines or two
+    million. A window that starts mid-line drops that line rather than decoding
+    half a character.
+    """
     try:
-        lines = _picks_path(station).read_text(encoding="utf-8").splitlines()[-n:]
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            pos = fh.tell()
+            buf = b""
+            while pos > 0 and buf.count(b"\n") <= count:
+                step = min(block, pos)
+                pos -= step
+                fh.seek(pos)
+                buf = fh.read(step) + buf
     except FileNotFoundError:
         return []
+    lines = buf.split(b"\n")
+    if pos > 0 and lines:
+        lines = lines[1:]  # the first one was cut by the window
+    if lines and not buf.endswith(b"\n"):
+        lines = lines[:-1]  # a record still being written
+    out = [line.decode("utf-8", "replace") for line in lines if line.strip()]
+    return out[-count:] if count else out
+
+
+def recent_picks(station: config.Station, n: int = 12) -> list[dict]:
     out = []
-    for line in lines:
+    for line in _tail_lines(_picks_path(station), n):
         try:
             out.append(json.loads(line))
         except json.JSONDecodeError:
@@ -161,22 +187,31 @@ def _when(entry: dict) -> float | None:
 
 
 def recent(station: config.Station, n: int = 20) -> list[dict]:
-    try:
-        lines = station.history_file.read_text(encoding="utf-8").splitlines()[-n:]
-    except FileNotFoundError:
-        return []
-    out: list[dict] = []
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if out and (out[-1].get("artist"), out[-1].get("title")) == (entry.get("artist"), entry.get("title")):
-            first, second = _when(out[-1]), _when(entry)
-            if first is None or second is None or second - first <= DUPE_ANNOUNCE_S:
-                continue  # the same announce twice, not a second play
-        out.append(entry)
-    return out
+    """The last n plays, newest last, with a restart's re-announce collapsed.
+
+    Only the tail of the file is read, and the window grows until n real plays come
+    back — de-duplicating after the slice used to return fewer than asked for.
+    """
+    want = max(1, n)
+    grab = want + 4
+    while True:
+        out: list[dict] = []
+        lines = _tail_lines(station.history_file, grab)
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if out and (out[-1].get("artist"), out[-1].get("title")) == (
+                entry.get("artist"), entry.get("title")
+            ):
+                first, second = _when(out[-1]), _when(entry)
+                if first is None or second is None or second - first <= DUPE_ANNOUNCE_S:
+                    continue  # the same announce twice, not a second play
+            out.append(entry)
+        if len(out) >= want or len(lines) < grab:
+            return out[-want:]
+        grab *= 2
 
 
 def recent_ids(station: config.Station, n: int = 40) -> set[str]:
