@@ -392,6 +392,16 @@
     stopBeat();
   });
 
+  // A backgrounded tab stops polling — browsers throttle timers to about once a
+  // minute — so coming back to the page could show the previous track for a minute
+  // before the next tick arrived. Ask for a fresh fragment the moment it is visible.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !window.htmx) return;
+    document.querySelectorAll("[data-refresh-visible]").forEach((el) => {
+      htmx.trigger(el, "refresh");
+    });
+  });
+
   window.initPlayer = init;
   document.body.addEventListener("htmx:afterSettle", init);
 

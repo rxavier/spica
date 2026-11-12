@@ -159,6 +159,31 @@ def _save_offset(station, offset: int) -> None:
         pass
 
 
+def now_tail(station) -> str:
+    """The last track the mixer stamped, without consuming it.
+
+    Icecast carries a title only on the MP3 mount; Ogg streams (Opus, FLAC) carry
+    their metadata inside the stream, so a FLAC-only station has nothing to read from
+    the mount and used to fall back to the play ledger — which the picker writes on
+    its own 20-second tick. The mixer writes this file the moment a track starts, so
+    reading it is the freshest answer that works for every codec.
+    """
+    path = station.now_file
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            start = max(0, fh.tell() - 4096)
+            fh.seek(start)
+            chunk = fh.read()
+    except OSError:
+        return ""
+    lines = [line.decode("utf-8", "replace").strip() for line in chunk.split(b"\n")]
+    for line in reversed(lines):
+        if line:
+            return line
+    return ""
+
+
 def now_lines(station) -> list[str]:
     """Tracks the mixer has started since the last call, oldest first.
 
