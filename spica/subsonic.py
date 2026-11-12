@@ -121,6 +121,16 @@ def stream_url(song_id: str) -> str:
     return f"{_base()}/rest/stream?{query}"
 
 
+def song_id(url: str) -> str:
+    """The id inside a stream URL this module produced, or "".
+
+    Pool files, the queue file and Liquidsoap's own request metadata all hand back
+    these URLs, and the id is the only part anyone needs from them.
+    """
+    query = urllib.parse.urlparse(url or "").query
+    return urllib.parse.parse_qs(query).get("id", [""])[0]
+
+
 def scan_status() -> dict:
     """Navidrome's own view of the library: cheap proof that the index is stale."""
     query = urllib.parse.urlencode({**_auth()})

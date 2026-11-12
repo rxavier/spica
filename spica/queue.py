@@ -1,8 +1,11 @@
 """Per-station queue + history on disk.
 
-The mixer reads queue/<id>.txt on a one-second timer, pushes whatever URI it
-finds into a Liquidsoap request.queue and truncates the file. That keeps the
-hand-off a plain file write — no sockets, no RPC, nothing to restart.
+The mixer reads queue/<id>.txt on a one-second timer, pushes what it finds into a
+Liquidsoap request.queue and removes the file. That keeps the hand-off a plain
+file write — no sockets, no RPC, nothing to restart.
+
+One file is one slot: whoever writes first wins, and a second writer is refused
+rather than overwriting a track the mixer has not taken yet.
 """
 
 from __future__ import annotations
@@ -12,23 +15,52 @@ import json
 import time
 from pathlib import Path
 
-from . import config
+from . import config, subsonic
 
 
-def push(station: config.Station, uri: str, label: str = "") -> None:
-    """Hand the mixer the next track. Atomic: the mixer never sees a partial line.
-
-    `label` is what the page may show as "next up". The queue file itself holds the
-    Subsonic URI, because that is what the mixer needs, and a URI on screen is a
-    thousand-character wall of credentials.
-    """
+def _write(station: config.Station, uri: str, label: str) -> None:
+    """Fill the slot. The label is written first, so the queue file existing means
+    its label exists too — the other order left a waiting track with no name after a
+    crash, and the page reported nothing queued."""
     station.queue_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = station.queue_file.with_suffix(".tmp")
-    tmp.write_text(uri + "\n", encoding="utf-8")
-    tmp.replace(station.queue_file)
     station.queue_file.with_suffix(".label").write_text(
         (label or "").strip() + "\n", encoding="utf-8"
     )
+    tmp = station.queue_file.with_suffix(".tmp")
+    tmp.write_text(uri + "\n", encoding="utf-8")
+    tmp.replace(station.queue_file)
+
+
+def push(station: config.Station, uri: str, label: str = "") -> bool:
+    """Hand the mixer the next track. False when one is already waiting.
+
+    First writer wins, because the mixer takes the file on its next tick and
+    whatever it takes is what airs: a second push must not overwrite an unconsumed
+    one, which used to drop a track with no trace anywhere. This is how the pick
+    loop feeds the station — a background pick may wait, but it never preempts.
+    """
+    if station.queue_file.exists():
+        return False
+    _write(station, uri, label)
+    return True
+
+
+def replace(station: config.Station, uri: str, label: str = "") -> str:
+    """Take the slot whether or not it is free. Returns the track id it displaced.
+
+    For the two things a person asked for — a listener request and an operator's
+    forced pick. They are instructions, not suggestions, so they go next; the caller
+    puts the displaced id back at the head of the pool, since a track that never
+    aired should not be a full rotation away from playing.
+    """
+    displaced = ""
+    if station.queue_file.exists():
+        try:
+            displaced = subsonic.song_id(station.queue_file.read_text(encoding="utf-8"))
+        except OSError:
+            displaced = ""
+    _write(station, uri, label)
+    return displaced
 
 
 def queued(station: config.Station) -> str:

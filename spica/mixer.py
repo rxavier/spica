@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import re
 import socket
-import urllib.parse
 
-from . import config
+from . import config, subsonic
 
 
 def command(line: str, timeout: float = 3.0) -> str:
@@ -31,14 +30,16 @@ def command(line: str, timeout: float = 3.0) -> str:
 def pending(station) -> int | None:
     """How many requests the station's queue still holds, or None if unreachable.
 
-    The queue includes whatever is playing right now, so 0 means the station is
-    running on its own pool and the DJ is free to choose the next track.
+    An empty queue replies with nothing between the command and the END sentinel,
+    which is a real answer — 0 means the station is running on its own pool and the
+    DJ is free to choose. None is reserved for a control server that is not there,
+    because the caller treats the two differently: one picks now, the other waits.
     """
     try:
         reply = command(f"q_{station.id}.queue")
     except OSError:
         return None
-    if not reply or reply.startswith("ERROR"):
+    if reply.startswith("ERROR"):
         return None
     return len(reply.split())
 
@@ -86,8 +87,7 @@ def queued_ids(station) -> list[str]:
         match = re.search(r'initial_uri="([^"]+)"', meta)
         if not match:
             continue
-        query = urllib.parse.urlparse(match.group(1)).query
-        song = urllib.parse.parse_qs(query).get("id", [""])[0]
+        song = subsonic.song_id(match.group(1))
         if song:
             out.append(song)
     return out

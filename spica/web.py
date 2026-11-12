@@ -488,8 +488,14 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
     )
     message = "Pedido registrado. La próxima elección lo va a tener en cuenta."
     if pick is not None:
-        queue.push(st, pick.track.uri, pick.track.as_line())
-        pool.skip_past([st], pick.track.id)
+        # The request goes next, whatever was waiting. The track it displaces is
+        # back at the head of the pool, so it plays after this one instead of
+        # disappearing for a rotation.
+        displaced = queue.replace(st, pick.track.uri, pick.track.as_line())
+        if displaced:
+            pool.rewind_to(st, displaced)
+        else:
+            pool.skip_past([st], pick.track.id)
         queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why)
         requests_mod.attach_track(st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"
