@@ -61,8 +61,7 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
     # Only names MusicBrainz itself calls genres survive; a provider tag that is not
     # in that vocabulary is somebody's mood, nationality or file-manager debris.
     vocabulary = enrich.mb_genre_vocabulary()
-    if vocabulary:
-        log(f"genre_tags: validating against {len(vocabulary)} known genres")
+    log(f"genre_tags: validating against {len(vocabulary)} known genres")
     pending = sorted(by_artist.items(), key=lambda kv: -len(kv[1]))
     total = len(pending)
     jobs.progress(conn, job_id, 0, total)
@@ -75,7 +74,7 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
         for tag in _artist_labels(conn, artist):
             if not genres.is_genre_like(tag):
                 continue
-            if vocabulary and genres.fold(tag) not in vocabulary:
+            if genres.fold(tag) not in vocabulary:
                 continue
             label = genres.canonical(tag)
             if label and label.casefold() not in {x.casefold() for x in labels}:
@@ -223,9 +222,9 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
 
 def stale_reason(conn) -> str:
     """Why the index should be rebuilt, or "" when it is current."""
+    # Raises when Navidrome is unreachable; the loop logs it and tries again on the
+    # next tick, where returning "" here used to mean "the index is current".
     status = subsonic.scan_status()
-    if not status:
-        return ""
     if status.get("scanning"):
         return ""  # never index a library that is mid-scan
     have = conn.execute("SELECT count(*) FROM tracks").fetchone()[0]

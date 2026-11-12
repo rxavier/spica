@@ -14,7 +14,7 @@
 <div class="notice">
   <div class="muted">On this station's shelf</div>
   <div class="track">{{ index_tracks }} tracks</div>
-  <div class="sub">Navidrome reports {{ library_tracks or "?" }}{% if library_scan %} · last scan {{ library_scan }}{% endif %} · checked every {{ check_minutes }} min</div>
+  <div class="sub">{% if library_error %}{{ library_error }}{% else %}Navidrome reports {{ library_tracks or "?" }}{% if library_scan %} · last scan {{ library_scan }}{% endif %}{% endif %} · checked every {{ check_minutes }} min</div>
 </div>
 <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="refresh">

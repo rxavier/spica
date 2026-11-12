@@ -67,8 +67,13 @@ async def admin_library(request: Request):
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     conn = _conn()
-    status = subsonic.scan_status()
-    scan = (status.get("lastScan") or "")[:16].replace("T", " ")
+    try:
+        status = subsonic.scan_status()
+        scan = (status.get("lastScan") or "")[:16].replace("T", " ")
+        library_tracks, library_error = status.get("count"), ""
+    except Exception as exc:  # Navidrome down, or the credentials are wrong
+        scan, library_tracks = "", None
+        library_error = f"Navidrome did not answer: {exc}"
     return templates.TemplateResponse(
         request,
         "admin_library.html",
@@ -76,8 +81,9 @@ async def admin_library(request: Request):
             "coverage": jobs.coverage(conn),
             "jobs": jobs.recent(conn, 10),
             "index_tracks": conn.execute("SELECT count(*) FROM tracks").fetchone()[0],
-            "library_tracks": status.get("count"),
+            "library_tracks": library_tracks,
             "library_scan": scan,
+            "library_error": library_error,
             "check_minutes": max(1, config.REFRESH_CHECK_S // 60),
         },
     )
