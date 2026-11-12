@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,9 +23,6 @@ from . import requests as requests_mod
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("radio")
 
-STATIONS = config.load_stations()
-DB_PATH = config.STATE_DIR / "index.db"
-CONN: sqlite3.Connection | None = None
 LIB: picker.Library | None = None
 LAST: dict[str, dict] = {}
 QUIET_SINCE: dict[str, float] = {}
@@ -135,13 +131,6 @@ def _close_if_silent(st: config.Station, states: dict) -> None:
                 log.info("[%s] closed %s after %ds without listeners",
                          st.id, codec, config.IDLE_STOP_S)
             QUIET_SINCE.pop(key, None)
-
-
-def reload_stations() -> list[config.Station]:
-    """Re-read stations.json after the admin UI writes it."""
-    global STATIONS
-    STATIONS = config.load_stations()
-    return STATIONS
 
 
 class RequestBody(BaseModel):
@@ -346,9 +335,17 @@ async def force_pick(station_id: str) -> dict:
 
 @app.post("/rebuild")
 async def rebuild() -> dict:
+    """Re-index Navidrome and rewrite every pool.
+
+    The connection and the station rack come from `store`, the same ones the rest
+    of the process uses: this endpoint used to hold its own copy of both, and the
+    copy of the connection was never assigned.
+    """
+
     def _run() -> dict:
-        n = navidrome.rebuild_index(CONN, log=log.info)
-        counts = pool.write_pools(CONN, STATIONS, log=log.info)
+        conn = store.conn()
+        n = navidrome.rebuild_index(conn, log=log.info)
+        counts = pool.write_pools(conn, store.stations(), log=log.info)
         return {"tracks": n, "pools": counts}
 
     return await asyncio.to_thread(_run)
@@ -364,11 +361,11 @@ async def render_liq() -> dict:
         if not password:
             raise HTTPException(500, "ICECAST_SOURCE_PASSWORD not set in the picker env")
         target = config.CONFIG_DIR / "spica.liq"
-        target.write_text(liqgen.render(STATIONS, password), encoding="utf-8")
+        target.write_text(liqgen.render(store.stations(), password), encoding="utf-8")
         return str(target)
 
     path = await asyncio.to_thread(_run)
-    return {"ok": True, "path": path, "stations": [s.id for s in STATIONS]}
+    return {"ok": True, "path": path, "stations": [s.id for s in store.stations()]}
 
 
 @app.post("/enrich")
