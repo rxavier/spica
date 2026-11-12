@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+
 import httpx
 
 from .. import config
@@ -32,6 +34,8 @@ from .shared import (
     request_rows,
     station_context,
 )
+
+log = logging.getLogger("radio")
 
 router = APIRouter()
 
@@ -208,9 +212,16 @@ async def station_requests(request: Request, station_id: str):
 async def station_request(request: Request, station_id: str, text: str = Form(...)):
     st = station_or_404(station_id)
     entry = requests_mod.record(st, text, requests_mod.DEFAULT_SONGS)
-    pick = await asyncio.to_thread(
-        picker.pick_next, store.library(), st, text, queue.recent_ids(st)
-    )
+    try:
+        pick = await asyncio.to_thread(
+            picker.pick_next, store.library(), st, text, queue.recent_ids(st)
+        )
+    except Exception as exc:
+        # The request is recorded either way, and the station's next pick reads the
+        # request log. A DJ that cannot answer this second must not turn "pedido
+        # registrado" into a 500 in the listener's face.
+        log.warning("[%s] request recorded but the DJ could not answer: %s", st.id, exc)
+        pick = None
     message = "Pedido registrado. La próxima elección lo va a tener en cuenta."
     if pick is not None:
         # The request goes next, whatever was waiting. The track it displaces is
