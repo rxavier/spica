@@ -110,6 +110,16 @@ def pick_next(
         },
     ]
 
+    brief = messages[1]["content"] if len(messages) > 1 else ""
+    called: list[dict] = []
+
+    def finish(content: str) -> Pick | None:
+        pick = parse_final(lib, content, avoid, station)
+        if pick is not None:
+            pick.brief, pick.tools = brief, tuple(called)
+            pick.reply = (content or "")[:500]
+        return pick
+
     for round_no in range(MAX_TOOL_ROUNDS + 1):
         last_round = round_no == MAX_TOOL_ROUNDS
         if last_round:
@@ -121,7 +131,7 @@ def pick_next(
         msg = chat(messages, TOOLS, no_tools=last_round, require_call=round_no == 0)
         calls = msg.get("tool_calls") or []
         if not calls:
-            pick = parse_final(lib, msg.get("content") or "", avoid, station)
+            pick = finish(msg.get("content") or "")
             if pick is not None:
                 return pick
             # One more go: an unusable reply is usually prose wrapped round the
@@ -137,7 +147,7 @@ def pick_next(
                 }
             )
             retry = chat(messages, TOOLS, no_tools=True)
-            return parse_final(lib, retry.get("content") or "", avoid, station)
+            return finish(retry.get("content") or "")
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for call in calls:
             name = call["function"]["name"]
@@ -146,6 +156,7 @@ def pick_next(
             except json.JSONDecodeError:
                 args = {}
             result = lib.run_tool(name, args, station)
+            called.append({"name": name, "args": args, "result": len(result) if isinstance(result, (list, dict)) else 0})
             payload = result
             if isinstance(result, list) and not result and name == "history":
                 payload = {
@@ -175,7 +186,7 @@ def pick_next(
         {"role": "user", "content": ANSWER_NOW + " Pick a track that is not in the recent list."}
     )
     final = chat(messages, TOOLS, no_tools=True)
-    return parse_final(lib, final.get("content") or "", avoid, station)
+    return finish(final.get("content") or "")
 
 
 def parse_final(

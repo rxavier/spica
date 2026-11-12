@@ -202,18 +202,39 @@ def _picks_path(station: config.Station) -> Path:
     return station.history_file.with_suffix(".picks.jsonl")
 
 
+# How many picks the log keeps. Small enough to read in the admin, long enough that
+# last night is still there; the file is rewritten only when it outgrows this twice.
+PICKS_KEPT = 500
+
+
 def record_pick(station: config.Station, track_id: str, title: str, artist: str, why: str = "",
-                presence: str = "") -> None:
+                presence: str = "", detail: dict | None = None) -> None:
     """What the DJ chose. Kept apart from history, which only records plays.
 
     The presence reading is logged with it: "why was the DJ picking at 3 a.m.?" is a
-    question that comes back, and the answer has to be in the record.
+    question that comes back, and the answer has to be in the record. `detail` is
+    what the picker itself saw — the brief, the tools it called, its reply — so the
+    admin can answer "why *that* track?" without reproducing it.
     """
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
     entry = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "id": track_id,
              "title": title, "artist": artist, "why": why, "presence": presence}
-    with _picks_path(station).open("a", encoding="utf-8") as fh:
+    if detail:
+        if detail.get("brief"):
+            entry["brief"] = str(detail["brief"])[:2000]
+        if detail.get("tools"):
+            entry["tools"] = list(detail["tools"])[:8]
+        if detail.get("reply"):
+            entry["reply"] = str(detail["reply"])[:500]
+    path = _picks_path(station)
+    with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        if path.stat().st_size > 2_000_000:
+            keep = _tail_lines(path, PICKS_KEPT)
+            path.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _tail_lines(path: Path, count: int, block: int = 65536) -> list[str]:

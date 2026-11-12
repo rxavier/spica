@@ -659,3 +659,33 @@ button.danger {
   margin-left: auto;
 }
 button.danger:hover { background: rgba(179, 42, 27, .08); border-color: var(--red); }
+
+/* --- the pick log on /admin/queue ------------------------------------------- */
+.picklog { margin: .6rem 0 1.6rem; }
+.picklog details { border-bottom: 1px solid var(--line-soft); }
+.picklog summary {
+  cursor: pointer; list-style: none; display: grid; gap: .1rem .8rem;
+  grid-template-columns: 5.2rem minmax(12rem, 20rem) 1fr; align-items: baseline;
+  padding: .45rem .2rem;
+}
+.picklog summary::-webkit-details-marker { display: none; }
+.picklog summary:hover { background: var(--paper-3); }
+.picklog summary .mono { color: var(--faint); }
+.picklog summary .who { font-weight: 600; }
+.picklog summary .said {
+  color: var(--soft); font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picklog details[open] summary .said { white-space: normal; }
+.picklog .body { padding: .1rem 0 1rem 6rem; }
+.picklog pre {
+  white-space: pre-wrap; font: .78rem/1.55 var(--mono); color: #4a3a28;
+  background: var(--paper-3); border: 1px solid var(--line-soft); border-radius: 6px;
+  padding: .55rem .7rem; margin: .2rem 0 .7rem;
+}
+.picklog ul.tools { margin: .2rem 0 .7rem 1rem; padding: 0; }
+.picklog ul.tools li { margin: .1rem 0; }
+@media (max-width: 48rem) {
+  .picklog summary { grid-template-columns: 4.2rem 1fr; }
+  .picklog summary .said { grid-column: 2; }
+  .picklog .body { padding-left: .4rem; }
+}

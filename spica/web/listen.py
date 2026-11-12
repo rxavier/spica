@@ -229,7 +229,10 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         # already in, so it airs straight after instead of after a whole rotation.
         position = queue.append_request(st, pick.track.uri, pick.track.as_line())
         queue.promote_requests(st)
-        queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why)
+        queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why,
+                          presence=presence.reason(
+                              st.id, icecast.total_listeners(icecast.listen_states(), st)),
+                          detail={"brief": pick.brief, "tools": pick.tools, "reply": pick.reply})
         requests_mod.attach_track(st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"
         if position > 1:

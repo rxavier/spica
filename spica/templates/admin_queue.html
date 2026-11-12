@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}queue{% endblock %}
+{% block main_class %}studio{% endblock %}
+{% block body %}
+<h1>Queue</h1>
+<p class="sub">What is on air, what is in hand, and what the DJ was looking at when it chose — newest first. The pick log keeps the last {{ rows }}; the pane reads what is there.</p>
+
+{% for v in views %}
+<h2>{{ v.station.name }} <span class="sub">· {{ v.station.id }}</span></h2>
+
+<div class="grid2">
+  <div class="notice">
+    <div class="muted">On air</div>
+    <div class="track">{{ v.now.artist }}{% if v.now.artist and (v.now.song or v.now.title) %} — {% endif %}{{ v.now.song or v.now.title or "off air" }}</div>
+    {% if v.now.album %}<div class="sub">{{ v.now.album }}</div>{% endif %}
+    {% if v.now.why %}<p class="why">“{{ v.now.why }}”</p>{% endif %}
+    <div class="sub">{{ v.listeners }} listener{{ "" if v.listeners == 1 else "s" }} · {{ v.present_reason }}</div>
+  </div>
+
+  <div class="notice">
+    <div class="muted">In hand</div>
+    <div class="track">{{ v.slot or "nothing in the slot" }}</div>
+    <div class="sub">
+      mixer queue: {% if v.ahead is none %}unreachable{% else %}{{ v.ahead }}{% endif %}
+      {%- if v.requests %} · {{ v.requests|length }} request{{ "" if v.requests|length == 1 else "s" }} remembered{% endif %}
+    </div>
+    {% for r in v.requests %}
+      <div class="sub">“{{ r.text }}” — asked {{ r.songs_ago }} song{{ "" if r.songs_ago == 1 else "s" }} ago{% if r.track and r.track.title %} · gave {{ r.track.artist }} — {{ r.track.title }}{% endif %}</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="picklog">
+  {% for p in v.picks %}
+    <details>
+      <summary>
+        <span class="mono">{{ p.at }}</span>
+        <span class="who">{{ p.artist }}{% if p.artist and p.title %} — {% endif %}{{ p.title }}</span>
+        <span class="said">{{ p.why }}</span>
+      </summary>
+      <div class="body">
+        {% if p.presence %}<div class="sub">{{ p.presence }}</div>{% endif %}
+        {% if p.brief %}
+          <div class="muted">What the DJ was told</div>
+          <pre>{{ p.brief }}</pre>
+        {% endif %}
+        {% if p.tools %}
+          <div class="muted">What it looked up</div>
+          <ul class="tools">
+            {% for t in p.tools %}
+              <li><span class="mono">{{ t.name }}</span> <span class="sub">{{ t.args }}</span> <span class="sub">→ {{ t.result }} row{{ "" if t.result == 1 else "s" }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if p.reply %}
+          <div class="muted">What it answered</div>
+          <pre>{{ p.reply }}</pre>
+        {% endif %}
+        {% if not p.brief and not p.tools and not p.reply %}
+          <div class="sub">This pick predates the detail being recorded.</div>
+        {% endif %}
+      </div>
+    </details>
+  {% else %}
+    <p class="sub">No picks yet on this station.</p>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

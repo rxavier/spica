@@ -14,11 +14,29 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import admin_genres, admin_home, admin_settings, admin_stations, listen, login, media
+from . import (
+    admin_genres,
+    admin_home,
+    admin_queue,
+    admin_settings,
+    admin_stations,
+    listen,
+    login,
+    media,
+)
 from .shared import now_playing, static, templates
 
 router = APIRouter()
-for part in (listen, media, login, admin_home, admin_stations, admin_genres, admin_settings):
+for part in (
+    listen,
+    media,
+    login,
+    admin_home,
+    admin_queue,
+    admin_stations,
+    admin_genres,
+    admin_settings,
+):
     router.include_router(part.router)
 
 __all__ = ["router", "static", "templates", "now_playing"]
