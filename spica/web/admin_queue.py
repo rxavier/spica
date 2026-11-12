@@ -16,8 +16,9 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
+from .. import auth
 from .. import icecast
 from .. import mixer
 from .. import presence
@@ -83,6 +84,10 @@ def _stations_view() -> list[dict]:
 
 @router.get("/admin/queue", response_class=HTMLResponse)
 def admin_queue(request: Request):
+    # Every admin handler carries its own gate; this one shipped without it, so the
+    # pane — titles, reasons, briefs — was readable by anyone who asked for it.
+    if not auth.is_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
     return templates.TemplateResponse(
         request,
         "admin_queue.html",
