@@ -59,6 +59,28 @@ def station_or_404(station_id: str) -> config.Station:
     raise HTTPException(404, f"unknown station {station_id}")
 
 
+def next_up(st) -> str:
+    """The next track by name, read from the mixer rather than the slot file.
+
+    The slot file exists only between the picker writing it and the mixer taking it
+    a second later, so "next up" used to appear and vanish inside one poll — a flash
+    of a track that was still going to play. What Liquidsoap is holding is the real
+    answer and it holds it for the length of the track on air. The slot label stays
+    as the fallback for a mixer that cannot be reached.
+    """
+    try:
+        waiting = mixer.queued_ids(st)
+    except Exception:
+        waiting = []
+    if waiting:
+        row = store.conn().execute(
+            "SELECT artist, title FROM tracks WHERE id = ? LIMIT 1", (waiting[0],)
+        ).fetchone()
+        if row:
+            return f"{row['artist']} — {row['title']}"
+    return queue.queued(st)
+
+
 def now_playing(st) -> dict:
     live = icecast.live_mount(icecast.listen_states(), st)
     state = live[1] if live else None
@@ -128,7 +150,7 @@ def now_playing(st) -> dict:
         "artist": artist,
         "song": song,
         "album": album,
-        "queued": queue.queued(st),
+        "queued": next_up(st),
         "why": entry.get("why", ""),
         "track_id": track_id,
         "album_id": album_id,
