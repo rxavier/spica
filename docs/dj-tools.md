@@ -1,7 +1,7 @@
 # The DJ's toolbox
 
 What the picker lets the model look at, what it hands back, and why a pick can never
-skip a lookup. Describes the code in `spica/picker.py`.
+skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one pick
 
@@ -23,7 +23,7 @@ its own pool.
 ## Why a pick cannot skip a lookup
 
 Track ids exist only inside tool results. The brief carries titles and artists, never
-ids, and `_parse_final` then requires the id to exist, to have a playable `uri`, to
+ids, and `parse_final` then requires the id to exist, to have a playable `uri`, to
 be outside the last 40 played ids, and to pass the station's own matcher — the same
 check the tools apply, so a guessed id cannot leave the palette either.
 
@@ -144,8 +144,9 @@ spanned a millennium.
   from what the model knows about the artists, guided by the station brief; there is no
   play-count signal anywhere by design.
 - **History ends at 40 plays.** `avoid` and `history` share that window.
-- **Tool descriptions are the whole instruction.** There is no per-tool routing logic and
-  no planner; when a pick is bad, the first thing to rewrite is a description.
+- **Tool descriptions are the whole instruction.** Nothing in the loop decides which
+  tool to call and there is no planner; when a pick is bad, the first thing to rewrite is
+  a description.
 - **Genre matching exists twice** (exact for stations, loose for `filter`). Unifying
   them is still an open question, not an oversight.
 - **Schema cost** is roughly 600 tokens per call for the six definitions. Measure before
