@@ -86,6 +86,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
+    # now_playing() looks a track's album up by album_id on every poll, and the
+    # ledger once per row; without this it is a scan of the whole library each time.
+    conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_id ON tracks(album_id)")
     # Canonical genre labels, one row per (track, label). `tracks.genre` keeps
     # only the first label for display; every filter walks this table instead,
     # because matching is not SQL-expressible (see radio/genres.py).
@@ -380,6 +383,9 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     A file tag is the operator's own assertion and wins outright. Where there is no
     tag, MusicBrainz speaks next, and Last.fm only fills what is left. Keeping every
     layer would rebuild the exact noise this is meant to remove.
+
+    Runs inside the caller's transaction and never commits: it is one step of a
+    rebuild, and stepping out of that transaction halfway left a partial index.
     """
     # Provider names go through the same canonicalisation as file tags, or an
     # operator merge is undone by the next rebuild that re-reads the cache.
@@ -403,29 +409,30 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     rows = conn.execute("SELECT id, artist FROM tracks").fetchall()
     tagged = 0
     informed = 0
-    with conn:
-        for row in rows:
-            names = mb.get(genre_lib.fold(row["artist"]))
-            if not names:
-                # No MusicBrainz answer: whatever Last.fm said stands.
-                continue
-            # MusicBrainz is consulted for every artist it knows, file tag or not.
+    # No transaction of its own: the rebuild already has one open, and opening a
+    # second here committed the caller's half-written index every time it exited.
+    for row in rows:
+        names = mb.get(genre_lib.fold(row["artist"]))
+        if not names:
+            # No MusicBrainz answer: whatever Last.fm said stands.
+            continue
+        # MusicBrainz is consulted for every artist it knows, file tag or not.
+        conn.execute(
+            "DELETE FROM track_genres WHERE track_id = ? AND source NOT IN ('tag', 'manual')",
+            (row["id"],),
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?, 'musicbrainz')",
+            [(row["id"], name) for name in names],
+        )
+        informed += 1
+        tagged += int(
             conn.execute(
-                "DELETE FROM track_genres WHERE track_id = ? AND source NOT IN ('tag', 'manual')",
+                "SELECT COUNT(*) c FROM track_genres WHERE track_id = ? AND source = 'tag'",
                 (row["id"],),
-            )
-            conn.executemany(
-                "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?, 'musicbrainz')",
-                [(row["id"], name) for name in names],
-            )
-            informed += 1
-            tagged += int(
-                conn.execute(
-                    "SELECT COUNT(*) c FROM track_genres WHERE track_id = ? AND source = 'tag'",
-                    (row["id"],),
-                ).fetchone()["c"]
-                > 0
-            )
+            ).fetchone()["c"]
+            > 0
+        )
     removed = conn.execute(
         """DELETE FROM track_genres
            WHERE EXISTS (SELECT 1 FROM track_genre_veto v
