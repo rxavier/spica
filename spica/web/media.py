@@ -113,9 +113,14 @@ def art(album_id: str, size: int | None = None):
         raise HTTPException(404, "no cover", headers={"cache-control": "public, max-age=86400"})
 
     cover = store.cover_for(album_id)
-    data = subsonic.cover_art(cover, size=px)
-    if not data:
-        data = subsonic.cover_art(cover, size=px)  # one retry: a blip is not a missing cover
+    try:
+        data = subsonic.cover_art(cover, size=px)
+        if not data:
+            data = subsonic.cover_art(cover, size=px)  # one retry: a blip is not a missing cover
+    except subsonic.CoverUnavailable:
+        # Not the same thing as "this album has no cover": writing the marker here
+        # made a Navidrome hiccup a 404 that lasted until someone deleted a file.
+        raise HTTPException(503, "cover art unavailable", headers={"retry-after": "30"})
     if not data or hashlib.md5(data).hexdigest() == PLACEHOLDER_MD5:
         try:
             missing.write_bytes(b"")

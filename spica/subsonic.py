@@ -136,25 +136,38 @@ def song_id(url: str) -> str:
     return urllib.parse.parse_qs(query).get("id", [""])[0]
 
 
+class CoverUnavailable(RuntimeError):
+    """Navidrome could not answer for this cover. Says nothing about the artwork."""
+
+
 def scan_status() -> dict:
-    """Navidrome's own view of the library: cheap proof that the index is stale."""
-    query = urllib.parse.urlencode({**_auth()})
-    try:
-        with urllib.request.urlopen(f"{_base()}/rest/getScanStatus?{query}", timeout=10) as r:
-            data = json.loads(r.read())
-    except Exception:
-        return {}
-    return data.get("subsonic-response", {}).get("scanStatus", {}) or {}
+    """Navidrome's own view of the library: cheap proof that the index is stale.
+
+    Raises when Navidrome cannot answer. An outage is not the same fact as "no scan
+    running": treating them alike told the worker the index was current for as long
+    as the outage lasted, and it never rebuilt once the library came back.
+    """
+    return call("getScanStatus").get("scanStatus", {}) or {}
 
 
-def cover_art(album_id: str, size: int = 300) -> bytes:
-    """Album cover from Navidrome, so the browser never sees API credentials."""
-    query = urllib.parse.urlencode({**_auth(), "id": album_id, "size": str(size)})
+def cover_art(cover_id: str, size: int = 300) -> bytes:
+    """Album cover bytes, or b"" when the album genuinely has none.
+
+    A failed request is not a cover-less album, and the caller caches "no cover" on
+    disk for a day — so a timeout raises instead of returning nothing.
+    """
+    if not cover_id:
+        return b""
+    query = urllib.parse.urlencode({**_auth(), "id": cover_id, "size": str(size)})
     try:
         with urllib.request.urlopen(f"{_base()}/rest/getCoverArt?{query}", timeout=15) as r:
             return r.read()
-    except Exception:
-        return b""
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return b""
+        raise CoverUnavailable(f"HTTP {exc.code}") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise CoverUnavailable(str(exc)) from exc
 
 
 def download(song_id: str, target: Path) -> Path:

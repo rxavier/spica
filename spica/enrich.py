@@ -412,21 +412,23 @@ def mb_genre_vocabulary(force: bool = False, pause: float = 1.0) -> set[str]:
 
     names: list[str] = []
     offset = 0
-    try:
-        while True:
-            page = _mb_get(
-                f"https://musicbrainz.org/ws/2/genre/all?fmt=json&limit=100&offset={offset}"
-            )
-            batch = page.get("genres") or []
-            if not batch:
-                break
-            names.extend(g["name"] for g in batch)
-            offset += len(batch)
-            if offset >= int(page.get("genre-count") or 0):
-                break
-            time.sleep(pause)
-    except Exception:
-        return set()
+    # No blanket except here: an outage used to come back as an empty set, and the
+    # caller only validates "if vocabulary", so one bad afternoon imported every
+    # mood, nationality and file-manager artefact Last.fm had for the artist.
+    while True:
+        page = _mb_get(
+            f"https://musicbrainz.org/ws/2/genre/all?fmt=json&limit=100&offset={offset}"
+        )
+        batch = page.get("genres") or []
+        if not batch:
+            break
+        names.extend(g["name"] for g in batch)
+        offset += len(batch)
+        if offset >= int(page.get("genre-count") or 0):
+            break
+        time.sleep(pause)
+    if not names:
+        raise RuntimeError("MusicBrainz returned an empty genre list")
 
     folded = sorted({genres.fold(n) for n in names if n})
     try:
