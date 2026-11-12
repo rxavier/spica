@@ -6,6 +6,13 @@ file write — no sockets, no RPC, nothing to restart.
 
 One file is one slot: whoever writes first wins, and a second writer is refused
 rather than overwriting a track the mixer has not taken yet.
+
+A listener request is the exception, and it does not take the slot either: it goes
+into its own ordered list and is then promoted into the mixer's queue, ahead of the
+pick waiting there. That pick is dropped rather than moved — "play something
+heavier" is about the mood the listener just changed, and the pick in hand was
+chosen for the mood they changed from. The loop chooses again within a tick, with
+the request still remembered.
 """
 
 from __future__ import annotations
@@ -43,6 +50,97 @@ def push(station: config.Station, uri: str, label: str = "") -> bool:
         return False
     _write(station, uri, label)
     return True
+
+
+def due_file(station: config.Station) -> Path:
+    return station.queue_file.with_suffix(".request")
+
+
+def _request_lines(station: config.Station) -> list[dict]:
+    try:
+        raw = due_file(station).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in raw:
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def _write_request_lines(station: config.Station, lines: list[dict]) -> None:
+    path = due_file(station)
+    if not lines:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    tmp.replace(path)
+
+
+def waiting_requests(station: config.Station) -> int:
+    """How many listener requests are waiting to air, in the order asked."""
+    return len(_request_lines(station))
+
+
+def append_request(station: config.Station, uri: str, label: str = "") -> int:
+    """Queue a listener request behind any already waiting. Returns its position."""
+    lines = _request_lines(station) + [{"uri": uri, "label": (label or "").strip()}]
+    _write_request_lines(station, lines)
+    return len(lines)
+
+
+def take_request(station: config.Station) -> dict | None:
+    """Claim the oldest waiting request, for the slot, when the mixer is unreachable."""
+    lines = _request_lines(station)
+    if not lines:
+        return None
+    _write_request_lines(station, lines[1:])
+    return lines[0]
+
+
+def promote_requests(station: config.Station) -> int:
+    """Put the waiting requests ahead of the DJ's pick, in the order they were asked.
+
+    The station keeps one track waiting so a changeover never falls back to the
+    pool. A request supersedes that track rather than queueing behind it: "play
+    something heavier" is about the mood the listener has just changed, and the pick
+    waiting there was chosen for the mood they changed from. It is dropped and the
+    loop chooses again within a tick, and the request is still in the brief.
+
+    Liquidsoap's queue can only push onto the end and remove by id, so this is a
+    rewrite — take everything out, push the requests, in order, and nothing else.
+    Returns how many requests are now waiting.
+    """
+    from . import mixer
+
+    pending = mixer.pending_uris(station)
+    if pending is None:  # no control server: the loop's slot hand-over still works
+        return 0
+    # A request that has left the queue has aired; one that was never pushed is
+    # still owed, and stays for the next attempt.
+    lines = [l for l in _request_lines(station) if not l.get("sent") or l["uri"] in pending]
+    if not lines:
+        _write_request_lines(station, [])
+        return 0
+    if not any(not l.get("sent") for l in lines):
+        # Nothing new since the last promotion. Leave the queue alone: it has a
+        # fresh pick of its own behind the requests, and rewriting would drop it.
+        _write_request_lines(station, lines)
+        return 0
+    want = [l["uri"] for l in lines]
+    if pending != want and not mixer.set_queue(station, want):
+        _write_request_lines(station, lines)
+        return 0
+    for line in lines:
+        line["sent"] = True
+    _write_request_lines(station, lines)
+    return len(lines)
 
 
 def replace(station: config.Station, uri: str, label: str = "") -> str:

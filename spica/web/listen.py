@@ -203,7 +203,7 @@ async def station_history(request: Request, station_id: str):
 
 @router.get("/s/{station_id}/requests", response_class=HTMLResponse)
 async def station_requests(request: Request, station_id: str):
-    """The list of requests in force. The form beside it is never replaced."""
+    """The list of requests still remembered. The form beside it is never replaced."""
     st = station_or_404(station_id)
     return templates.TemplateResponse(request, "_request_list.html", {"requests": request_rows(st)})
 
@@ -224,17 +224,16 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         pick = None
     message = "Pedido registrado. La próxima elección lo va a tener en cuenta."
     if pick is not None:
-        # The request goes next, whatever was waiting. The track it displaces is
-        # back at the head of the pool, so it plays after this one instead of
-        # disappearing for a rotation.
-        displaced = queue.replace(st, pick.track.uri, pick.track.as_line())
-        if displaced:
-            pool.rewind_to(st, displaced)
-        else:
-            pool.skip_past([st], pick.track.id)
+        # A request is a person in the room: it airs next, ahead of the DJ's pick.
+        # The pick is not lost — it moves behind the request, in the queue it is
+        # already in, so it airs straight after instead of after a whole rotation.
+        position = queue.append_request(st, pick.track.uri, pick.track.as_line())
+        queue.promote_requests(st)
         queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why)
         requests_mod.attach_track(st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"
+        if position > 1:
+            message += f" Toca después de {position - 1} pedido(s) más."
     return templates.TemplateResponse(
         request,
         "_request_result.html",

@@ -43,7 +43,7 @@ Your pick starts right after <track>, so that is the one the listener hears just
 Your last picks, newest first — Regret (Everything Everything): <the reason it gave>; …
 ```
 
-Live requests follow, each with its age (`asked 2 songs ago, about 1 still to go`).
+Recent requests follow, each with its age (`asked 2 songs ago`). They are context, not standing orders: the DJ answered each one when it played, and decides pick by pick whether the room is still in that mood.
 
 The last picks are the only thing in the brief that is the DJ's own: every pick is a new
 conversation, so without them the persona's *"vary your phrasing, never reuse the same

@@ -70,27 +70,61 @@ def stop(station, codec=None) -> bool:
     return _switches(station, codec, "stop")
 
 
-def queued_ids(station) -> list[str]:
-    """Library ids of the requests waiting, in the order they will play."""
+def _pending_rids(station) -> list[str] | None:
+    """Request ids the station's queue holds, in order. None if it did not answer."""
     try:
         reply = command(f"q_{station.id}.queue")
     except OSError:
-        return []
+        return None
+    if reply.startswith("ERROR"):
+        return None
+    return [rid for rid in reply.split() if rid.isdigit()]
+
+
+def pending_uris(station) -> list[str] | None:
+    """The URIs waiting in the station's queue, in the order they will play.
+
+    None means the control server did not answer, which is not the same as an empty
+    queue: one means "nothing is waiting", the other means "I cannot tell".
+    """
+    rids = _pending_rids(station)
+    if rids is None:
+        return None
     out = []
-    for rid in reply.split():
-        if not rid.isdigit():
-            continue
+    for rid in rids:
         try:
             meta = command(f"request.metadata {rid}")
         except OSError:
-            continue
+            return None
         match = re.search(r'initial_uri="([^"]+)"', meta)
-        if not match:
-            continue
-        song = subsonic.song_id(match.group(1))
-        if song:
-            out.append(song)
+        if match:
+            out.append(match.group(1))
     return out
+
+
+def queued_ids(station) -> list[str]:
+    """Library ids of the requests waiting, in the order they will play."""
+    return [song for song in (subsonic.song_id(uri) for uri in pending_uris(station) or []) if song]
+
+
+def set_queue(station, uris: list[str]) -> bool:
+    """Replace what is waiting with `uris`, in that order.
+
+    Liquidsoap's request.queue can only push onto the end and remove by id, so
+    changing the order means emptying it and refilling it. False when the control
+    server did not answer, which leaves the old queue alone rather than half-written.
+    """
+    rids = _pending_rids(station)
+    if rids is None:
+        return False
+    try:
+        for rid in rids:
+            command(f"q_{station.id}.remove {rid}")
+        for uri in uris:
+            command(f"q_{station.id}.push {uri}")
+    except OSError:
+        return False
+    return True
 
 
 _NOW_OFFSET: dict[str, int] = {}
