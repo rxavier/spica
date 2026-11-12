@@ -19,6 +19,11 @@ from .schemas import TOOLS, Pick
 
 MAX_TOOL_ROUNDS = 4
 
+# How many of its own picks the brief repeats, with the reason it gave. Three is
+# enough to keep a thread going and to avoid the same opening twice in a night; more
+# would spend tokens on lines the listener has long forgotten.
+RECENT_PICKS = 3
+
 
 def pick_next(
     lib: Library,
@@ -71,6 +76,18 @@ def pick_next(
         )
     elif on_air:
         lines.append("Nothing is queued: your pick starts right after what is on air.")
+
+    # Without this the model has no memory of its own voice: every pick is a new
+    # conversation, so "vary your phrasing" asked it not to repeat a construction it
+    # had no record of having used, and a line could never pick up a thread from the
+    # pick before it.
+    said = [
+        f"{e.get('title')} ({e.get('artist')}): {e.get('why')}"
+        for e in reversed(queue.recent_picks(station, RECENT_PICKS))
+        if e.get("why")
+    ]
+    if said:
+        lines.append("Your last picks, newest first — " + "; ".join(said).rstrip(".") + ".")
     recent_lines = " ".join(lines)
 
     live = requests_mod.active(station)

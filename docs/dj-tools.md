@@ -40,9 +40,15 @@ On air right now: Bloc Party — Halo.
 Before that, newest first: Bloc Party — Trojan Horse; Everything Everything — Regret; …
 Already queued, in order: …
 Your pick starts right after <track>, so that is the one the listener hears just before it.
+Your last picks, newest first — Regret (Everything Everything): <the reason it gave>; …
 ```
 
-Live requests follow, each with its age (`asked 2 songs ago, about 1 still to go`). The
+Live requests follow, each with its age (`asked 2 songs ago, about 1 still to go`).
+
+The last picks are the only thing in the brief that is the DJ's own: every pick is a new
+conversation, so without them the persona's *"vary your phrasing, never reuse the same
+construction twice in a night"* would be asking it to avoid words it cannot see. Three is
+the cap — enough to continue a thread or to avoid an opening it just used. The
 system prompt adds one line taking the model further back than the brief does:
 
 > "The brief tells you what is on air, what came before it and what is already queued.
