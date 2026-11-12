@@ -18,6 +18,19 @@ from . import genres as genres_module
 
 MAX_TOOL_ROUNDS = 4
 
+# Every tool answer is JSON and the model has to be able to read it: a blind
+# character slice cuts objects in half, and the ids it was told to use become
+# unreadable. Trimming happens on whole rows instead.
+TOOL_RESULT_CHARS = 6000
+
+# The reply contract, in one place: the system prompt and both retries used to
+# state it in three slightly different wordings.
+REPLY_CONTRACT = (
+    'Reply with ONLY a JSON object: {"track_id": "<id from a tool result>", '
+    '"why": "<spoken line, at most 180 characters>"}'
+)
+ANSWER_NOW = "No more lookups. " + REPLY_CONTRACT + " Use an id from the results you already have."
+
 TOOLS = [
     {
         "type": "function",
@@ -205,8 +218,22 @@ class Library:
     def count(self, station: config.Station) -> int:
         return len(navidrome.rows_for_station(self.conn, station))
 
+    def on_station(self, station: config.Station, track_id: str) -> bool:
+        """Whether this station's own rules let that track play.
+
+        A station whose rules match nothing is on air with the whole library (see
+        rows_for_station), so its picks are allowed the same way — otherwise a typo
+        in a genre list would leave the DJ unable to answer at all.
+        """
+        row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        if row is None:
+            return False
+        ok = navidrome.station_matcher(self.conn, station)
+        if ok(row):
+            return True
+        return not any(ok(r) for r in self.conn.execute("SELECT * FROM tracks WHERE uri != ''"))
+
     def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
-        limit = _clamp(limit, 12, 50)
         """Tracks by artists that sound like this one.
 
         Four levels, cheapest first, so this answers even on a library with no
@@ -216,18 +243,23 @@ class Library:
           3. Last.fm by artist NAME (needs a key, needs no ids at all)
           4. local genre: other artists sharing this artist's dominant genre
         """
+        limit = _clamp(limit, 12, 50)
         from . import enrich
 
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
             marks = ",".join("?" for _ in names)
+            # Filter, then take the limit. The other order sampled rows the station
+            # cannot play and reported `owned: false` even when it owns plenty of
+            # tracks by those artists.
             rows = self.conn.execute(
-                f"SELECT * FROM tracks WHERE artist IN ({marks}) ORDER BY RANDOM() LIMIT ?",
-                (*names, int(limit)),
+                f"SELECT * FROM tracks WHERE artist IN ({marks}) ORDER BY RANDOM()",
+                (*names,),
             ).fetchall()
             if station is not None:
                 ok = navidrome.station_matcher(self.conn, station)
                 rows = [r for r in rows if ok(r)]
+            rows = rows[: int(limit)]
             # Names found but nothing owned is a real answer: report the similar
             # artists and an empty track list rather than pretending we found none.
             return {
@@ -243,10 +275,16 @@ class Library:
             (artist,),
         ).fetchone()
         if row:
+            # The one branch that had no station filter at all, so it could hand the
+            # DJ a track the station is not allowed to play.
             rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE genre = ? AND artist <> ? ORDER BY RANDOM() LIMIT ?",
-                (row["genre"], artist, int(limit)),
+                "SELECT * FROM tracks WHERE genre = ? AND artist <> ? ORDER BY RANDOM()",
+                (row["genre"], artist),
             ).fetchall()
+            if station is not None:
+                ok = navidrome.station_matcher(self.conn, station)
+                rows = [r for r in rows if ok(r)]
+            rows = rows[: int(limit)]
             if rows:
                 return {
                     "source": "genre",
@@ -501,9 +539,7 @@ def _system_prompt(station: config.Station, pool_size: int) -> str:
         "the nearest thing that works and say so the way a person would. Everything you "
         "return must already be on this station."
     )
-    bits.append(
-        'Reply with ONLY a JSON object: {"track_id": "<id from a tool result>", "why": "<spoken line, at most 180 characters>"}'
-    )
+    bits.append(REPLY_CONTRACT)
     return "\n\n".join(bits)
 
 
@@ -527,6 +563,68 @@ def _chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
         r = httpx.post(f"{llm['base']}/chat/completions", headers=headers, json=body, timeout=90.0)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]
+
+
+def _fit(payload, limit: int = TOOL_RESULT_CHARS) -> str:
+    """A tool result as JSON that always parses, and always fits.
+
+    `catalogue` on a big artist, `filter` at its maximum limit and `search` at 200
+    all encode to more than the budget, and the old blind slice left the model with
+    half an object — including half the ids it is required to answer with. So the
+    list is trimmed by whole rows, largest prefix that fits, and says so.
+    """
+    text = json.dumps(payload, ensure_ascii=False)
+    if len(text) <= limit:
+        return text
+
+    key = None
+    rows = None
+    if isinstance(payload, dict):
+        for candidate in ("results", "tracks"):
+            if isinstance(payload.get(candidate), list):
+                key, rows = candidate, payload[candidate]
+                break
+    elif isinstance(payload, list):
+        rows = payload
+    if not rows:
+        return json.dumps(
+            {"results": [], "note": "too much to show; narrow the lookup"}, ensure_ascii=False
+        )
+
+    def build(count: int):
+        if key is None:
+            return rows[:count]
+        return {**payload, key: rows[:count], "note": f"showing {count} of {len(rows)}"}
+
+    lo, hi, best = 0, len(rows), 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if len(json.dumps(build(mid), ensure_ascii=False)) <= limit:
+            best, lo = mid, mid + 1
+        else:
+            hi = mid - 1
+    return json.dumps(build(best), ensure_ascii=False)
+
+
+def _json_object(text: str) -> dict | None:
+    """The first JSON object in a reply that carries a track id.
+
+    Handles a bare object, a fenced one, prose around it, and two objects in one
+    reply — the old parser spanned from the first `{` to the last `}`, so any of
+    those produced invalid JSON and cost a whole extra round trip.
+    """
+    decoder = json.JSONDecoder()
+    at = text.find("{")
+    while at != -1:
+        try:
+            value, _ = decoder.raw_decode(text, at)
+        except ValueError:
+            at = text.find("{", at + 1)
+            continue
+        if isinstance(value, dict) and value.get("track_id"):
+            return value
+        at = text.find("{", at + 1)
+    return None
 
 
 def pick_next(
@@ -605,19 +703,13 @@ def pick_next(
         if last_round:
             # Out of lookups: make the model answer from what it already has
             # rather than searching forever and leaving the station unpicked.
-            messages.append(
-                {
-                    "role": "user",
-                    "content": "No more lookups. Reply now with the JSON object using a track id "
-                    "from the results you already have.",
-                }
-            )
+            messages.append({"role": "user", "content": ANSWER_NOW})
         # A track id can only come from a tool result, so the first round is made to
         # look something up rather than hoping the model has an id to hand.
         msg = _chat(messages, TOOLS, no_tools=last_round, require_call=round_no == 0)
         calls = msg.get("tool_calls") or []
         if not calls:
-            pick = _parse_final(lib, msg.get("content") or "", avoid)
+            pick = _parse_final(lib, msg.get("content") or "", avoid, station)
             if pick is not None:
                 return pick
             # One more go: an unusable reply is usually prose wrapped round the
@@ -627,13 +719,12 @@ def pick_next(
             messages.append(
                 {
                     "role": "user",
-                    "content": "That reply could not be used. Answer with only the JSON "
-                    "object {\"track_id\": \"<id from a tool result>\", \"why\": \"<one sentence>\"} "
-                    "and pick a track that is not in the recent list.",
+                    "content": "That reply could not be used. " + REPLY_CONTRACT
+                    + " Pick a track that is not in the recent list.",
                 }
             )
             retry = _chat(messages, TOOLS, no_tools=True)
-            return _parse_final(lib, retry.get("content") or "", avoid)
+            return _parse_final(lib, retry.get("content") or "", avoid, station)
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         for call in calls:
             name = call["function"]["name"]
@@ -661,40 +752,34 @@ def pick_next(
                 {
                     "role": "tool",
                     "tool_call_id": call["id"],
-                    "content": json.dumps(payload, ensure_ascii=False)[:6000],
+                    "content": _fit(payload),
                 }
             )
 
     # Out of rounds with nothing usable: one last ask, no tools at all, so the model
     # cannot keep exploring instead of answering.
     messages.append(
-        {
-            "role": "user",
-            "content": "Stop searching. Answer with only the JSON object "
-            '{"track_id": "<id from a tool result>", "why": "<one sentence>"} '
-            "and pick a track that is not in the recent list.",
-        }
+        {"role": "user", "content": ANSWER_NOW + " Pick a track that is not in the recent list."}
     )
     final = _chat(messages, TOOLS, no_tools=True)
-    return _parse_final(lib, final.get("content") or "", avoid)
+    return _parse_final(lib, final.get("content") or "", avoid, station)
 
 
-def _parse_final(lib: Library, content: str, avoid: set[str]) -> Pick | None:
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.split("\n", 1)[-1] if "\n" in text else text
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
-        return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
+def _parse_final(
+    lib: Library, content: str, avoid: set[str], station: config.Station
+) -> Pick | None:
+    data = _json_object(content)
+    if data is None:
         return None
     track_id = str(data.get("track_id") or "")
     if not track_id or track_id in avoid:
         return None
     track = lib.by_id(track_id)
     if not track or not track.uri:
+        return None
+    # The station's rules are the invariant, not just a filter on the tools: a
+    # guessed id, or one from a tool that forgot them, still has to be allowed to
+    # play before it reaches the queue.
+    if not lib.on_station(station, track_id):
         return None
     return Pick(track=track, why=str(data.get("why") or "")[:200])
