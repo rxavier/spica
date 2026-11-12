@@ -83,7 +83,12 @@ in `SPICA_ADMIN_PASSWORD`. The first run writes `config/icecast.xml`,
 - `ICECAST_ADMIN_PASSWORD` — Icecast's own `/admin` pages.
 - `SPICA_ADMIN_PASSWORD` — the console. Empty disables admin writes.
 - `NAVIDROME_URL`, `NAVIDROME_USER`, `NAVIDROME_PASS` — a Navidrome account for the
-  radio. Nothing is ever written to it, and no scrobbles are sent.
+  radio. Nothing is ever written to it, and no scrobbles are sent. The Subsonic
+  token is minted from a salt kept in `state/` and it never expires, so any stream
+  URL that leaves the machine — a playlist file, a log line, a screenshot of the
+  network tab — is a working credential for as long as the salt exists. Give the
+  radio its own Navidrome user rather than an admin one, and treat a leaked URL the
+  way you would treat a leaked password.
 - `LLM_BASE`, `LLM_KEY`, `LLM_MODEL`, `LLM_HEADERS` — defaults for the endpoint. The
   admin's *settings* page can override them, and what it saves to
   `config/llm.json` (mode 600) wins.

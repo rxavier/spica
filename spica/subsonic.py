@@ -32,17 +32,38 @@ def _salt_file() -> Path:
     return config.STATE_DIR / ".subsonic-salt"
 
 
+_SALT: str | None = None
+
+
 def _salt() -> str:
-    """One salt per installation, kept on disk so URLs stay valid across restarts."""
+    """One salt per installation, kept on disk so URLs stay valid across restarts.
+
+    Cached in memory: it was read off disk on every API call and every stream URL.
+    Creation is exclusive, so the two processes that start together agree on one
+    salt instead of each writing its own and leaving the file holding whichever
+    finished last.
+    """
+    global _SALT
+    if _SALT:
+        return _SALT
     path = _salt_file()
     try:
-        return path.read_text(encoding="utf-8").strip() or _write_salt(path)
+        _SALT = path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        return _write_salt(path)
+        _SALT = ""
+    if not _SALT:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with path.open("x", encoding="utf-8") as fh:
+                fh.write(secrets.token_hex(8) + "\n")
+        except FileExistsError:
+            pass  # somebody else won the creation; use theirs
+        _SALT = path.read_text(encoding="utf-8").strip() or _new_salt(path)
+    return _SALT
 
 
-def _write_salt(path: Path) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _new_salt(path: Path) -> str:
+    """Last resort when the file exists but is empty: rewrite it in place."""
     salt = secrets.token_hex(8)
     path.write_text(salt + "\n", encoding="utf-8")
     return salt
