@@ -1,8 +1,9 @@
 """Heuristic rotation: one deterministic, human-ordered m3u per station.
 
 Ordering rules that matter and that an LLM should never be asked to do:
-  * stable per station+day, so a station has a consistent shape but is not the
-    same list forever,
+  * reordered on every rebuild, so a station is not the same sequence twice,
+  * stable *between* rebuilds, because a rewrite restarts the playlist at its head
+    and anything shuffling underneath a listener would be worse than variety,
   * no two tracks from one album adjacent,
   * no artist repeat inside ARTIST_WINDOW tracks,
   * how the set leans is the DJ's brief, not a filter: the order itself is neutral.
@@ -11,6 +12,7 @@ Ordering rules that matter and that an LLM should never be asked to do:
 from __future__ import annotations
 
 import hashlib
+import secrets
 import sqlite3
 import time
 
@@ -48,8 +50,8 @@ def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -
     return out
 
 
-def _score(station: config.Station, row: sqlite3.Row, day: int, percentile: dict[str, float]) -> float:
-    h = hashlib.blake2b(f"{station.id}|{day}|{row['id']}".encode(), digest_size=8).hexdigest()
+def _score(station: config.Station, row: sqlite3.Row, salt: int, percentile: dict[str, float]) -> float:
+    h = hashlib.blake2b(f"{station.id}|{salt}|{row['id']}".encode(), digest_size=8).hexdigest()
     base = int(h, 16) / 2**64
     if not station.deep_bias:
         return base
@@ -60,9 +62,18 @@ def _score(station: config.Station, row: sqlite3.Row, day: int, percentile: dict
     return base * 0.45 + lean * 0.55
 
 
-def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str, float] | None = None) -> list[sqlite3.Row]:
-    day = int(time.time() // 86400)
-    scored = sorted(rows, key=lambda r: _score(station, r, day, percentile or {}))
+def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str, float] | None = None,
+          salt: int | None = None) -> list[sqlite3.Row]:
+    """A fresh random order for every rebuild.
+
+    It used to be keyed by the day, which bought reproducibility and cost variety:
+    every rebuild inside one day produced the same sequence, and since a rewrite
+    restarts a playlist from its head, the same few tracks came round again. The
+    order is not something anyone needs to reproduce — the file on disk is the
+    record of it.
+    """
+    salt = secrets.randbits(64) if salt is None else salt
+    scored = sorted(rows, key=lambda r: _score(station, r, salt, percentile or {}))
     out: list[sqlite3.Row] = []
     recent_artists: list[str] = []
     recent_albums: list[str] = []
@@ -87,6 +98,42 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
     return out
 
 
+def _rotate_after(st: config.Station, marker: str) -> bool:
+    """Move the head of the pool to just past `marker`. True if anything moved."""
+    try:
+        lines = [line for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except FileNotFoundError:
+        return False
+    if len(lines) < 2:
+        return False
+    at = next((i for i, line in enumerate(lines) if marker in line), None)
+    if at is None:
+        return False
+    rotated = lines[at + 1:] + lines[:at + 1]
+    if rotated == lines:
+        return False
+    tmp = st.pool_file.with_suffix(".tmp")
+    tmp.write_text("\n".join(rotated) + "\n", encoding="utf-8")
+    tmp.replace(st.pool_file)
+    return True
+
+
+def skip_past(stations: list[config.Station], track_id: str, log=print) -> None:
+    """Push a track the DJ just queued to the far end of the pool.
+
+    A rewrite restarts a playlist at its first line, and this one rotates the list so
+    that line is the track after the pick — the pool resumes from there and the pick
+    itself is a full rotation away instead of turning up nine minutes later as a
+    repeat. Nothing is dropped; the order is a loop.
+    """
+    if not track_id:
+        return
+    marker = f"id={track_id}"
+    for st in stations:
+        if _rotate_after(st, marker):
+            log(f"pool {st.id}: skipped past {track_id}")
+
+
 def resume_after_last_played(stations: list[config.Station], last_played, log=print) -> None:
     """Rotate each pool so it starts after the track that played last.
 
@@ -96,26 +143,11 @@ def resume_after_last_played(stations: list[config.Station], last_played, log=pr
     the list is a loop, so nothing is lost, and nothing is shuffling.
     """
     for st in stations:
-        try:
-            lines = [line for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except FileNotFoundError:
-            continue
-        if len(lines) < 2:
-            continue
         last = last_played(st)
         if not last or not last.get("id"):
             continue
-        marker = f"id={last['id']}"
-        at = next((i for i, line in enumerate(lines) if marker in line), None)
-        if at is None:
-            continue
-        rotated = lines[at + 1 :] + lines[: at + 1]
-        if rotated == lines:
-            continue
-        tmp = st.pool_file.with_suffix(".tmp")
-        tmp.write_text("\n".join(rotated) + "\n", encoding="utf-8")
-        tmp.replace(st.pool_file)
-        log(f"pool {st.id}: resumed after {last.get('artist')} — {last.get('title')}")
+        if _rotate_after(st, f"id={last['id']}"):
+            log(f"pool {st.id}: resumed after {last.get('artist')} — {last.get('title')}")
 
 
 def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=print) -> dict[str, int]:
