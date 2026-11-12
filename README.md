@@ -127,7 +127,10 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
   provider is required; a library with no ids and no API key still gets an answer.
 - **Listener requests that last more than one song.** Free text, kept for N tracks, and
-  the DJ is told both how many songs have passed and how many remain. The system prompt
+  the DJ is told both how many songs have passed and how many remain. A request
+  supersedes the pick already waiting rather than queueing behind it: "play something
+  heavier" is about the mood, and the pick in hand was chosen for the old one, so it is
+  dropped and chosen again within a tick. The system prompt
   tells it to honour requests, including mood changes, without ever moving the station
   away from its own identity.
 - **Genres from the best source available, not from guesses.** Your file tags, then
@@ -571,9 +574,9 @@ page uses.
 | GET | `/genres` | labels with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
-| GET | `/requests/<station>` | requests still in force, with age and remaining songs |
+| GET | `/requests/<station>` | requests the station still remembers, what each produced, and how long ago |
 | POST | `/pick/<station>` | force a DJ pick now; it takes the waiting slot and the pick it displaces goes to the top of the pool |
-| POST | `/request` | `{"text", "station", "songs"}`: record a request and play it next, displacing a waiting pick the same way |
+| POST | `/request` | `{"text", "station", "songs"}`: record a request and air it next; the pick already waiting is dropped and chosen again in the new mood |
 | POST | `/rebuild` | re-index Navidrome and rewrite every pool |
 | POST | `/liq` | render `spica.liq` from `stations.json` |
 | POST | `/enrich?limit=N` | fill artist MBIDs, 0 for all |

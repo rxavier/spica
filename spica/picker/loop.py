@@ -92,7 +92,7 @@ def pick_next(
 
     live = requests_mod.active(station)
     live_lines = "\n".join(
-        f'- "{r["text"]}" — asked {r["songs_ago"]} song(s) ago, about {r["remaining"]} still to go'
+        f'- "{r["text"]}" — asked {r["songs_ago"]} song(s) ago'
         for r in live
     )
 
@@ -102,7 +102,7 @@ def pick_next(
             "role": "user",
             "content": (
                 (f"Listener request: {request_text}\n" if request_text else "Pick the next track.\n")
-                + (f"Requests still in force:\n{live_lines}\n" if live_lines else "")
+                + (f"What listeners asked for:\n{live_lines}\n" if live_lines else "")
                 + recent_lines
             ),
         },

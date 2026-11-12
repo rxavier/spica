@@ -1,14 +1,15 @@
 """Listener requests that outlive a single pick.
 
-A request is not a one-shot: "play something milder" is an instruction about the
-next few songs, and the DJ needs to know both WHAT was asked and HOW LONG AGO,
-because a request from eight songs back should carry less weight than one from
-two songs ago. So a request is stored with the number of plays that had happened
-when it was made, and it expires after N plays rather than after a clock time —
-pacing a station by songs is how a listener actually experiences it.
+A request is not a one-shot, but it is not an order either. The listener asked for
+something; the DJ answered with the track it played; after that the request is
+context — useful for a while, since "they wanted something heavier two songs ago"
+says something about the room, and meaningless a dozen songs later. So a request is
+stored with the number of plays that had happened when it was made, and it is
+remembered for N plays rather than a clock time: pacing a station by songs is how a
+listener experiences it.
 
-The DJ is told to accommodate these, including requests that ask for a change of
-vibe, without ever changing the station's own identity.
+The DJ is told what was asked and how long ago, and decides each time whether the
+set is still in that mood. Nothing about the station's identity moves.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from pathlib import Path
 
 from . import config
 
+# How many plays a request is remembered for. Not how long it is obeyed: after the
+# track it produced, it is context the DJ may follow or leave.
 DEFAULT_SONGS = 3
 MAX_SONGS = 30
 
@@ -85,7 +88,7 @@ def _store(station: config.Station, reqs: list[dict]) -> None:
 
 
 def record(station: config.Station, text: str, songs: int = DEFAULT_SONGS) -> dict:
-    """Register a request. `songs` is how many tracks it stays in force for."""
+    """Register a request. `songs` is how many tracks it is remembered for."""
     text = (text or "").strip()
     songs = max(1, min(MAX_SONGS, int(songs or DEFAULT_SONGS)))
     req = {
@@ -123,7 +126,7 @@ def _remaining(req: dict, plays_now: int) -> int:
 
 
 def active(station: config.Station) -> list[dict]:
-    """Requests still in force, newest last, with age and remaining plays."""
+    """Requests still remembered, newest last, with age and remaining plays."""
     plays_now = _plays(station)
     out = []
     for req in _load(station):

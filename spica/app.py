@@ -56,6 +56,16 @@ async def loop() -> None:
                 _close_if_silent(st, states)
                 if queue.queued(st):
                     continue
+                # A request that could not be promoted into the mixer's own queue
+                # (control server down when it arrived) airs here instead; the
+                # normal path promotes it immediately and never reaches this.
+                due = queue.take_request(st)
+                if due is not None:
+                    displaced = queue.replace(st, due["uri"], due.get("label", ""))
+                    if displaced:  # nothing should be waiting, but never drop one
+                        await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
+                    log.info("[%s] aired the request: %s", st.id, due.get("label", ""))
+                    continue
                 # No live mount among the station's streams means nobody can hear it,
                 # whatever presence says. Note this also pauses picking for a poll or
                 # two if Icecast itself hiccups and returns nothing: with no states,
@@ -136,7 +146,7 @@ def _close_if_silent(st: config.Station, states: dict) -> None:
 class RequestBody(BaseModel):
     text: str
     station: str | None = None
-    # How many tracks the request stays in force for. A vibe change is a
+    # How many tracks the request is remembered for. A vibe change is a
     # direction for a set, not for one song.
     songs: int | None = None
 
@@ -305,7 +315,7 @@ async def request_track(body: RequestBody) -> dict:
 
 @app.get("/requests/{station_id}")
 async def list_requests(station_id: str) -> dict:
-    """Requests still in force on a station, with age and remaining songs."""
+    """Requests still remembered on a station, with age and remaining songs."""
     st = _station(station_id)
     return {"station": st.id, "requests": await asyncio.to_thread(requests_mod.active, st)}
 
