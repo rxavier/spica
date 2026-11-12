@@ -367,7 +367,10 @@ async def _relay(st, codec, request: Request):
     mount = st.mount_for(codec)
     await asyncio.to_thread(mixer.start, st, codec)
     for _ in range(40):
-        states = await asyncio.to_thread(icecast.listen_states)
+        # Somebody is waiting for a specific mount to appear, so this is the one
+        # place worth reading Icecast out of turn — the shared snapshot is a couple
+        # of seconds old by design.
+        states = await asyncio.to_thread(icecast.refresh)
         if mount in states:
             break
         await asyncio.sleep(0.25)
@@ -436,9 +439,14 @@ async def station_start(station_id: str, stream: str = ""):
 @router.get("/s/{station_id}/state")
 async def station_state(station_id: str, stream: str = ""):
     st = station_or_404(station_id)
-    states = await asyncio.to_thread(icecast.listen_states)
-    live = icecast.live_mount(states, st)
     chosen = (stream or "").strip().lower() or st.stream_set[0]
+    states = icecast.listen_states()
+    if st.mount_for(chosen) not in states:
+        # The player asks about a stream it has just asked us to open, and it is
+        # polling every 350 ms: give it a fresh answer rather than one from before
+        # the mount existed.
+        states = await asyncio.to_thread(icecast.refresh)
+    live = icecast.live_mount(states, st)
     return JSONResponse(
         {
             "live": live is not None,

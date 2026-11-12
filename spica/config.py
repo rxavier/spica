@@ -72,6 +72,10 @@ KEEP_AHEAD = int(os.environ.get("KEEP_AHEAD", "1"))
 IDLE_STOP_S = int(os.environ.get("IDLE_STOP_S", "90"))
 # How often the worker compares the index with Navidrome's own count.
 REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
+# How often the Icecast status page is read into the snapshot everything shares.
+# One read costs ~200 ms of wall clock, so this is the only place it happens; the
+# page poll, /status and the DJ all read the snapshot instead.
+ICECAST_POLL_S = float(os.environ.get("ICECAST_POLL_S", "2"))
 
 
 # Three streams, one per codec, each at a bitrate that suits it. No knobs: the

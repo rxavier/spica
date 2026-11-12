@@ -602,6 +602,7 @@ the keys, and that is the file to start from.
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
 | `ICECAST_OUTPUT_HOST`, `ICECAST_OUTPUT_PORT` | where the mixer publishes — separate from `ICECAST_URL` because the two containers see Icecast at different addresses |
+| `ICECAST_POLL_S` | how often the status page is read into the snapshot the page, `/status` and the DJ share (default `2`) |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |
 | `SPICA_TZ` | the timezone the server falls back to when the browser cannot say (default `America/Montevideo`) |
 

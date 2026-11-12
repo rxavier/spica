@@ -43,7 +43,7 @@ async def loop() -> None:
                     store.forget_tracks()  # the worker rebuilt the index under us
                     log.info("index changed on disk — reloaded the track lookup")
                 INDEX_STAMP[0] = stamp
-            states = await asyncio.to_thread(icecast.listen_states)
+            states = icecast.listen_states()
             for st in store.stations():
                 # The mixer stamps every track it starts, which is the only witness
                 # that keeps working when the mount is closed and the station plays on.
@@ -160,6 +160,8 @@ async def lifespan(app: FastAPI):
     global LIB
     bootstrap.ensure()
     LIB = picker.Library(store.conn())
+    # One thread reads Icecast's status page for everybody; see icecast.py.
+    icecast.start_refresher()
     # Outputs start closed, so this cannot disturb anyone: the pool simply
     # begins where the station left off instead of rewinding to line one.
     pool.resume_after_last_played(
@@ -208,7 +210,7 @@ async def status(request: Request) -> dict:
     cover, so a dashboard or a Home Assistant sensor does not have to scrape the
     page or know about album ids.
     """
-    states = await asyncio.to_thread(icecast.listen_states)
+    states = icecast.listen_states()
     # Behind Caddy the request arrives over http, so base_url would hand out http://
     # links on an https page. The public address, when configured, is the truth.
     base = config.PUBLIC_URL or str(request.base_url).rstrip("/")
@@ -273,7 +275,7 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
         await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
     else:
         await asyncio.to_thread(pool.skip_past, [st], p.track.id)
-    states = await asyncio.to_thread(icecast.listen_states)
+    states = icecast.listen_states()
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                       presence=presence.reason(st.id, n))
@@ -326,7 +328,7 @@ async def force_pick(station_id: str) -> dict:
         await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
     else:
         await asyncio.to_thread(pool.skip_past, [st], p.track.id)
-    states = await asyncio.to_thread(icecast.listen_states)
+    states = icecast.listen_states()
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                       presence=presence.reason(st.id, n))
