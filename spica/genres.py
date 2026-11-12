@@ -35,13 +35,19 @@ from . import config
 
 # ---------------------------------------------------------------- layer 1: fold
 
-_SPACE = re.compile(r"[^0-9a-z&]+")
+_SPACE = re.compile(r"[^\w&]+", re.UNICODE)
 
 
 def fold(label: object) -> str:
-    """Comparison key: case, punctuation and padding fold; `&` reads as `and`."""
+    """Comparison key: case, punctuation and padding fold; `&` reads as `and`.
+
+    Letters in any script survive. The old pattern was `[^0-9a-z&]`, which turned
+    every non-Latin letter into a space: "Рок", "ロック" and "روك" all folded to
+    "" and unify_spellings then treated them as one label, keeping one spelling and
+    deleting the others.
+    """
     s = str(label or "").strip().lower().replace("&", " and ").replace("+", " and ")
-    return _SPACE.sub(" ", s).strip()
+    return _SPACE.sub(" ", s).replace("_", " ").strip()
 
 
 def _words(label: object) -> list[str]:
@@ -268,6 +274,8 @@ def unify_spellings(conn) -> int:
     for row in rows:
         label, count = row["label"], row["c"]
         key = fold(label)
+        if not key:  # punctuation only: no spelling to unify it with
+            continue
         current = best.get(key)
         if current is None or count > current[1] or (count == current[1] and label < current[0]):
             best[key] = (label, count)
@@ -276,7 +284,10 @@ def unify_spellings(conn) -> int:
     # commit it used to do released a half-finished index.
     for row in rows:
         label = row["label"]
-        target = pretty(best[fold(label)][0])
+        winner = best.get(fold(label))
+        if winner is None:
+            continue
+        target = pretty(winner[0])
         if label == target:
             continue
         conn.execute(
