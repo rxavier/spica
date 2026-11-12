@@ -69,6 +69,11 @@ def now_playing(st) -> dict:
     live = icecast.live_mount(icecast.listen_states(), st)
     state = live[1] if live else None
     raw = ((state.title if state else "") or "").strip()
+    # A station's title should be "Artist - Title". A URI here means the mixer
+    # announced the request rather than the track, and printing it would put a wall
+    # of credentials under the cover.
+    if "://" in raw:
+        raw = ""
     # Log it here too: the page polls every five seconds and must not show the
     # previous track's line under the new one while the background loop catches up.
     plays.note(st, raw)
@@ -483,7 +488,7 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
     )
     message = "Pedido registrado. La próxima elección lo va a tener en cuenta."
     if pick is not None:
-        queue.push(st, pick.track.uri)
+        queue.push(st, pick.track.uri, pick.track.as_line())
         queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why)
         requests_mod.attach_track(st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"

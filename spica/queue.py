@@ -15,17 +15,32 @@ from pathlib import Path
 from . import config
 
 
-def push(station: config.Station, uri: str) -> None:
-    """Hand the mixer the next track. Atomic: the mixer never sees a partial line."""
+def push(station: config.Station, uri: str, label: str = "") -> None:
+    """Hand the mixer the next track. Atomic: the mixer never sees a partial line.
+
+    `label` is what the page may show as "next up". The queue file itself holds the
+    Subsonic URI, because that is what the mixer needs, and a URI on screen is a
+    thousand-character wall of credentials.
+    """
     station.queue_file.parent.mkdir(parents=True, exist_ok=True)
     tmp = station.queue_file.with_suffix(".tmp")
     tmp.write_text(uri + "\n", encoding="utf-8")
     tmp.replace(station.queue_file)
+    station.queue_file.with_suffix(".label").write_text(
+        (label or "").strip() + "\n", encoding="utf-8"
+    )
 
 
 def queued(station: config.Station) -> str:
+    """The track waiting for the mixer, by name — empty once it has been taken.
+
+    The file disappearing is what says the mixer has it; until then the label beside
+    it is the only thing worth putting in front of a listener.
+    """
+    if not station.queue_file.exists():
+        return ""
     try:
-        return station.queue_file.read_text(encoding="utf-8").strip()
+        return station.queue_file.with_suffix(".label").read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
 
