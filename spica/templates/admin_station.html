@@ -3,6 +3,12 @@
 {% block main_class %}studio{% endblock %}
 {% block body %}
 <h1>{{ item.name }} <span class="sub">· {{ item.id }}</span></h1>
+{% if request.query_params.get('error') %}
+  <p class="flash bad">{{ request.query_params.get('error') }}</p>
+{% endif %}
+{% if request.query_params.get('saved') %}
+  <p class="flash">{{ request.query_params.get('saved') }}</p>
+{% endif %}
 <form hx-post="/admin/stations/{{ item.id }}" hx-target="#save-result" hx-swap="innerHTML">
   <div class="form-actions top">
     <button class="primary" type="submit">Save and rebuild pool</button>

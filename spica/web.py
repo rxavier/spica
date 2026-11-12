@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from collections import Counter
 import hashlib
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 import httpx
 import json
 import socket
@@ -641,9 +641,6 @@ async def logout():
     return response
 
 
-def admin_only(request: Request) -> None:
-    if not auth.is_admin(request):
-        raise HTTPException(401, "admin login required")
 
 
 # ---------------------------------------------------------------- admin pages
@@ -725,10 +722,11 @@ async def admin_station_save(
     new_id: str = Form(""),
     stream_codec: list[str] = Form(default=[]),
 ):
-    admin_only(request)
+    auth.require_admin(request)
     raw = _raw_stations()
     wanted_id = _slug(new_id) or station_id
-    if wanted_id != station_id:
+    renamed = wanted_id != station_id
+    if renamed:
         if any(item.get("id") == wanted_id for item in raw):
             return templates.TemplateResponse(
                 request,
@@ -773,12 +771,16 @@ async def admin_station_save(
         # A new or changed stream is a new Liquidsoap output, so the mixer has to
         # come back with a regenerated script.
         note += " " + _apply_station_script()
-    return templates.TemplateResponse(
-        request,
-        "_saved.html",
-        {"message": f"Saved. Pool: {counts.get(station_id, 0)} tracks.{note}",
-         "station_id": station_id},
+    message = f"Saved. Pool: {counts.get(station_id, 0)} tracks.{note}"
+    response = templates.TemplateResponse(
+        request, "_saved.html", {"message": message, "station_id": station_id}
     )
+    if renamed:
+        # The form on screen still posts the old id, and still holds it in `new_id`,
+        # so the next save would quietly write nothing or rename it back. Land the
+        # page on the new id and let it flash what happened.
+        response.headers["HX-Redirect"] = f"/admin/stations/{station_id}?saved={quote(message)}"
+    return response
 
 
 @router.post("/admin/new-station", response_class=HTMLResponse)
@@ -789,18 +791,19 @@ async def admin_station_create(
     new_id: str = Form(""),
 ):
     """Add a station. It needs a new spica.liq, so the mixer is restarted."""
-    admin_only(request)
+    auth.require_admin(request)
     raw = _raw_stations()
     station_id = _slug(new_id) or _slug(name)
     if not station_id:
-        return templates.TemplateResponse(
-            request, "_saved.html",
-            {"message": "A station needs an id: letters, digits and dashes.", "station_id": ""},
+        # These two forms are plain HTML posts, not htmx: a fragment here would be
+        # the whole page the browser lands on, so the answer is the list with a flash.
+        return RedirectResponse(
+            "/admin/stations?error=" + quote("A station needs an id: letters, digits and dashes."),
+            status_code=303,
         )
     if any(item.get("id") == station_id for item in raw):
-        return templates.TemplateResponse(
-            request, "_saved.html",
-            {"message": f"“{station_id}” already exists.", "station_id": ""},
+        return RedirectResponse(
+            "/admin/stations?error=" + quote(f"“{station_id}” already exists."), status_code=303
         )
     raw.append(
         {
@@ -818,24 +821,24 @@ async def admin_station_create(
     )
     write_stations(raw)
     pool.write_pools(_conn(), store.reload_stations())
-    note = _apply_station_script()
+    _apply_station_script()
     return RedirectResponse(f"/admin/stations/{station_id}?made=1", status_code=303)
 
 
 @router.post("/admin/stations/{station_id}/delete", response_class=HTMLResponse)
 async def admin_station_delete(request: Request, station_id: str):
     """Remove a station. Its history stays on disk, so re-creating the id brings it back."""
-    admin_only(request)
+    auth.require_admin(request)
     raw = [item for item in _raw_stations() if item.get("id") != station_id]
     if len(raw) == len(_raw_stations()):
-        return templates.TemplateResponse(
-            request, "_saved.html", {"message": "No such station.", "station_id": ""}
+        return RedirectResponse(
+            "/admin/stations?error=" + quote("No such station."), status_code=303
         )
     if not raw:
-        return templates.TemplateResponse(
-            request, "_saved.html",
-            {"message": "The last station cannot be deleted — the site needs one to land on.",
-             "station_id": station_id},
+        return RedirectResponse(
+            f"/admin/stations/{station_id}?error="
+            + quote("The last station cannot be deleted — the site needs one to land on."),
+            status_code=303,
         )
     write_stations(raw)
     # The pool is derived, so it goes with the station; the history is not, so it
@@ -904,7 +907,7 @@ async def admin_genres_merge(
     labels: list[str] = Form(default=[]),
     into: str = Form(""),
 ):
-    admin_only(request)
+    auth.require_admin(request)
     from . import genres as genre_lib
 
     conn = _conn()
@@ -925,7 +928,7 @@ async def admin_genres_merge(
 
 @router.post("/admin/genres/add", response_class=HTMLResponse)
 async def admin_genres_add(request: Request, source: str = Form(...), target: str = Form(...)):
-    admin_only(request)
+    auth.require_admin(request)
     from . import genres as genre_lib
 
     conn = _conn()
@@ -935,7 +938,7 @@ async def admin_genres_add(request: Request, source: str = Form(...), target: st
 
 @router.post("/admin/genres/delete", response_class=HTMLResponse)
 async def admin_genres_delete(request: Request, source: str = Form(...)):
-    admin_only(request)
+    auth.require_admin(request)
     from . import genres as genre_lib
 
     path = genre_lib._FILE
@@ -964,7 +967,7 @@ async def admin_genres_unassign(
 ):
     """Take a label off the chosen tracks, and remember the refusal so a rebuild
     does not quietly put it back."""
-    admin_only(request)
+    auth.require_admin(request)
     from . import genres as genre_lib
 
     conn = _conn()
@@ -1015,7 +1018,7 @@ async def admin_genres_assign(
     labels: list[str] = Form(default=[]),
 ):
     """Put a label on the chosen tracks by hand: it outranks every provider."""
-    admin_only(request)
+    auth.require_admin(request)
     from . import genres as genre_lib
 
     conn = _conn()
@@ -1079,7 +1082,7 @@ async def admin_settings_save(
     headers: str = Form(""),
     clear_key: str = Form(""),
 ):
-    admin_only(request)
+    auth.require_admin(request)
     current = config.llm_settings()
     # An empty key field means "leave it alone"; the explicit checkbox clears it.
     new_key = "" if clear_key else (key.strip() or current["key"])
@@ -1092,14 +1095,31 @@ async def admin_settings_save(
 
 
 @router.post("/admin/settings/test", response_class=HTMLResponse)
-async def admin_settings_test(request: Request):
-    """Ask the endpoint for one tiny completion, with a tool, and report what came back."""
+async def admin_settings_test(
+    request: Request,
+    base: str = Form(""),
+    key: str = Form(""),
+    model: str = Form(""),
+    headers: str = Form(""),
+):
+    """Ask the endpoint for one tiny completion, with a tool, and report what came back.
+
+    The fields come from the form beside the button, so this tests what is on screen
+    rather than what was last saved — testing the old values is how a typo in a base
+    URL survives a green tick.
+    """
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    llm = config.llm_settings()
+    saved = config.llm_settings()
+    llm = {
+        "base": (base or "").strip().rstrip("/") or saved["base"],
+        "key": (key or "").strip() or saved["key"],
+        "model": (model or "").strip() or saved["model"],
+        "headers": _parse_headers(headers) if headers.strip() else saved["headers"],
+    }
     result = {"ok": False, "base": llm["base"], "model": llm["model"], "detail": "", "tools": None}
     if not llm["base"] or not llm["key"]:
-        result["detail"] = "No endpoint or key saved yet."
+        result["detail"] = "No endpoint or key to test — fill them in or save them first."
         return templates.TemplateResponse(request, "_llm_test.html", {"result": result})
     headers = {
         "Authorization": f"Bearer {llm['key']}",
@@ -1173,7 +1193,7 @@ async def admin_prompt(request: Request):
 
 @router.post("/admin/prompt", response_class=HTMLResponse)
 async def admin_prompt_save(request: Request, text: str = Form("")):
-    admin_only(request)
+    auth.require_admin(request)
     config.DJ_PERSONA_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.DJ_PERSONA_FILE.write_text(text, encoding="utf-8")
     return templates.TemplateResponse(
@@ -1185,16 +1205,18 @@ async def admin_prompt_save(request: Request, text: str = Form("")):
 
 @router.post("/admin/prompt/reset", response_class=HTMLResponse)
 async def admin_prompt_reset(request: Request):
-    admin_only(request)
+    auth.require_admin(request)
     try:
         config.DJ_PERSONA_FILE.unlink()
     except FileNotFoundError:
         pass
-    return templates.TemplateResponse(
-        request,
-        "admin_prompt.html",
-        {"text": "", "default": picker.DEFAULT_PERSONA, "custom": False},
-    )
+    # The textarea, the "no custom prompt" note and the custom flag all come from
+    # the server; reloading is one header and leaves nothing half-updated. The old
+    # answer was a whole page swapped into <body>, which put a second <head>, a
+    # second player.js and a second <audio> element inside the live document.
+    response = Response(status_code=204)
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.get("/admin/jobs", response_class=HTMLResponse)
@@ -1208,7 +1230,7 @@ async def admin_jobs(request: Request):
 
 @router.post("/admin/jobs", response_class=HTMLResponse)
 async def admin_job_create(request: Request, kind: str = Form(...)):
-    admin_only(request)
+    auth.require_admin(request)
     conn = _conn()
     try:
         jobs.create(conn, kind)
@@ -1244,7 +1266,7 @@ async def admin_library(request: Request):
 
 @router.post("/admin/rebuild", response_class=HTMLResponse)
 async def admin_rebuild(request: Request):
-    admin_only(request)
+    auth.require_admin(request)
 
     conn = _conn()
     n = navidrome.rebuild_index(conn, log=lambda *_: None)
@@ -1262,7 +1284,7 @@ async def admin_rebuild(request: Request):
 
 @router.post("/admin/reload", response_class=HTMLResponse)
 async def admin_reload(request: Request):
-    admin_only(request)
+    auth.require_admin(request)
     import os
 
     from . import liqgen

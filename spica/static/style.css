@@ -412,6 +412,9 @@ textarea { width: 100%; min-height: 8rem; }
   padding: .7rem 1rem; border-radius: 8px; margin: 0 0 1.2rem; font-size: .92rem;
   border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
+/* A refusal, not a report: same box, and the red the rest of the console uses for
+   a failure (5.7:1 on paper, so it carries small text). */
+.flash.bad { border-left-color: var(--red); color: var(--red); }
 .prompt-view {
   white-space: pre-wrap; color: var(--soft); font: .8rem/1.6 var(--mono);
   background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px;
