@@ -399,6 +399,7 @@ under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
 /s/<station>         now playing, the ledger, and the request box
 /listen/<station>    the same stream as a plain URL, for players
 /admin               coverage, stations, recent jobs, rebuild and reload
+/admin/queue         what is on air and in hand, and what the DJ read when it chose
 /admin/stations      the rack; add, rename, delete, and edit each station's rules
 /admin/genres        the vocabulary, merging, and a table to explore tracks by genre
 /admin/prompt        the global prompt: who the DJ is and how it talks
@@ -672,8 +673,9 @@ rebuild time, so a rebuild also re-canonicalises every label.
 - `now/<station>.txt` and `.offset`: the mixer's own record of each track it starts, and
   how far the picker has read. This is what keeps the ledger honest when no mount is open.
 - `history/<station>.jsonl`: append-only play log, written by this project only.
-- `history/<station>.picks.jsonl`: the DJ's choices with their reasons and the presence
-  that justified them.
+- `history/<station>.picks.jsonl`: the DJ's choices with their reasons, the presence
+  that justified them, and — for picks recorded from here on — the brief it read, the tools it
+  called and the reply it gave. The last 500 are kept.
 - `requests/<station>.jsonl`: live listener requests.
 - `art/<albumId>`: cached cover art, one file per album.
 - `genre-aliases.json`: operator merge rules, empty by default.

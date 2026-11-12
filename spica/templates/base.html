@@ -25,8 +25,9 @@
   <nav class="sitenav">
     {% block nav %}
     {% if here.startswith("/admin") and not here.endswith("/login") %}
-      {% set admin_links = [("/admin", "panel"), ("/admin/stations", "stations"), ("/admin/genres", "genres"),
-                            ("/admin/prompt", "prompt"), ("/admin/settings", "settings"), ("/admin/library", "library")] %}
+      {% set admin_links = [("/admin", "panel"), ("/admin/queue", "queue"), ("/admin/stations", "stations"),
+                            ("/admin/genres", "genres"), ("/admin/prompt", "prompt"),
+                            ("/admin/settings", "settings"), ("/admin/library", "library")] %}
       {% for href, label in admin_links %}
         <a href="{{ href }}"{% if here == href or (href != "/admin" and here.startswith(href)) %} class="on" aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}

@@ -16,6 +16,11 @@ from .. import navidrome
 class Pick:
     track: navidrome.Track
     why: str
+    # What the DJ was working with, kept for the admin: the brief it read, the tools
+    # it called, and the reply it produced. Empty when the caller does not record it.
+    brief: str = ""
+    tools: tuple = ()
+    reply: str = ""
 
 
 TOOLS = [

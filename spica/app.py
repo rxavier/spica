@@ -108,7 +108,8 @@ async def loop() -> None:
                     log.info("[%s] dropped a pick: %s is already waiting", st.id, queue.queued(st))
                     continue
                 queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                                  presence=presence.reason(st.id, n))
+                                  presence=presence.reason(st.id, n),
+                                  detail={"brief": p.brief, "tools": p.tools, "reply": p.reply})
                 # The pool is the fallback whenever the queue runs dry; push this pick
                 # to the end of it so the two sources cannot play it twice.
                 await asyncio.to_thread(pool.skip_past, [st], p.track.id)
@@ -291,7 +292,8 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     states = icecast.listen_states()
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                      presence=presence.reason(st.id, n))
+                      presence=presence.reason(st.id, n),
+                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply})
     LAST[st.id] = {"queued": p.track.as_line(), "why": p.why, "at": time.strftime("%H:%M:%S")}
     return p
 
@@ -344,7 +346,8 @@ async def force_pick(station_id: str) -> dict:
     states = icecast.listen_states()
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                      presence=presence.reason(st.id, n))
+                      presence=presence.reason(st.id, n),
+                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply})
     return {"station": st.id, "track": p.track.as_line(), "why": p.why}
 
 
