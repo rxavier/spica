@@ -99,7 +99,7 @@ def pick_next(
     )
 
     messages: list[dict] = [
-        {"role": "system", "content": system_prompt(station, lib.count(station))},
+        {"role": "system", "content": system_prompt(station, lib.roster(station))},
         {
             "role": "user",
             "content": (
@@ -163,6 +163,10 @@ def pick_next(
                     "results": [],
                     "note": "nothing has played on this station yet; look something up instead",
                 }
+            elif isinstance(result, dict) and result.get("note") and not result.get("results"):
+                # search says which kind of miss it was and offers what is close;
+                # that is more useful than the generic note below.
+                payload = result
             elif (isinstance(result, list) and not result) or (
                 isinstance(result, dict) and "results" in result and not result["results"]
             ):

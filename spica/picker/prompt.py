@@ -47,16 +47,47 @@ def persona() -> str:
     return text
 
 
-def system_prompt(station: config.Station, pool_size: int) -> str:
-    """Persona from the operator, then what this station is, then the mechanics."""
+def system_prompt(station: config.Station, roster: dict) -> str:
+    """Persona from the operator, then what this station is, then the mechanics.
+
+    The station block ends with the racks themselves — the labels with their weights
+    and every act it holds — because the model's other source of names is its own
+    memory, and a name from memory is usually not on this station. It used to spend
+    its rounds searching for bands it knew instead of picking; naming what is here
+    turned that into a question it can answer without a call.
+    """
     bits = [persona()]
     if station.description:
         bits.append("This station is yours to run like this: " + station.description)
-    if station.genres:
+
+    labels = roster.get("labels") or []
+    if labels:
+        shown = ", ".join(f"{label} ({n})" for label, n in labels[:28])
+        more = roster["labels_total"] - len(labels[:28])
+        bits.append(
+            "What plays here, by weight: " + shown
+            + (f", and {more} smaller labels." if more > 0 else ".")
+        )
+    elif station.genres:
         bits.append("It plays: " + ", ".join(station.genres) + ".")
     if station.year_from or station.year_to:
         bits.append(f"Years: {station.year_from or 'any'}–{station.year_to or 'any'}.")
-    bits.append(f"There are about {pool_size} tracks within reach.")
+
+    acts = roster.get("acts") or []
+    if acts:
+        shown = ", ".join(f"{name} ({n})" for name, n in acts[:60])
+        more = roster["acts_total"] - len(acts[:60])
+        bits.append(
+            f"The racks: {roster['acts_total']} acts, {roster['tracks']} tracks — "
+            + shown + (f", and {more} more." if more > 0 else ".")
+        )
+        bits.append(
+            "Those are the only names that can play tonight. A band you know from "
+            "elsewhere is very likely not here: name what you see in this list, not what "
+            "you remember, and when a name is not here the tools answer with what is."
+        )
+    else:
+        bits.append(f"There are about {roster.get('tracks', 0)} tracks within reach.")
 
     bits.append(
         "The brief tells you what is on air, what came before it and what is already queued. "

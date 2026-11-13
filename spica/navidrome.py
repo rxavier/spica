@@ -55,6 +55,9 @@ def name_key(name: str) -> str:
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     for quote in "’‘`´":
         text = text.replace(quote, "'")
+    # "blink‐182" uses a typographic hyphen; nobody types one of those.
+    for dash in "‐‑‒–—−":
+        text = text.replace(dash, "-")
     return " ".join(text.casefold().split())
 
 

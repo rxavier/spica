@@ -5,7 +5,7 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one pick
 
-One pick is one `POST {base}/chat/completions` with seven function schemas,
+One pick is one `POST {base}/chat/completions` with five function schemas,
 `temperature: 0.7`, `max_tokens: 700`, a 90-second timeout, and
 
 - `tool_choice: "required"` on round 0,
@@ -43,6 +43,12 @@ Your pick starts right after <track>, so that is the one the listener hears just
 Your last picks, newest first — Regret (Everything Everything): <the reason it gave>; …
 ```
 
+The brief is the timeline only. What the station *is* lives in the system prompt, which
+is where the racks went: label weights and every act with its track count, because the
+model's other source of names is its own memory and a name from memory is usually not
+here. That is the fix for a measurable waste — 80 of 93 `search` calls in one ledger
+came back empty, all of them names the model knew from outside this library.
+
 Recent requests follow, each with its age (`asked 2 songs ago`). They are context, not standing orders: the DJ answered each one when it played, and decides pick by pick whether the room is still in that mood.
 
 The last picks are the only thing in the brief that is the DJ's own: every pick is a new
@@ -55,7 +61,7 @@ system prompt adds one line taking the model further back than the brief does:
 > For anything further back — the last half hour, what you played before the current
 > record — call history."
 
-## The seven tools
+## The five tools
 
 Every tool result passes the station matcher first, so the toolbox is *what this station
 may play*, not *your library*. An empty list is never `[]`; it is
@@ -89,10 +95,34 @@ so `songs_ago` counts real advances.
 
 `{query, limit?: 20}`
 
-`LIKE %query%` across title, artist, album and the record's artist, over-fetching
-`limit×40` rows so the station filter has something left to keep. Names are compared on
-a folded key — apostrophes, accents, case — so `L'Impératrice` and `L’Impératrice` are
-the same query.
+Every word of the query has to land somewhere — title, artist, album, the record's
+artist, or the folded name key — so `Ride Vapour Trail` finds the track and `blink 182`
+finds `blink‐182`. It over-fetches `limit×40` rows so the station filter has something
+left to keep, and falls back to the whole string as one substring when the words are
+scattered rather than all present.
+
+A miss is an answer, not an empty list. `"Parcels"` plays nowhere here, but the model
+asked for a sound, not a spelling — so the miss runs the same similar-artist machinery
+`similar` uses (cache, ListenBrainz, Last.fm), keeps only the acts this station plays,
+and hands back a track id for each:
+
+```json
+{"results": [],
+ "note": "nothing by 'Parcels' plays on this station. These do, and they are what it sounds like …",
+ "similar_here": [{"artist": "L’Impératrice", "tracks": 34, "id": "6tphReoW…", "title": "Là-haut", "album": "…", "year": 2024}]}
+```
+
+On this library that turns the ledger's worst misses into routes: *Metronomy* → Future
+Islands, Everything Everything, Ratatat; *Hot Chip* → Everything Everything, Bloc Party,
+Ratatat; *Polo & Pan* → L’Impératrice, Therapie TAXI, Bleu Toucan. A cached list is only
+twenty names and the act that plays here is often the twenty-first, so a thin result
+re-asks Last.fm for a hundred. When nothing here sounds like it, the note says so and
+points at `filter` — no invented matches.
+
+Whether the name exists on disk but not on the station, or nowhere at all, is not a
+distinction the caller can use: either way it cannot play, and saying which invites it
+to rephrase and try again. The one case where it matters is the DJ's own line — "not in
+the house tonight" — and that lives in the persona, not in a tool result.
 
 ### `filter` — a kind of thing, not a name
 
@@ -134,39 +164,6 @@ Cached similar artists → ListenBrainz by MBID → Last.fm by name → shared l
 Returns `{source, artists, tracks, owned}`; `owned: false` means the names are the
 answer, because the station holds none of their records.
 
-### `browse` — who is in the room
-
-`{dimension?: "artists" | "labels" | "decades", limit?: 40, offset?: 0}`
-
-The same shape as `station_map` but complete and paged: every artist with its track
-count, every label, every decade. Answers `{dimension, total, offset, returned, items,
-next_offset}`.
-
-`station_map` gives the top ten artists out of however many the station holds — on this
-library, ten out of sixty — and the difference matters: an artist the model was about to
-repeat looks like an obvious choice when it is one of ten visible names and a poor one
-when it is one act in a list of sixty.
-
-### `station_map` — what the station is made of
-
-`{}`
-
-Tracks it can play, the eight dominant genre labels with counts, the year spread as
-decades plus `undated` and `ignored_bad_years`, and the ten artists with the most to
-choose from. No track ids.
-
-Years below 1900 are counted, not ranked: the library has 34 tracks tagged `1006`,
-`1800s` and the like, and letting those into the histogram made the station look like it
-spanned a millennium.
-
-```json
-{"station": "Alternative", "tracks": 1911,
- "genres": [{"label": "Alternative Rock", "tracks": 1121}, …],
- "years": {"from": 1975, "to": 2026, "decades": {"1970s": 10, …, "2020s": 253},
-           "undated": 0, "ignored_bad_years": 34},
- "artists": [{"name": "The Smashing Pumpkins", "tracks": 226}, …]}
-```
-
 ## Known limits
 
 - **No audio features, no popularity, no per-listener history.** Obscurity is inferred
@@ -178,5 +175,5 @@ spanned a millennium.
   a description.
 - **Genre matching exists twice** (exact for stations, loose for `filter`). Unifying
   them is still an open question, not an oversight.
-- **Schema cost** is roughly 700 tokens per call for the seven definitions. Measure before
-  adding a seventh.
+- **Schema cost** is roughly 500 tokens per call for the five definitions. Measure before
+  adding another.
