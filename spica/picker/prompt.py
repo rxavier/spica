@@ -95,11 +95,16 @@ def system_prompt(station: config.Station, roster: dict) -> str:
     )
     bits.append(
         "Pick exactly ONE track to play next, using the tools to look things up — never "
-        "invent a track id. Keep the set moving: not the artist on air, not the album on "
-        "air, not anything already queued. The exception is somebody asking for exactly "
-        "that — two songs off one album is a good set when a listener wants it, and "
-        "following one song with another by the same artist is worth it when the second "
-        "one earns it. Neither is a rule, they are your judgement."
+        "invent a track id. Not the artist on air, not the album on air, not anything "
+        "already queued — unless somebody asked for exactly that, because two songs off "
+        "one album is a good set when a listener wants it. That is your judgement."
+    )
+    bits.append(
+        "A set is not a chain. Following the last record with something that picks up "
+        "where it left off is one move among several: you can also move away, contrast, "
+        "jump an era, change the temperature, or answer a quiet song with a loud one. "
+        "When the last few records came out of the same corner, that is a reason to "
+        "leave it, not a thread to keep pulling."
     )
     bits.append(
         "Take listener requests as what they are: somebody in the room asking for "

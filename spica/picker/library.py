@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import difflib
 import html
+import random
 import sqlite3
 from collections import Counter
 
@@ -286,6 +287,109 @@ class Library:
             "labels": labels.most_common(limit),
             "labels_total": len(labels),
         }
+
+    # Five records in the pile, five tracks visible per record. A DJ flipping crates
+    # sees covers and a handful of titles, not a catalogue.
+    CRATE_ALBUMS = 5
+    CRATE_TRACKS = 5
+
+    def popularity_ranks(self, rows: list) -> dict[str, float]:
+        """Each track's standing among its own act's tracks, 0 = the deep cut.
+
+        Absolute play counts only say how big the act is; the question in front of the
+        DJ is which of their songs people actually know.
+        """
+        from .. import pool
+
+        return pool._popularity_percentiles(self.conn, rows)
+
+    def crate(self, station: config.Station | None = None, *, size: int | None = None,
+              tracks_shown: int | None = None, avoid_acts: set[str] | None = None) -> list[dict]:
+        """A handful of records pulled out at random, the way you'd flip a crate.
+
+        Nothing here is curated: it is the pile, and the DJ may take one or ignore all
+        of them. Acts it has just played are left out, and each album comes from a
+        different act, so the five are five directions rather than five De Lux records.
+        """
+        rows = navidrome.rows_for_station(self.conn, station) if station else \
+            self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        if not rows:
+            return []
+
+        size = size or self.CRATE_ALBUMS
+        tracks_shown = tracks_shown or self.CRATE_TRACKS
+        skip = {navidrome.name_key(a) for a in (avoid_acts or set()) if a}
+
+        by_album: dict[str, list] = {}
+        for row in rows:
+            if navidrome.name_key(row["album_artist"] or row["artist"]) in skip:
+                continue
+            by_album.setdefault(row["album_id"], []).append(row)
+        if not by_album:
+            return []
+
+        # One album per act, then take the acts at random: a crate of five, not a crate
+        # of five records by whoever owns the most of the library.
+        by_act: dict[str, list[str]] = {}
+        for album_id, tracks in by_album.items():
+            by_act.setdefault(navidrome.name_key(tracks[0]["album_artist"] or tracks[0]["artist"]), []).append(album_id)
+        acts = list(by_act)
+        random.shuffle(acts)
+
+        picks: list[str] = []
+        for act in acts:
+            picks.append(random.choice(by_act[act]))
+            if len(picks) >= size:
+                break
+
+        labels = navidrome.labels_by_track(self.conn)
+        ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
+
+        out: list[dict] = []
+        for album_id in picks:
+            tracks = sorted(by_album[album_id], key=lambda r: (r["track_no"] or 0, r["title"] or ""))
+            lead = tracks[0]
+            album_labels = Counter()
+            for track in tracks:
+                for label in labels.get(track["id"], ()):
+                    album_labels[label] += 1
+            # The best-known song on the record, not its median: a median over one
+            # album's own tracks is ~0.5 by construction and says nothing.
+            known = max((ranks.get(t["id"], 0.0) for t in tracks), default=0.0)
+            out.append({
+                "album": lead["album"],
+                "artist": lead["album_artist"] or lead["artist"],
+                "year": lead["year"],
+                "label": (album_labels.most_common(1) or [("", 0)])[0][0],
+                "known": known,
+                "tracks": [
+                    {"id": t["id"], "title": t["title"], "no": t["track_no"]}
+                    for t in tracks[:tracks_shown]
+                ],
+                "total": len(tracks),
+            })
+        return out
+
+    def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
+        """The labels and acts of the last few songs, newest first.
+
+        This is the evidence a DJ would use to notice he has been in one corner all
+        night: not what he meant to play, what actually went out.
+        """
+        plays = queue.recent(station, n)
+        labels = navidrome.labels_by_track(self.conn)
+        acts: list[str] = []
+        counted: Counter = Counter()
+        for entry in plays:
+            track_id = entry.get("id") or ""
+            row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone() if track_id else None
+            if row is not None:
+                acts.append(row["album_artist"] or row["artist"] or "")
+                for label in labels.get(track_id, ()):
+                    counted[label] += 1
+            elif entry.get("artist"):
+                acts.append(entry["artist"])
+        return [label for label, _ in counted.most_common(3)], acts
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
         row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()

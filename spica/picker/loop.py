@@ -23,6 +23,7 @@ MAX_TOOL_ROUNDS = 4
 # enough to keep a thread going and to avoid the same opening twice in a night; more
 # would spend tokens on lines the listener has long forgotten.
 RECENT_PICKS = 3
+RECENT_PLAYS = 5
 
 
 def pick_next(
@@ -44,9 +45,11 @@ def pick_next(
     live = icecast.live_mount(icecast.listen_states(), station)
     state = live[1] if live else None
     on_air = ""
+    on_air_artist = ""
     if state and state.title:
         artist, song = queue.split_title(state.title)
         on_air = f"{song} — {artist}" if artist else song
+        on_air_artist = artist
 
     waiting = []
     for song_id in mixer.queued_ids(station)[:4]:
@@ -83,6 +86,23 @@ def pick_next(
     # conversation, so "vary your phrasing" asked it not to repeat a construction it
     # had no record of having used, and a line could never pick up a thread from the
     # pick before it.
+    # What actually went out, not what it meant to play. A DJ notices he has been in
+    # one corner by hearing it, and the model has no ears — so the run of labels is
+    # stated, and stated as a reason to leave rather than a thread to continue.
+    labels_seen, acts_seen = lib.recent_labels(station, RECENT_PLAYS)
+    if labels_seen:
+        corner = " and ".join(labels_seen[:2])
+        heard = ", ".join(dict.fromkeys(a for a in acts_seen if a))
+        lines.append(f"The last {len(acts_seen)} songs went out as {corner} — {heard}.")
+        # Only nag when the run really is tight. Five songs from five acts is not a
+        # corner, and saying so every pick would just teach it to ignore the line.
+        if len(set(acts_seen)) <= 3:
+            lines.append(
+                f"That is {len(set(acts_seen))} acts in a row, one corner of a "
+                f"{lib.count(station)}-track station: leave the room tonight — another "
+                "label, another era, another temperature."
+            )
+
     said = [
         e for e in reversed(queue.recent_picks(station, RECENT_PICKS)) if e.get("why")
     ]
@@ -99,6 +119,32 @@ def pick_next(
         lines.append("\n".join(block))
     # One thought per line. Run together as a paragraph, the on-air line, the queue and
     # the list of past picks read as one wall of text.
+    crate = lib.crate(
+        station,
+        avoid_acts=set(acts_seen) | ({on_air_artist} if on_air_artist else set()),
+    )
+    if crate:
+        block = [
+            "Five records pulled at random from the racks — the pile, not a recommendation. "
+            "Take a track from any of them if something fits, or ignore all five and go "
+            "looking: something similar, a completely different genre, or the same genre in "
+            "another era."
+        ]
+        for index, album in enumerate(crate, 1):
+            known = ("a hit" if album["known"] >= 0.75
+                     else "mid" if album["known"] >= 0.35 else "a deep cut")
+            head = f"{index}. {album['album']} — {album['artist']}"
+            if album["year"]:
+                head += f" ({album['year']})"
+            if album["label"]:
+                head += f" · {album['label']}"
+            block.append(head + f" · {known}")
+            for track in album["tracks"]:
+                block.append(f"   {track['id']}  {track['title']}")
+            if album["total"] > len(album["tracks"]):
+                block.append(f"   (+{album['total'] - len(album['tracks'])} more)")
+        lines.append("\n".join(block))
+
     recent_lines = "\n".join(lines)
 
     live = requests_mod.active(station)

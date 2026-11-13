@@ -40,10 +40,42 @@ On air right now: Bloc Party — Halo.
 Before that, newest first: Bloc Party — Trojan Horse; Everything Everything — Regret; …
 Already queued, in order: …
 Your pick starts right after <track>, so that is the one the listener hears just before it.
-Your last picks, newest first — Regret (Everything Everything): <the reason it gave>; …
+The last 5 songs went out as Disco and Nu Disco — De Lux, Nu Genea, Gativideo, De Lux, Nu Genea.
+That is 3 acts in a row, one corner of a 1961-track station: leave the room tonight — another
+label, another era, another temperature.
+Your last picks, most recent first. 1 is the pick you made immediately before this one:
+1. Voyage Automatique — 35007: quiet, unhurried, and it ends where the next one starts.
+2. 20 09 — 35007: same warmth, a little more motion.
+3. 23 32 — 35007: it sat right after the last one and opened the room up.
+Five records pulled at random from the racks — the pile, not a recommendation. Take a track
+from any of them if something fits, or ignore all five and go looking: something similar, a
+completely different genre, or the same genre in another era.
+1. Doolittle — Pixies (1989) · Alternative Rock · a hit
+   2FNFckudFqIFAYQnksJBbU  Debaser
+   6LJ1ZUPnF1A7Bx7FR8xgPV  Tame
+   (+12 more)
+2. …
 ```
 
-The brief is the timeline only. What the station *is* lives in the system prompt, which
+**The run of labels** comes from what actually played, not from the DJ's own picks, and the
+nudge to leave the room only fires when the run is genuinely tight — five songs from five
+acts is not a corner, and a line that cries wolf every pick is a line the model learns to
+skip.
+
+**The crates** are the standing counterweight to "continue the sound": five albums drawn at
+random from the station's playable set, one per act, skipping the acts just played, each with
+its label and whether it holds a well-known song — the best-covered track on the record, not
+the median, because a median over one album's own tracks is ~0.5 by construction and says
+nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
+all five and search instead.
+
+This is what broke the rut, measured on the live library over twelve real picks each way:
+without the crates, twelve picks produced **three distinct acts** (De Lux, L'Impératrice,
+Nu Genea, cyclically — labels Disco ×12); with them, **eight** (Foo Fighters, Ratatat,
+Spinetta, Kasabian, Mansun, Pearl Jam… — Alternative Rock ×9, Indie Rock ×6).
+
+The brief is the timeline, the crates and the run of labels — state, in other words. What
+the station *is* lives in the system prompt, which
 is where the racks went: label weights and every act with its track count, because the
 model's other source of names is its own memory and a name from memory is usually not
 here. That is the fix for a measurable waste — 80 of 93 `search` calls in one ledger
