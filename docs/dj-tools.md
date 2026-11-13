@@ -47,8 +47,8 @@ Your last picks, most recent first. 1 is the pick you made immediately before th
 1. Voyage Automatique — 35007: quiet, unhurried, and it ends where the next one starts.
 2. 20 09 — 35007: same warmth, a little more motion.
 3. 23 32 — 35007: it sat right after the last one and opened the room up.
-Five records pulled at random from the racks — the pile, not a recommendation. Take a track
-from any of them if something fits, or ignore all five and go looking: something similar, a
+Three records pulled at random from the racks — the pile, not a recommendation. Take a track
+from any of them if something fits, or ignore all three and go looking: something similar, a
 completely different genre, or the same genre in another era.
 1. Doolittle — Pixies (1989) · Alternative Rock · a hit
    2FNFckudFqIFAYQnksJBbU  Debaser
@@ -62,12 +62,12 @@ nudge to leave the room only fires when the run is genuinely tight — five song
 acts is not a corner, and a line that cries wolf every pick is a line the model learns to
 skip.
 
-**The crates** are the standing counterweight to "continue the sound": five albums drawn at
+**The crates** are the standing counterweight to "continue the sound": three albums drawn at
 random from the station's playable set, one per act, skipping the acts just played, each with
 its genre and whether it holds a well-known song — the best-covered track on the record, not
 the median, because a median over one album's own tracks is ~0.5 by construction and says
 nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
-all five and search instead.
+all three and search instead.
 
 This is what broke the rut, measured on the live library over twelve real picks each way:
 without the crates, twelve picks produced **three distinct acts** (De Lux, L'Impératrice,

@@ -130,8 +130,8 @@ def pick_next(
     )
     if crate:
         block = [
-            "Five records pulled at random from the racks — the pile, not a recommendation. "
-            "Take a track from any of them if something fits, or ignore all five and go "
+            "Three records pulled at random from the racks — the pile, not a recommendation. "
+            "Take a track from any of them if something fits, or ignore all three and go "
             "looking: something similar, a completely different genre, or the same genre in "
             "another era."
         ]

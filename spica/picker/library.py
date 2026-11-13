@@ -299,9 +299,10 @@ class Library:
             "labels_total": len(labels),
         }
 
-    # Five records in the pile, five tracks visible per record. A DJ flipping crates
-    # sees covers and a handful of titles, not a catalogue.
-    CRATE_ALBUMS = 5
+    # Three records in the pile, five tracks visible per record. A DJ flipping crates
+    # sees covers and a handful of titles, not a catalogue — and three is enough to
+    # offer directions without turning the brief into a list.
+    CRATE_ALBUMS = 3
     CRATE_TRACKS = 5
 
     def _shuffle_key(self, row: sqlite3.Row):
