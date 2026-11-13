@@ -37,61 +37,34 @@ Prose, not structured data — the model reads a set, it doesn't parse a table:
 
 ```
 On air right now: Bloc Party — Halo.
-Before that, newest first: Bloc Party — Trojan Horse; Everything Everything — Regret; …
+Before that, newest first — the reason when you chose it, standby when the station did:
+1. Everything Everything — Regret: that clipped guitar wanted some air, so here is a hook
+   that opens a window instead.
+2. De Lux — Validation (standby — the station played it while you were offline)
+3. Pearl Jam — Release (standby — the station played it while you were offline)
 Already queued, in order: …
 Your pick starts right after <track>, so that is the one the listener hears just before it.
-The last 5 songs went out as Disco and Nu Disco — De Lux, Nu Genea, Gativideo, De Lux, Nu Genea.
-That is 3 acts in a row, one corner of a 1961-track station: leave the room tonight — another
-genre, another era, another temperature.
-Your last picks, most recent first, with how many songs ago each aired:
-1. Voyage Automatique — 35007 (1 song ago): quiet, unhurried, and it ends where the next one starts.
-2. 20 09 — 35007 (4 songs ago): same warmth, a little more motion.
-3. 23 32 — 35007 (9 songs ago): it sat right after the last one and opened the room up.
-Three records pulled at random from the racks — the pile, not a recommendation. Take a track
-from any of them if something fits, or ignore all three and go looking: something similar, a
-completely different genre, or the same genre in another era.
-1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock · a hit
-   2FNFckudFqIFAYQnksJBbU  Debaser
-   6LJ1ZUPnF1A7Bx7FR8xgPV  Tame
-   (+12 more)
-2. …
+The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Everything Everything, De Lux, Pearl Jam.
+Three albums picked uniformly at random from the tracks this station can play. Each comes
+from a different act, and acts in the recent history above are excluded. Every track line
+is: track id, length, popularity (0 = that act's least played track, 1 = its most played),
+title — five tracks per album, with a count of the rest. Pick any id listed here, call flip
+for another three albums, or use search, filter or similar if these three do not cover what
+you want.
+1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock
+   2FNFckudFqIFAYQnksJBbU   2:53  pop 0.95  Debaser
+   (+13 more)
 ```
 
-**The run of genres** comes from what actually played, not from the DJ's own picks, and the
-nudge to leave the room only fires when the run is genuinely tight — five songs from five
-acts is not a corner, and a line that cries wolf every pick is a line the model learns to
-skip.
-
-**The crates** are the standing counterweight to "continue the sound": three albums drawn at
-random from the station's playable set, one per act, skipping the acts just played, each with
-its genres (narrowest first) and whether it holds a well-known song — the best-covered track on the record, not
-the median, because a median over one album's own tracks is ~0.5 by construction and says
-nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
-all three and search instead.
-
-This is what broke the rut, measured on the live library over twelve real picks each way:
-without the crates, twelve picks produced **three distinct acts** (De Lux, L'Impératrice,
-Nu Genea, cyclically — Disco on all twelve); with them, **eight** (Foo Fighters, Ratatat,
-Spinetta, Kasabian, Mansun, Pearl Jam… — Alternative Rock ×9, Indie Rock ×6).
-
-The brief is the timeline, the crates and the run of genres — state, in other words. What
-the station *is* lives in the system prompt, which
-is where the racks went: genre weights and every act with its track count, because the
-model's other source of names is its own memory and a name from memory is usually not
-here. That is the fix for a measurable waste — 80 of 93 `search` calls in one ledger
-came back empty, all of them names the model knew from outside this library.
-
-Recent requests follow, each with its age (`asked 2 songs ago`). They are context, not standing orders: the DJ answered each one when it played, and decides pick by pick whether the room is still in that mood.
-
-The distance each pick aired at is not decoration: when the DJ stops, the mixer keeps
-running from the standby pool, so it can come back to a station that has moved on without
-it. Claiming the newest pick "played just before this" was a lie it then built a set on;
-the count says how stale the memory is.
-
-The last picks are the only thing in the brief that is the DJ's own: every pick is a new
-conversation, so without them the persona's *"vary your phrasing, never reuse the same
-construction twice in a night"* would be asking it to avoid words it cannot see. Three is
-the cap — enough to continue a thread or to avoid an opening it just used. The
+**One timeline, and the reason only where the reason is the DJ's.** When it stops, the
+mixer keeps playing from the standby pool, so a station can be three songs past the last
+thing the DJ chose. Listing those under "your last picks" let it build a set on a choice it
+never made, and the brief then disagreed with what was actually playing. Each entry now
+carries its own provenance: the DJ's reason where it chose the track, and a standby note
+where the station did.The timeline is the only thing in the brief that is the DJ's own: every pick is a new
+conversation, so without it the persona's *"vary your phrasing, never reuse the same
+construction twice in a night"* would be asking it to avoid words it cannot see. Four
+previous songs is the cap — enough to continue a thread or to avoid an opening it just used. The
 system prompt adds one line taking the model further back than the brief does:
 
 > "The brief tells you what is on air, what came before it and what is already queued.
