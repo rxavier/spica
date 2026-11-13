@@ -27,6 +27,24 @@ RECENT_PICKS = 3
 RECENT_PLAYS = 5
 
 
+def _count(result) -> int:
+    """How many rows a tool returned — not how many keys its envelope has.
+
+    `len()` on a dict counts keys, so a `catalogue` reply with five fields was logged
+    as "5 rows" whatever it held, and the ledger under-reported every paged tool.
+    """
+    if isinstance(result, list):
+        return len(result)
+    if isinstance(result, dict):
+        for key in ("tracks", "results", "items", "similar_here"):
+            value = result.get(key)
+            if isinstance(value, list):
+                return len(value)
+        if result.get("error") or result.get("note"):
+            return 0
+    return 0
+
+
 def pick_next(
     lib: Library,
     station: config.Station,
@@ -108,16 +126,20 @@ def pick_next(
                 "label, another era, another temperature."
             )
 
-    said = [
-        e for e in reversed(queue.recent_picks(station, RECENT_PICKS)) if e.get("why")
-    ]
+    # Only what actually aired. A pick that never reached the queue — the DJ was
+    # stopped, the station was idle, the answer arrived too late — must not be
+    # described as "your last pick", because the model would then continue a set that
+    # never happened, and the brief would disagree with the song on air.
+    # `recent` arrives newest first, so the on-air song is aired[0] and the block is
+    # the next three after it.
+    aired = [e for e in recent if e.get("why")]
+    if aired and on_air and f"{aired[0].get('title')} — {aired[0].get('artist')}" == on_air:
+        aired = aired[1:]
+    said = aired[:RECENT_PICKS]
     if said:
-        # A numbered list on its own lines: as one run-on line separated by semicolons,
-        # three picks and their reasons read as a paragraph, and nothing said which end
-        # was the recent one.
         block = [
-            "Your last picks, most recent first. 1 is the pick you made immediately "
-            "before this one:"
+            "Your last picks that aired, most recent first. 1 is the one that played "
+            "just before the song on air now:"
         ]
         for index, pick in enumerate(said, 1):
             block.append(f"{index}. {pick.get('title')} — {pick.get('artist')}: {pick.get('why')}")
@@ -131,21 +153,23 @@ def pick_next(
     if crate:
         block = [
             "Three records pulled at random from the racks — the pile, not a recommendation. "
-            "Take a track from any of them if something fits, or ignore all three and go "
-            "looking: something similar, a completely different genre, or the same genre in "
-            "another era."
+            "Take a track from any of them if something fits; call flip for three more if none "
+            "do; or go looking: something similar, a completely different genre, or the same "
+            "genre in another era."
         ]
         for index, album in enumerate(crate, 1):
-            known = ("a hit" if album["known"] >= 0.75
-                     else "mid" if album["known"] >= 0.35 else "a deep cut")
             head = f"{index}. {album['album']} — {album['artist']}"
             if album["year"]:
                 head += f" ({album['year']})"
             if album["genre"]:
                 head += f" · {album['genre']}"
-            block.append(head + f" · {known}")
+            block.append(head)
+            # Length and how well known, per track: the two things that decide whether
+            # a five-minute single or a ninety-second sketch belongs next.
             for track in album["tracks"]:
-                block.append(f"   {track['id']}  {track['title']}")
+                block.append(
+                    f"   {track['id']}  {track['duration']:>5}  pop {track['popularity']:.2f}  {track['title']}"
+                )
             if album["total"] > len(album["tracks"]):
                 block.append(f"   (+{album['total'] - len(album['tracks'])} more)")
         lines.append("\n".join(block))
@@ -216,7 +240,7 @@ def pick_next(
             except json.JSONDecodeError:
                 args = {}
             result = lib.run_tool(name, args, station)
-            called.append({"name": name, "args": args, "result": len(result) if isinstance(result, (list, dict)) else 0})
+            called.append({"name": name, "args": args, "result": _count(result)})
             payload = result
             if isinstance(result, list) and not result and name == "history":
                 payload = {

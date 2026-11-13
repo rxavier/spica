@@ -44,6 +44,20 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "flip",
+            "description": (
+                "Three more records from the racks, never the ones already in front of "
+                "you. The crate in the brief is a pile you can take from; this turns the "
+                "pile over. Use it when nothing among the records you were handed fits "
+                "the moment, and especially before settling for a track you have already "
+                "seen twice tonight."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search",
             "description": (
                 "Free-text lookup across titles, artists and albums. Every word has to land "

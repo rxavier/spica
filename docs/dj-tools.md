@@ -5,7 +5,7 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one pick
 
-One pick is one `POST {base}/chat/completions` with five function schemas,
+One pick is one `POST {base}/chat/completions` with six function schemas,
 `temperature: 0.7`, `max_tokens: 700`, a 90-second timeout, and
 
 - `tool_choice: "required"` on round 0,
@@ -115,7 +115,7 @@ carry the thing it needs:
 - `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
   `catalogue` adds `track_no`; `history` adds `songs_ago` and `on_air`.
 
-## The five tools
+## The six tools
 
 Every tool result passes the station matcher first, so the toolbox is *what this station
 may play*, not *your library*. An empty list is never `[]`; it is
@@ -144,6 +144,18 @@ already played three songs ago.
 
 Deduplicated: a restart re-announcing the current track doesn't create a second entry,
 so `songs_ago` counts real advances.
+
+### `flip` — another three records
+
+`{}`
+
+Same pile, turned over: three albums drawn the same way as the brief's crate, never one
+already dealt in this pick, still skipping the acts just played. Answers `{albums: [...]}`
+in the crate's shape, or a note when the racks are exhausted.
+
+It exists because the DJ reliably picks from ids it has already been handed rather than
+going looking, so "nothing here fits" needed an answer that produces ids. One pick can
+hold the crate plus three flips, twelve different records.
 
 ### `search` — a name you have in mind
 
@@ -229,5 +241,5 @@ answer, because the station holds none of their records.
   a description.
 - **Genre matching exists twice** (exact for stations, loose for `filter`). Unifying
   them is still an open question, not an oversight.
-- **Schema cost** is roughly 500 tokens per call for the five definitions. Measure before
+- **Schema cost** is roughly 560 tokens per call for the six definitions. Measure before
   adding another.
