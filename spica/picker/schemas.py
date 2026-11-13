@@ -71,12 +71,13 @@ TOOLS = [
             "description": (
                 "A draw from everything this station can play. Call it with no arguments "
                 "at all to see the station itself — that is the widest look you get, and the "
-                "right first move when nothing in particular is in mind. Narrow it by genre "
-                "label or years when you want a corner of it; genre matching is deliberately "
-                "loose, so 'Punk' also brings 'Punk Rock'. It answers with how many tracks "
-                "matched and how many it returned, so you can tell a 600-track slice from a "
-                "6-track one. Page a long slice with offset. Never more than three tracks by "
-                "one artist per page."
+                "right first move when nothing in particular is in mind. Narrow it by genre or "
+                "years when you want a corner of it; genre matching is deliberately loose, so "
+                "'Punk' also brings 'Punk Rock'. It answers with how many tracks matched and "
+                "how many it returned: a slice that returns far fewer than it matched is a "
+                "corner thin on artists, not a big room. The order holds still while you are "
+                "choosing, so `offset` really does page the same slice — page 2 follows page 1. "
+                "Never more than three tracks by one artist per page."
             ),
             "parameters": {
                 "type": "object",

@@ -8,6 +8,7 @@ every round is money and the station needs a track either way.
 from __future__ import annotations
 
 import json
+import secrets
 
 from .. import config, icecast, mixer, queue
 from .. import requests as requests_mod
@@ -41,6 +42,10 @@ def pick_next(
     # The pick never plays next: whatever is already waiting goes first, and only
     # then the choice. So the brief has to describe that timeline — what is on air,
     # what is already queued, and which track will end right before the pick.
+    # One seed per pick: `filter`'s order must hold still while the DJ is choosing,
+    # or `offset` would page a different list every call. The next pick reshuffles.
+    lib.draw_seed = secrets.randbits(32)
+
     recent = list(reversed(queue.recent(station, 7)))
     live = icecast.live_mount(icecast.listen_states(), station)
     state = live[1] if live else None
@@ -136,8 +141,8 @@ def pick_next(
             head = f"{index}. {album['album']} — {album['artist']}"
             if album["year"]:
                 head += f" ({album['year']})"
-            if album["label"]:
-                head += f" · {album['label']}"
+            if album["genre"]:
+                head += f" · {album['genre']}"
             block.append(head + f" · {known}")
             for track in album["tracks"]:
                 block.append(f"   {track['id']}  {track['title']}")
