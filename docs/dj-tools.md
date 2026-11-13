@@ -36,7 +36,8 @@ leaving a wasted retry as the failure mode.
 Prose, not structured data — the model reads a set, it doesn't parse a table:
 
 ```
-On air right now: Bloc Party — Halo.
+On air right now: Bloc Party — Halo: that riff has been circling all night, so here it is
+at full width, drums first.
 Before that, newest first — the reason when you chose it, standby when the station did:
 1. Everything Everything — Regret: that clipped guitar wanted some air, so here is a hook
    that opens a window instead.
@@ -48,15 +49,18 @@ The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Eve
 Three albums picked uniformly at random from the tracks this station can play. Each comes
 from a different act, and acts in the recent history above are excluded. Every track line
 is: track id, length, popularity (0 = that act's least played track, 1 = its most played),
-title — five tracks per album, with a count of the rest. Pick any id listed here, call flip
-for another three albums, or use search, filter or similar if these three do not cover what
-you want.
+title — five tracks per album, with a count of the rest. You are not required to choose
+from these three: the draw is random, and where the station goes next is your taste, the
+flow of what has just played and what you know about this music. Call flip for another
+three albums, or use search, filter or similar, if that is where the next record lives.
 1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock
    2FNFckudFqIFAYQnksJBbU   2:53  pop 0.95  Debaser
    (+13 more)
 ```
 
-**One timeline, and the reason only where the reason is the DJ's.** When it stops, the
+**One timeline, and the reason only where the reason is the DJ's.** The song on air is
+part of that timeline — it carries its reason too when the DJ chose it, and a standby note
+when the station did. When it stops, the
 mixer keeps playing from the standby pool, so a station can be three songs past the last
 thing the DJ chose. Listing those under "your last picks" let it build a set on a choice it
 never made, and the brief then disagreed with what was actually playing. Each entry now

@@ -104,10 +104,18 @@ def pick_next(
 
     lines = []
     if on_air:
-        suffix = ""
-        if live_entry and live_entry.get("source") != "dj":
-            suffix = " (standby — the station started this while you were offline)"
-        lines.append(f"On air right now: {on_air}{suffix}.")
+        # The song on air is part of the same record as the ones before it: if the DJ
+        # chose it, its reason belongs here too, and if the station played it while the
+        # DJ was offline, that is the fact worth stating.
+        if live_entry.get("source") == "dj" and live_entry.get("why"):
+            lines.append(f"On air right now: {on_air}: {live_entry['why']}")
+        elif live_entry and live_entry.get("source") != "dj":
+            lines.append(
+                f"On air right now: {on_air} (standby — the station started this while "
+                "you were offline)."
+            )
+        else:
+            lines.append(f"On air right now: {on_air}.")
     else:
         lines.append("Nothing has played yet.")
 
@@ -163,8 +171,10 @@ def pick_next(
             "Each comes from a different act, and acts in the recent history above are "
             "excluded. Every track line is: track id, length, popularity (0 = that act's least "
             "played track, 1 = its most played), title — five tracks per album, with a count of "
-            "the rest. Pick any id listed here, call flip for another three albums, or use "
-            "search, filter or similar if these three do not cover what you want."
+            "the rest. You are not required to choose from these three: the draw is random, "
+            "and where the station goes next is your taste, the flow of what has just played "
+            "and what you know about this music. Call flip for another three albums, or use "
+            "search, filter or similar, if that is where the next record lives."
         ]
         for index, album in enumerate(crate, 1):
             head = f"{index}. {album['album']} — {album['artist']}"
