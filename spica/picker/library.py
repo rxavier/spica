@@ -359,15 +359,25 @@ class Library:
 
         labels = navidrome.labels_by_track(self.conn)
         ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
+        # How many tracks in the library carry each genre: the rarer the genre, the
+        # more specific it is about this record. "Stoner Rock" says something about a
+        # Sahara Surfers album that "Rock" does not.
+        breadth = {
+            row["label"]: row["n"]
+            for row in self.conn.execute(
+                "SELECT label, count(*) AS n FROM track_genres GROUP BY label"
+            )
+        }
 
         out: list[dict] = []
         for album_id in picks:
             tracks = sorted(by_album[album_id], key=lambda r: (r["track_no"] or 0, r["title"] or ""))
             lead = tracks[0]
-            album_labels = Counter()
+            # Every genre the record carries, narrowest first — a record with four
+            # genres is not one genre, and picking one of them was a coin toss.
+            album_genres = set()
             for track in tracks:
-                for label in labels.get(track["id"], ()):
-                    album_labels[label] += 1
+                album_genres.update(labels.get(track["id"], ()))
             # The best-known song on the record, not its median: a median over one
             # album's own tracks is ~0.5 by construction and says nothing.
             known = max((ranks.get(t["id"], 0.0) for t in tracks), default=0.0)
@@ -375,7 +385,9 @@ class Library:
                 "album": lead["album"],
                 "artist": lead["album_artist"] or lead["artist"],
                 "year": lead["year"],
-                "genre": (album_labels.most_common(1) or [("", 0)])[0][0],
+                "genre": " / ".join(
+                    sorted(album_genres, key=lambda g: (breadth.get(g, 0), g))[:4]
+                ),
                 "known": known,
                 "tracks": [
                     {"id": t["id"], "title": t["title"], "no": t["track_no"]}

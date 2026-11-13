@@ -50,7 +50,7 @@ Your last picks, most recent first. 1 is the pick you made immediately before th
 Three records pulled at random from the racks — the pile, not a recommendation. Take a track
 from any of them if something fits, or ignore all three and go looking: something similar, a
 completely different genre, or the same genre in another era.
-1. Doolittle — Pixies (1989) · Alternative Rock · a hit
+1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock · a hit
    2FNFckudFqIFAYQnksJBbU  Debaser
    6LJ1ZUPnF1A7Bx7FR8xgPV  Tame
    (+12 more)
@@ -64,7 +64,7 @@ skip.
 
 **The crates** are the standing counterweight to "continue the sound": three albums drawn at
 random from the station's playable set, one per act, skipping the acts just played, each with
-its genre and whether it holds a well-known song — the best-covered track on the record, not
+its genres (narrowest first) and whether it holds a well-known song — the best-covered track on the record, not
 the median, because a median over one album's own tracks is ~0.5 by construction and says
 nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
 all three and search instead.
