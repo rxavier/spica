@@ -84,13 +84,22 @@ def pick_next(
     # had no record of having used, and a line could never pick up a thread from the
     # pick before it.
     said = [
-        f"{e.get('title')} ({e.get('artist')}): {e.get('why')}"
-        for e in reversed(queue.recent_picks(station, RECENT_PICKS))
-        if e.get("why")
+        e for e in reversed(queue.recent_picks(station, RECENT_PICKS)) if e.get("why")
     ]
     if said:
-        lines.append("Your last picks, newest first — " + "; ".join(said).rstrip(".") + ".")
-    recent_lines = " ".join(lines)
+        # A numbered list on its own lines: as one run-on line separated by semicolons,
+        # three picks and their reasons read as a paragraph, and nothing said which end
+        # was the recent one.
+        block = [
+            "Your last picks, most recent first. 1 is the pick you made immediately "
+            "before this one:"
+        ]
+        for index, pick in enumerate(said, 1):
+            block.append(f"{index}. {pick.get('title')} — {pick.get('artist')}: {pick.get('why')}")
+        lines.append("\n".join(block))
+    # One thought per line. Run together as a paragraph, the on-air line, the queue and
+    # the list of past picks read as one wall of text.
+    recent_lines = "\n".join(lines)
 
     live = requests_mod.active(station)
     live_lines = "\n".join(
