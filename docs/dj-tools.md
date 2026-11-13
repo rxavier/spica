@@ -43,10 +43,10 @@ Your pick starts right after <track>, so that is the one the listener hears just
 The last 5 songs went out as Disco and Nu Disco — De Lux, Nu Genea, Gativideo, De Lux, Nu Genea.
 That is 3 acts in a row, one corner of a 1961-track station: leave the room tonight — another
 genre, another era, another temperature.
-Your last picks, most recent first. 1 is the pick you made immediately before this one:
-1. Voyage Automatique — 35007: quiet, unhurried, and it ends where the next one starts.
-2. 20 09 — 35007: same warmth, a little more motion.
-3. 23 32 — 35007: it sat right after the last one and opened the room up.
+Your last picks, most recent first, with how many songs ago each aired:
+1. Voyage Automatique — 35007 (1 song ago): quiet, unhurried, and it ends where the next one starts.
+2. 20 09 — 35007 (4 songs ago): same warmth, a little more motion.
+3. 23 32 — 35007 (9 songs ago): it sat right after the last one and opened the room up.
 Three records pulled at random from the racks — the pile, not a recommendation. Take a track
 from any of them if something fits, or ignore all three and go looking: something similar, a
 completely different genre, or the same genre in another era.
@@ -82,6 +82,11 @@ here. That is the fix for a measurable waste — 80 of 93 `search` calls in one 
 came back empty, all of them names the model knew from outside this library.
 
 Recent requests follow, each with its age (`asked 2 songs ago`). They are context, not standing orders: the DJ answered each one when it played, and decides pick by pick whether the room is still in that mood.
+
+The distance each pick aired at is not decoration: when the DJ stops, the mixer keeps
+running from the standby pool, so it can come back to a station that has moved on without
+it. Claiming the newest pick "played just before this" was a lie it then built a set on;
+the count says how stale the memory is.
 
 The last picks are the only thing in the brief that is the DJ's own: every pick is a new
 conversation, so without them the persona's *"vary your phrasing, never reuse the same

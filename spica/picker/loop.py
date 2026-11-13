@@ -126,23 +126,22 @@ def pick_next(
                 "label, another era, another temperature."
             )
 
-    # Only what actually aired. A pick that never reached the queue — the DJ was
-    # stopped, the station was idle, the answer arrived too late — must not be
-    # described as "your last pick", because the model would then continue a set that
-    # never happened, and the brief would disagree with the song on air.
-    # `recent` arrives newest first, so the on-air song is aired[0] and the block is
-    # the next three after it.
-    aired = [e for e in recent if e.get("why")]
-    if aired and on_air and f"{aired[0].get('title')} — {aired[0].get('artist')}" == on_air:
-        aired = aired[1:]
-    said = aired[:RECENT_PICKS]
+    # The DJ's own picks, with how long ago each one aired. When it stops for a while
+    # the mixer keeps playing from the standby pool, so by the time it wakes the picks
+    # it remembers can be a dozen songs back — and claiming the newest one "played just
+    # before this" was a lie the model then built a set on.
+    #
+    # `recent` arrives newest first: index 0 is on air, so the block starts at 1.
+    said = [
+        (ago, entry) for ago, entry in enumerate(recent) if entry.get("why") and ago > 0
+    ][:RECENT_PICKS]
     if said:
-        block = [
-            "Your last picks that aired, most recent first. 1 is the one that played "
-            "just before the song on air now:"
-        ]
-        for index, pick in enumerate(said, 1):
-            block.append(f"{index}. {pick.get('title')} — {pick.get('artist')}: {pick.get('why')}")
+        block = ["Your last picks, most recent first, with how many songs ago each aired:"]
+        for index, (ago, pick) in enumerate(said, 1):
+            gap = "1 song ago" if ago == 1 else f"{ago} songs ago"
+            block.append(
+                f"{index}. {pick.get('title')} — {pick.get('artist')} ({gap}): {pick.get('why')}"
+            )
         lines.append("\n".join(block))
     # One thought per line. Run together as a paragraph, the on-air line, the queue and
     # the list of past picks read as one wall of text.
