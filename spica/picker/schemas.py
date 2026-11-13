@@ -46,10 +46,13 @@ TOOLS = [
         "function": {
             "name": "search",
             "description": (
-                "Free-text lookup across titles, artists and albums. Best when you have a name in "
-                "mind: a song, a band, half an album title. Everything it returns is playable on "
-                "this station. Use catalogue when you want order or completeness, filter when you "
-                "want a kind of thing rather than a name."
+                "Free-text lookup across titles, artists and albums. Every word has to land "
+                "somewhere, so 'Ride Vapour Trail' finds the track. Best when you have a name in "
+                "mind. When the name plays nowhere here it does not come back empty: it answers "
+                "with `similar_here` — acts this station does play that sound like the one you "
+                "named, each with a track id — so a name you know from outside is a route into "
+                "the library rather than a dead end. Use catalogue for order and completeness, "
+                "filter for a kind of thing rather than a name."
             ),
             "parameters": {
                 "type": "object",
@@ -130,42 +133,5 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "browse",
-            "description": (
-                "The station's own shape, paged: every artist with how many tracks each, or "
-                "every genre label, or every decade. station_map answers with the top few of "
-                "each and no ids; this answers with all of them and still no ids, so you can "
-                "see who is in the room before choosing — and see that an artist you were "
-                "about to repeat is one of eighty, not one of three. Page with next_offset."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "dimension": {
-                        "type": "string",
-                        "enum": ["artists", "labels", "decades"],
-                        "description": "Which list to walk. Artists by default.",
-                    },
-                    "limit": {"type": "integer", "default": 40},
-                    "offset": {"type": "integer", "default": 0},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "station_map",
-            "description": (
-                "The station's palette as numbers: how many tracks it can play, which genres "
-                "dominate and how much of each, the year spread, and the artists with the most to "
-                "choose from. Call it when a request may not be possible here, or to aim a set — "
-                "'mostly the seventies' is only true if the years say so. Returns no track ids."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
+
 ]
