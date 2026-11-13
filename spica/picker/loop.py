@@ -23,8 +23,25 @@ MAX_TOOL_ROUNDS = 4
 # How many of its own picks the brief repeats, with the reason it gave. Three is
 # enough to keep a thread going and to avoid the same opening twice in a night; more
 # would spend tokens on lines the listener has long forgotten.
-RECENT_PICKS = 3
 RECENT_PLAYS = 5
+
+
+def _count(result) -> int:
+    """How many rows a tool returned — not how many keys its envelope has.
+
+    `len()` on a dict counts keys, so a `catalogue` reply with five fields was logged
+    as "5 rows" whatever it held, and the ledger under-reported every paged tool.
+    """
+    if isinstance(result, list):
+        return len(result)
+    if isinstance(result, dict):
+        for key in ("tracks", "results", "items", "similar_here"):
+            value = result.get(key)
+            if isinstance(value, list):
+                return len(value)
+        if result.get("error") or result.get("note"):
+            return 0
+    return 0
 
 
 def pick_next(
@@ -62,21 +79,55 @@ def pick_next(
         if row is not None:
             waiting.append(f"{row.title} — {row.artist}")
 
+    def trail(entry: dict) -> str:
+        """One line of the timeline: what played, and who put it there.
+
+        The DJ only gets a reason when the reason was its own. A track the mixer played
+        from the standby pool while the DJ was offline is labelled as such — it is what
+        the room heard, not a choice to build on, and presenting it as one is how the
+        brief ends up disagreeing with the station.
+        """
+        line = f"{entry.get('title')} — {entry.get('artist')}"
+        if entry.get("source") == "dj" and entry.get("why"):
+            return line + f": {entry['why']}"
+        return line + " (standby — the station played it while you were offline)"
+
+    # The station's own title only exists on the MP3 mount; Ogg and FLAC carry theirs
+    # inside the stream, so `on_air` falls back to the newest play. The timeline below
+    # has to run either way — when it lived inside the live-title branch, an opus-only
+    # station never got the list of what played before.
+    if not on_air and recent:
+        on_air = f"{recent[0].get('title')} — {recent[0].get('artist')}"
+    live_entry = next(
+        (e for e in recent if f"{e.get('title')} — {e.get('artist')}" == on_air), {}
+    )
+
     lines = []
     if on_air:
-        lines.append(f"On air right now: {on_air}.")
-        earlier = [e for e in recent if f"{e.get('title')} — {e.get('artist')}" != on_air][:4]
-        if earlier:
+        # The song on air is part of the same record as the ones before it: if the DJ
+        # chose it, its reason belongs here too, and if the station played it while the
+        # DJ was offline, that is the fact worth stating.
+        if live_entry.get("source") == "dj" and live_entry.get("why"):
+            lines.append(f"On air right now: {on_air}: {live_entry['why']}")
+        elif live_entry and live_entry.get("source") != "dj":
             lines.append(
-                "Before that, newest first: "
-                + "; ".join(f"{e.get('title')} — {e.get('artist')}" for e in earlier)
-                + "."
+                f"On air right now: {on_air} (standby — the station started this while "
+                "you were offline)."
             )
-    elif recent:
-        now = recent[0]
-        lines.append(f"On air right now: {now.get('title')} — {now.get('artist')}.")
+        else:
+            lines.append(f"On air right now: {on_air}.")
     else:
         lines.append("Nothing has played yet.")
+
+    earlier = [e for e in recent if f"{e.get('title')} — {e.get('artist')}" != on_air][:4]
+    if earlier:
+        block = [
+            "Before that, newest first — the reason when you chose it, standby when the "
+            "station did:"
+        ]
+        for index, entry in enumerate(earlier, 1):
+            block.append(f"{index}. {trail(entry)}")
+        lines.append("\n".join(block))
 
     if waiting:
         lines.append("Already queued, in order: " + "; ".join(waiting) + ".")
@@ -108,20 +159,6 @@ def pick_next(
                 "label, another era, another temperature."
             )
 
-    said = [
-        e for e in reversed(queue.recent_picks(station, RECENT_PICKS)) if e.get("why")
-    ]
-    if said:
-        # A numbered list on its own lines: as one run-on line separated by semicolons,
-        # three picks and their reasons read as a paragraph, and nothing said which end
-        # was the recent one.
-        block = [
-            "Your last picks, most recent first. 1 is the pick you made immediately "
-            "before this one:"
-        ]
-        for index, pick in enumerate(said, 1):
-            block.append(f"{index}. {pick.get('title')} — {pick.get('artist')}: {pick.get('why')}")
-        lines.append("\n".join(block))
     # One thought per line. Run together as a paragraph, the on-air line, the queue and
     # the list of past picks read as one wall of text.
     crate = lib.crate(
@@ -130,22 +167,28 @@ def pick_next(
     )
     if crate:
         block = [
-            "Three records pulled at random from the racks — the pile, not a recommendation. "
-            "Take a track from any of them if something fits, or ignore all three and go "
-            "looking: something similar, a completely different genre, or the same genre in "
-            "another era."
+            "Three albums picked uniformly at random from the tracks this station can play. "
+            "Each comes from a different act, and acts in the recent history above are "
+            "excluded. Every track line is: track id, length, popularity (0 = that act's least "
+            "played track, 1 = its most played), title — five tracks per album, with a count of "
+            "the rest. You are not required to choose from these three: the draw is random, "
+            "and where the station goes next is your taste, the flow of what has just played "
+            "and what you know about this music. Call flip for another three albums, or use "
+            "search, filter or similar, if that is where the next record lives."
         ]
         for index, album in enumerate(crate, 1):
-            known = ("a hit" if album["known"] >= 0.75
-                     else "mid" if album["known"] >= 0.35 else "a deep cut")
             head = f"{index}. {album['album']} — {album['artist']}"
             if album["year"]:
                 head += f" ({album['year']})"
             if album["genre"]:
                 head += f" · {album['genre']}"
-            block.append(head + f" · {known}")
+            block.append(head)
+            # Length and how well known, per track: the two things that decide whether
+            # a five-minute single or a ninety-second sketch belongs next.
             for track in album["tracks"]:
-                block.append(f"   {track['id']}  {track['title']}")
+                block.append(
+                    f"   {track['id']}  {track['duration']:>5}  pop {track['popularity']:.2f}  {track['title']}"
+                )
             if album["total"] > len(album["tracks"]):
                 block.append(f"   (+{album['total'] - len(album['tracks'])} more)")
         lines.append("\n".join(block))
@@ -216,7 +259,7 @@ def pick_next(
             except json.JSONDecodeError:
                 args = {}
             result = lib.run_tool(name, args, station)
-            called.append({"name": name, "args": args, "result": len(result) if isinstance(result, (list, dict)) else 0})
+            called.append({"name": name, "args": args, "result": _count(result)})
             payload = result
             if isinstance(result, list) and not result and name == "history":
                 payload = {

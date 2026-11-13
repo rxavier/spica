@@ -5,7 +5,7 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one pick
 
-One pick is one `POST {base}/chat/completions` with five function schemas,
+One pick is one `POST {base}/chat/completions` with six function schemas,
 `temperature: 0.7`, `max_tokens: 700`, a 90-second timeout, and
 
 - `tool_choice: "required"` on round 0,
@@ -36,57 +36,39 @@ leaving a wasted retry as the failure mode.
 Prose, not structured data — the model reads a set, it doesn't parse a table:
 
 ```
-On air right now: Bloc Party — Halo.
-Before that, newest first: Bloc Party — Trojan Horse; Everything Everything — Regret; …
+On air right now: Bloc Party — Halo: that riff has been circling all night, so here it is
+at full width, drums first.
+Before that, newest first — the reason when you chose it, standby when the station did:
+1. Everything Everything — Regret: that clipped guitar wanted some air, so here is a hook
+   that opens a window instead.
+2. De Lux — Validation (standby — the station played it while you were offline)
+3. Pearl Jam — Release (standby — the station played it while you were offline)
 Already queued, in order: …
 Your pick starts right after <track>, so that is the one the listener hears just before it.
-The last 5 songs went out as Disco and Nu Disco — De Lux, Nu Genea, Gativideo, De Lux, Nu Genea.
-That is 3 acts in a row, one corner of a 1961-track station: leave the room tonight — another
-genre, another era, another temperature.
-Your last picks, most recent first. 1 is the pick you made immediately before this one:
-1. Voyage Automatique — 35007: quiet, unhurried, and it ends where the next one starts.
-2. 20 09 — 35007: same warmth, a little more motion.
-3. 23 32 — 35007: it sat right after the last one and opened the room up.
-Three records pulled at random from the racks — the pile, not a recommendation. Take a track
-from any of them if something fits, or ignore all three and go looking: something similar, a
-completely different genre, or the same genre in another era.
-1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock · a hit
-   2FNFckudFqIFAYQnksJBbU  Debaser
-   6LJ1ZUPnF1A7Bx7FR8xgPV  Tame
-   (+12 more)
-2. …
+The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Everything Everything, De Lux, Pearl Jam.
+Three albums picked uniformly at random from the tracks this station can play. Each comes
+from a different act, and acts in the recent history above are excluded. Every track line
+is: track id, length, popularity (0 = that act's least played track, 1 = its most played),
+title — five tracks per album, with a count of the rest. You are not required to choose
+from these three: the draw is random, and where the station goes next is your taste, the
+flow of what has just played and what you know about this music. Call flip for another
+three albums, or use search, filter or similar, if that is where the next record lives.
+1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock
+   2FNFckudFqIFAYQnksJBbU   2:53  pop 0.95  Debaser
+   (+13 more)
 ```
 
-**The run of genres** comes from what actually played, not from the DJ's own picks, and the
-nudge to leave the room only fires when the run is genuinely tight — five songs from five
-acts is not a corner, and a line that cries wolf every pick is a line the model learns to
-skip.
-
-**The crates** are the standing counterweight to "continue the sound": three albums drawn at
-random from the station's playable set, one per act, skipping the acts just played, each with
-its genres (narrowest first) and whether it holds a well-known song — the best-covered track on the record, not
-the median, because a median over one album's own tracks is ~0.5 by construction and says
-nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
-all three and search instead.
-
-This is what broke the rut, measured on the live library over twelve real picks each way:
-without the crates, twelve picks produced **three distinct acts** (De Lux, L'Impératrice,
-Nu Genea, cyclically — Disco on all twelve); with them, **eight** (Foo Fighters, Ratatat,
-Spinetta, Kasabian, Mansun, Pearl Jam… — Alternative Rock ×9, Indie Rock ×6).
-
-The brief is the timeline, the crates and the run of genres — state, in other words. What
-the station *is* lives in the system prompt, which
-is where the racks went: genre weights and every act with its track count, because the
-model's other source of names is its own memory and a name from memory is usually not
-here. That is the fix for a measurable waste — 80 of 93 `search` calls in one ledger
-came back empty, all of them names the model knew from outside this library.
-
-Recent requests follow, each with its age (`asked 2 songs ago`). They are context, not standing orders: the DJ answered each one when it played, and decides pick by pick whether the room is still in that mood.
-
-The last picks are the only thing in the brief that is the DJ's own: every pick is a new
-conversation, so without them the persona's *"vary your phrasing, never reuse the same
-construction twice in a night"* would be asking it to avoid words it cannot see. Three is
-the cap — enough to continue a thread or to avoid an opening it just used. The
+**One timeline, and the reason only where the reason is the DJ's.** The song on air is
+part of that timeline — it carries its reason too when the DJ chose it, and a standby note
+when the station did. When it stops, the
+mixer keeps playing from the standby pool, so a station can be three songs past the last
+thing the DJ chose. Listing those under "your last picks" let it build a set on a choice it
+never made, and the brief then disagreed with what was actually playing. Each entry now
+carries its own provenance: the DJ's reason where it chose the track, and a standby note
+where the station did.The timeline is the only thing in the brief that is the DJ's own: every pick is a new
+conversation, so without it the persona's *"vary your phrasing, never reuse the same
+construction twice in a night"* would be asking it to avoid words it cannot see. Four
+previous songs is the cap — enough to continue a thread or to avoid an opening it just used. The
 system prompt adds one line taking the model further back than the brief does:
 
 > "The brief tells you what is on air, what came before it and what is already queued.
@@ -115,7 +97,7 @@ carry the thing it needs:
 - `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
   `catalogue` adds `track_no`; `history` adds `songs_ago` and `on_air`.
 
-## The five tools
+## The six tools
 
 Every tool result passes the station matcher first, so the toolbox is *what this station
 may play*, not *your library*. An empty list is never `[]`; it is
@@ -144,6 +126,18 @@ already played three songs ago.
 
 Deduplicated: a restart re-announcing the current track doesn't create a second entry,
 so `songs_ago` counts real advances.
+
+### `flip` — another three records
+
+`{}`
+
+Same pile, turned over: three albums drawn the same way as the brief's crate, never one
+already dealt in this pick, still skipping the acts just played. Answers `{albums: [...]}`
+in the crate's shape, or a note when the racks are exhausted.
+
+It exists because the DJ reliably picks from ids it has already been handed rather than
+going looking, so "nothing here fits" needed an answer that produces ids. One pick can
+hold the crate plus three flips, twelve different records.
 
 ### `search` — a name you have in mind
 
@@ -229,5 +223,5 @@ answer, because the station holds none of their records.
   a description.
 - **Genre matching exists twice** (exact for stations, loose for `filter`). Unifying
   them is still an open question, not an oversight.
-- **Schema cost** is roughly 500 tokens per call for the five definitions. Measure before
+- **Schema cost** is roughly 560 tokens per call for the six definitions. Measure before
   adding another.

@@ -115,11 +115,12 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
   tracks. Two rebuilds of the same library do not produce the same order, so the
   playlist on disk is the record of what a station was playing.
-- **LLM picks with real tools.** Five of them: `history` (what the station just played,
-  with how many songs ago), `search` (word-wise, and a name that plays nowhere here
-  answers with the acts that sound like it), `filter` (a draw from the station, narrowed
-  by genre and years, with totals and paging), `catalogue` (an artist's holdings or one
-  album in running order), and `similar`. The station's own shape — genre weights, every
+- **LLM picks with real tools.** Six of them: `history` (what the station just played,
+  with how many songs ago), `flip` (three more records from the racks, never the ones
+  already dealt), `search` (word-wise, and a name that plays nowhere here answers with
+  the acts that sound like it), `filter` (a draw from the station, narrowed by genre and
+  years, with totals and paging), `catalogue` (an artist's holdings or one album in
+  running order), and `similar`. The station's own shape — genre weights, every
   act with its track count — is in the system prompt rather than behind a tool. Every
   result is filtered
   through the station's rules, so a narrow station cannot return something outside its

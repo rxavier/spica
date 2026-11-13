@@ -319,6 +319,13 @@ class Library:
 
         return pool._popularity_percentiles(self.conn, rows)
 
+    def _remember_dealt(self, albums: list[str]) -> None:
+        """Track which records are already in front of the DJ this pick."""
+        if getattr(self, "_dealt_seed", None) != self.draw_seed:
+            self._dealt_seed = self.draw_seed
+            self._dealt_albums = set()
+        self._dealt_albums |= set(albums)
+
     def crate(self, station: config.Station | None = None, *, size: int | None = None,
               tracks_shown: int | None = None, avoid_acts: set[str] | None = None) -> list[dict]:
         """A handful of records pulled out at random, the way you'd flip a crate.
@@ -334,9 +341,18 @@ class Library:
         size = size or self.CRATE_ALBUMS
         tracks_shown = tracks_shown or self.CRATE_TRACKS
         skip = {navidrome.name_key(a) for a in (avoid_acts or set()) if a}
+        self._crate_skip = set(avoid_acts or set())
+        # Never deal the same record twice in one pick: a flip is a new pile, not the
+        # same three covers with one swapped.
+        if getattr(self, "_dealt_seed", None) != self.draw_seed:
+            self._dealt_seed = self.draw_seed
+            self._dealt_albums = set()
+        dealt = set(self._dealt_albums)
 
         by_album: dict[str, list] = {}
         for row in rows:
+            if row["album_id"] in dealt:
+                continue
             if navidrome.name_key(row["album_artist"] or row["artist"]) in skip:
                 continue
             by_album.setdefault(row["album_id"], []).append(row)
@@ -356,6 +372,7 @@ class Library:
             picks.append(random.choice(by_act[act]))
             if len(picks) >= size:
                 break
+        self._remember_dealt(picks)
 
         labels = navidrome.labels_by_track(self.conn)
         ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
@@ -390,7 +407,13 @@ class Library:
                 ),
                 "known": known,
                 "tracks": [
-                    {"id": t["id"], "title": t["title"], "no": t["track_no"]}
+                    {
+                        "id": t["id"],
+                        "title": t["title"],
+                        "no": t["track_no"],
+                        "duration": self._clock(t["duration"]),
+                        "popularity": round(ranks.get(t["id"], 0.5), 2),
+                    }
                     for t in tracks[:tracks_shown]
                 ],
                 "total": len(tracks),
@@ -501,6 +524,22 @@ class Library:
                     "tracks": [self._row(r, ctx) for r in rows],
                 }
         return {"source": "none", "artists": [], "tracks": []}
+
+    def flip(self, station: config.Station | None = None, **_) -> dict:
+        """Three more records from the racks, never ones already dealt this pick.
+
+        The DJ keeps choosing from ids it was handed rather than going looking, so
+        "nothing here fits" needed an answer that produces ids: another three covers,
+        and another three after that.
+        """
+        albums = self.crate(station, avoid_acts=getattr(self, "_crate_skip", set()))
+        if not albums:
+            return {
+                "albums": [],
+                "note": "the racks ran out for this pick — every record has been dealt "
+                        "or is by an act already in play. Use filter or search instead.",
+            }
+        return {"albums": albums}
 
     def history(self, station: config.Station, limit: int = 20, **_) -> list[dict]:
         """The station's recent past, newest first, with how long ago each played."""
@@ -697,6 +736,7 @@ HANDLERS = {
     "history": Library.history,
     "catalogue": Library.catalogue,
     "similar": Library.similar,
+    "flip": Library.flip,
     "search": Library.search,
     "filter": Library.filter,
 }
