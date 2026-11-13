@@ -64,8 +64,8 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         shown = ", ".join(f"{label} ({n})" for label, n in labels[:28])
         more = roster["labels_total"] - len(labels[:28])
         bits.append(
-            "What plays here, by weight: " + shown
-            + (f", and {more} smaller labels." if more > 0 else ".")
+            "Its genres, by weight: " + shown
+            + (f", and {more} smaller genres." if more > 0 else ".")
         )
     elif station.genres:
         bits.append("It plays: " + ", ".join(station.genres) + ".")

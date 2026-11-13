@@ -119,7 +119,7 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   with how many songs ago), `search` (word-wise, and a name that plays nowhere here
   answers with the acts that sound like it), `filter` (a draw from the station, narrowed
   by genre and years, with totals and paging), `catalogue` (an artist's holdings or one
-  album in running order), and `similar`. The station's own shape — label weights, every
+  album in running order), and `similar`. The station's own shape — genre weights, every
   act with its track count — is in the system prompt rather than behind a tool. Every
   result is filtered
   through the station's rules, so a narrow station cannot return something outside its
@@ -138,11 +138,11 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   away from its own identity.
 - **Genres from the best source available, not from guesses.** Your file tags, then
   MusicBrainz genres with their vote counts, and Last.fm only for artists MusicBrainz
-  does not know. Every label records where it came from — `file`, `musicbrainz`,
+  does not know. Every genre records where it came from — `file`, `musicbrainz`,
   `last.fm`, or `by hand`.
-- **One label unless the artist has range.** MusicBrainz votes decide: 23 for progressive
+- **One genre unless the artist has range.** MusicBrainz votes decide: 23 for progressive
   rock against 7 for art rock is a progressive rock band, while a tie at 2 and 2 is
-  genuinely both. Stations pick labels from that vocabulary, so matching is set
+  genuinely both. Stations pick genres from that vocabulary, so matching is set
   membership and not string guessing.
 - **Popularity from real play counts.** ListenBrainz listen counts per track (batched),
   ranked inside the artist's own catalogue, so "hits" and "deep cuts" mean which of their
@@ -239,12 +239,12 @@ constraint.
 }
 ```
 
-- `include_genres` / `exclude_genres` are **labels from the vocabulary**, compared
+- `include_genres` / `exclude_genres` are **genres from the vocabulary**, compared
   exactly (case and punctuation fold). There is no substring matching: a station asking
   for `Alternative` does not sweep up `Alternative Metal` because the word appears;
-  `Alternative` is not a label, and the picker will not store it.
+  `Alternative` is not a genre, and the picker will not store it.
 - `include_artists` is a second way *in*, not a filter on the genres: a track plays if it
-  carries an included label **or** is by an included artist — the record's artist, so
+  carries an included genre **or** is by an included artist — the record's artist, so
   naming an act also catches its tracks with guests. That is how a station
   reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
   Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
@@ -321,11 +321,11 @@ seconds of silence on every station, not just the one being edited.
 
 ## Genres
 
-A genre is a label, and every label carries where it came from. Two sources speak, and
+Every genre carries where it came from. Two sources speak, and
 one fills the gaps:
 
 1. **file** — the genre in the files, as Navidrome reports it. Split on commas,
-   semicolons, pipes and spaced slashes, so `Disco | Indie Pop` is two labels.
+   semicolons, pipes and spaced slashes, so `Disco | Indie Pop` is two genres.
 2. **musicbrainz** — artist genres with their vote counts, cached per artist
    (`mb_artist_genres`). Names are ambiguous — `Solaris` is a Hungarian prog band and
    also an ambient producer, `Frost*` loses the search to Celtic Frost — so when several
@@ -344,12 +344,12 @@ one fills the gaps:
 Provider tags are checked against **MusicBrainz's own genre list** — 2,222 names it
 considers genres, cached in `mb-genres.json` for a month. `psychedelic rock`, `nu disco`
 and `stoner rock` are on it; `France`, `Genius`, `Cuatro Puertorriqueno` and
-`Www.mp3 Ogg.ru` are not, and never become labels. A short blocklist covers what the
+`Www.mp3 Ogg.ru` are not, and never become genres. A short blocklist covers what the
 genre list itself still lets through — nationalities, decades, `instrumental`,
 `atmospheric`, `live`, `cover`, `karaoke` — because the most-voted tag for an
 instrumental band is `instrumental` and the genre would never surface.
 
-Before any of that, labels are normalised:
+Before any of that, genres are normalised:
 
 - **fold**: case, padding, punctuation and hyphens fold, so `Post-Rock`, `post rock` and
   `Post  Rock` are one key, and one spelling survives — the one the library uses most, in
@@ -361,12 +361,12 @@ Before any of that, labels are normalised:
 
 Two things outrank all of it, set in the admin's genres pane:
 
-- **by hand** (`source = 'manual'`) — a label assigned to selected tracks. It survives
+- **by hand** (`source = 'manual'`) — a genre assigned to selected tracks. It survives
   every rebuild.
-- **a veto** — removing a label from one or more tracks records the refusal, so a rebuild
+- **a veto** — removing a genre from one or more tracks records the refusal, so a rebuild
   cannot quietly hand it back.
 
-Labels live in `track_genres` (canonical, with source) and `track_raw_genres` (as the
+Genres live in `track_genres` (canonical, with source) and `track_raw_genres` (as the
 library spells it). `GET /genres` reports both.
 
 ## Where the library comes from
@@ -467,10 +467,10 @@ only, the JSON reply) stay in the code so an edit cannot break them. It lives in
 `config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
 voice* deletes it.
 
-The genres pane is the operator's whole tool for taxonomy: tick any number of labels and
+The genres pane is the operator's whole tool for taxonomy: tick any number of genres and
 merge them into one name (rows move, a rule is recorded, pools follow); or open
 *explore*, pick genres, and read the tracks under them, each with every genre it really
-carries and where each came from. Ticked tracks can be given a label by hand or have one
+carries and where each came from. Ticked tracks can be given a genre by hand or have one
 taken away, and both decisions outlive a rebuild.
 
 **Jobs say what they did.** The library pane lists each run with its name, its state, the
@@ -584,7 +584,7 @@ page uses.
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
 | GET | `/coverage` | how much of the library has genres, and what is missing |
-| GET | `/genres` | labels with counts and sources, plus the raw tags behind them |
+| GET | `/genres` | genres with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
 | GET | `/requests/<station>` | requests the station still remembers, what each produced, and how long ago |
@@ -672,7 +672,7 @@ The worker watches the library for you: it compares Navidrome's track count ever
 minutes, rebuilds the index and pools when it changes, and queues the cheap follow-ups —
 popularity for tracks that have none, MusicBrainz for artists without genres. The jobs
 are also on the admin's library page. Operator merges and the alias maps are applied at
-rebuild time, so a rebuild also re-canonicalises every label.
+rebuild time, so a rebuild also re-canonicalises every genre.
 
 ## State
 

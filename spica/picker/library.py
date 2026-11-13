@@ -8,9 +8,11 @@ talks to the network; the tools only ever read what the rebuild wrote.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import html
 import random
 import sqlite3
+import time
 from collections import Counter
 
 from .. import config, mixer, navidrome, queue
@@ -36,6 +38,9 @@ PER_ARTIST = 3
 
 
 class Library:
+    # Set by the loop once per pick; a standalone call gets its own throwaway seed.
+    draw_seed: int = 0
+
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
@@ -91,7 +96,8 @@ class Library:
 
         on_station = self.rows_on_station(rows, station)
         if on_station:
-            return [self._brief(r) for r in on_station[:limit]]
+            ctx = self._context(station)
+            return [self._row(r, ctx) for r in on_station[:limit]]
         return self._search_miss(text, station)
 
     def _search_args(self, token: str) -> list:
@@ -137,8 +143,7 @@ class Library:
         """
         from .. import enrich
 
-        rows = navidrome.rows_for_station(self.conn, station) if station else \
-            self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        rows = self._station_rows(station)
         by_act: dict[str, list] = {}
         for row in rows:
             by_act.setdefault(navidrome.name_key(row["album_artist"] or row["artist"]), []).append(row)
@@ -216,16 +221,18 @@ class Library:
                 break
         return out
 
-    def filter(self, station: config.Station | None = None, **kw) -> list[dict]:
-        where, args = ["uri != ''"], []
+    def filter(self, station: config.Station | None = None, **kw) -> dict:
+        """A draw from the station, optionally narrowed, with the size of the slice.
+
+        Built on the station's own rows rather than querying the table again: the
+        station rules are the expensive part and they have already been applied, so a
+        narrower question only needs to narrow the list it is given.
+        """
+        rows = self._station_rows(station)
         if kw.get("year_from"):
-            where.append("year >= ?")
-            args.append(int(kw["year_from"]))
+            rows = [r for r in rows if (r["year"] or 0) >= int(kw["year_from"])]
         if kw.get("year_to"):
-            where.append("year <= ?")
-            args.append(int(kw["year_to"]))
-        sql = "SELECT * FROM tracks WHERE " + " AND ".join(where) + " ORDER BY RANDOM()"
-        rows = self.conn.execute(sql, args).fetchall()
+            rows = [r for r in rows if (r["year"] or 0) <= int(kw["year_to"])]
 
         # Genre goes through the same fold/refinement the stations use, so
         # "Punk" finds "Punk Rock" here exactly as it does on air.
@@ -235,7 +242,11 @@ class Library:
             by_track = navidrome.labels_by_track(self.conn)
             rows = [r for r in rows if genres_module.matches(by_track.get(r["id"], ()), target)]
 
-        rows = self.rows_on_station(rows, station)
+        # A shuffle keyed to this pick, not to this call. `offset` can only mean
+        # "the next page" if the order holds still between the two calls, so the
+        # seed is drawn once per pick — every call within one decision pages the
+        # same list, and the next pick gets a fresh order.
+        rows = sorted(rows, key=self._shuffle_key)
         total = len(rows)
 
         limit = clamp(kw.get("limit"), 30, 200)
@@ -253,11 +264,12 @@ class Library:
             picked.append(row)
             if len(picked) >= limit:
                 break
+        ctx = self._context(station)
         return {
             "matching": total,
             "offset": offset,
             "returned": len(picked),
-            "results": [self._brief(r) for r in picked],
+            "results": [self._row(r, ctx) for r in picked],
         }
 
     def roster(self, station: config.Station | None = None, limit: int = 60) -> dict:
@@ -268,8 +280,7 @@ class Library:
         it can play. Two tools used to answer this a page at a time; a prompt can simply
         state it, and a stated fact costs no rounds.
         """
-        rows = navidrome.rows_for_station(self.conn, station) if station else \
-            self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        rows = self._station_rows(station)
 
         acts: Counter = Counter()
         for row in rows:
@@ -288,10 +299,15 @@ class Library:
             "labels_total": len(labels),
         }
 
-    # Five records in the pile, five tracks visible per record. A DJ flipping crates
-    # sees covers and a handful of titles, not a catalogue.
-    CRATE_ALBUMS = 5
+    # Three records in the pile, five tracks visible per record. A DJ flipping crates
+    # sees covers and a handful of titles, not a catalogue — and three is enough to
+    # offer directions without turning the brief into a list.
+    CRATE_ALBUMS = 3
     CRATE_TRACKS = 5
+
+    def _shuffle_key(self, row: sqlite3.Row):
+        seed = self.draw_seed or 0
+        return hashlib.blake2b(f"{seed}|{row['id']}".encode(), digest_size=8).digest()
 
     def popularity_ranks(self, rows: list) -> dict[str, float]:
         """Each track's standing among its own act's tracks, 0 = the deep cut.
@@ -311,8 +327,7 @@ class Library:
         of them. Acts it has just played are left out, and each album comes from a
         different act, so the five are five directions rather than five De Lux records.
         """
-        rows = navidrome.rows_for_station(self.conn, station) if station else \
-            self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        rows = self._station_rows(station)
         if not rows:
             return []
 
@@ -344,15 +359,25 @@ class Library:
 
         labels = navidrome.labels_by_track(self.conn)
         ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
+        # How many tracks in the library carry each genre: the rarer the genre, the
+        # more specific it is about this record. "Stoner Rock" says something about a
+        # Sahara Surfers album that "Rock" does not.
+        breadth = {
+            row["label"]: row["n"]
+            for row in self.conn.execute(
+                "SELECT label, count(*) AS n FROM track_genres GROUP BY label"
+            )
+        }
 
         out: list[dict] = []
         for album_id in picks:
             tracks = sorted(by_album[album_id], key=lambda r: (r["track_no"] or 0, r["title"] or ""))
             lead = tracks[0]
-            album_labels = Counter()
+            # Every genre the record carries, narrowest first — a record with four
+            # genres is not one genre, and picking one of them was a coin toss.
+            album_genres = set()
             for track in tracks:
-                for label in labels.get(track["id"], ()):
-                    album_labels[label] += 1
+                album_genres.update(labels.get(track["id"], ()))
             # The best-known song on the record, not its median: a median over one
             # album's own tracks is ~0.5 by construction and says nothing.
             known = max((ranks.get(t["id"], 0.0) for t in tracks), default=0.0)
@@ -360,7 +385,9 @@ class Library:
                 "album": lead["album"],
                 "artist": lead["album_artist"] or lead["artist"],
                 "year": lead["year"],
-                "label": (album_labels.most_common(1) or [("", 0)])[0][0],
+                "genre": " / ".join(
+                    sorted(album_genres, key=lambda g: (breadth.get(g, 0), g))[:4]
+                ),
                 "known": known,
                 "tracks": [
                     {"id": t["id"], "title": t["title"], "no": t["track_no"]}
@@ -426,6 +453,7 @@ class Library:
         limit = clamp(limit, 12, 50)
         from .. import enrich
 
+        ctx = self._context(station)
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
             marks = ",".join("?" for _ in names)
@@ -443,7 +471,7 @@ class Library:
             return {
                 "source": source,
                 "artists": names[:10],
-                "tracks": [self._brief(r) for r in rows],
+                "tracks": [self._row(r, ctx) for r in rows],
                 "owned": bool(rows),
             }
 
@@ -470,7 +498,7 @@ class Library:
                     "source": "genre",
                     "genre": row["genre"],
                     "artists": sorted({r["artist"] for r in rows})[:10],
-                    "tracks": [self._brief(r) for r in rows],
+                    "tracks": [self._row(r, ctx) for r in rows],
                 }
         return {"source": "none", "artists": [], "tracks": []}
 
@@ -478,21 +506,25 @@ class Library:
         """The station's recent past, newest first, with how long ago each played."""
         limit = clamp(limit, 20, 100)
         plays = list(reversed(queue.recent(station, limit)))
+        ctx = self._context(station)
         out: list[dict] = []
         for ago, entry in enumerate(plays):
             track_id = entry.get("id") or ""
-            track = self.by_id(track_id) if track_id else None
-            out.append(
-                {
+            row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone() if track_id else None
+            if row is not None:
+                item = self._row(row, ctx)
+            else:
+                # Played, but no longer in the index (an album was removed since).
+                item = {
                     "id": track_id,
-                    "title": entry.get("title") or (track.title if track else ""),
-                    "artist": entry.get("artist") or (track.artist if track else ""),
-                    "album": track.album if track else "",
-                    "year": track.year if track else None,
-                    "songs_ago": ago,
-                    "on_air": ago == 0,
+                    "title": entry.get("title") or "",
+                    "artist": entry.get("artist") or "",
+                    "album": "", "year": None, "genre": "", "duration": "",
+                    "popularity": 0.5, "played": True, "queued": False,
                 }
-            )
+            item["songs_ago"] = ago
+            item["on_air"] = ago == 0
+            out.append(item)
         return out
 
     def catalogue(
@@ -545,183 +577,12 @@ class Library:
             artist = max(counts, key=counts.get)
             rows = [r for r in rows if (r["album_artist"] or r["artist"]) == artist]
 
-        played = {e["id"] for e in queue.recent(station, 40) if e.get("id")} if station else set()
-        queued = set(mixer.queued_ids(station)) if station else set()
+        ctx = self._context(station)
         albums: dict[str, dict] = {}
         tracks: list[dict] = []
         for row in rows[:limit]:
-            item = self._brief(row)
+            item = self._row(row, ctx)
             item["track_no"] = row["track_no"]
-            item["played"] = row["id"] in played
-            item["queued"] = row["id"] in queued
-            tracks.append(item)
-            key = row["album"] or ""
-            albums.setdefault(key, {"album": key, "year": row["year"], "tracks": []})
-            albums[key]["tracks"].append(item)
-        return {
-            "artist": rows[0]["album_artist"] or rows[0]["artist"],
-            "album": album or "",
-            "albums": list(albums.values()),
-            "tracks": tracks,
-            "played_recently": any(t["played"] for t in tracks),
-        }
-
-    def on_station(self, station: config.Station, track_id: str) -> bool:
-        """Whether this station's own rules let that track play.
-
-        A station whose rules match nothing is on air with the whole library (see
-        rows_for_station), so its picks are allowed the same way — otherwise a typo
-        in a genre list would leave the DJ unable to answer at all.
-        """
-        row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
-        if row is None:
-            return False
-        ok = navidrome.station_matcher(self.conn, station)
-        if ok(row):
-            return True
-        return not any(ok(r) for r in self.conn.execute("SELECT * FROM tracks WHERE uri != ''"))
-
-    def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
-        """Tracks by artists that sound like this one.
-
-        Four levels, cheapest first, so this answers even on a library with no
-        MusicBrainz ids and no API key:
-          1. cached similar-artist list
-          2. ListenBrainz via an artist MBID (Navidrome or file tags)
-          3. Last.fm by artist NAME (needs a key, needs no ids at all)
-          4. local genre: other artists sharing this artist's dominant genre
-        """
-        limit = clamp(limit, 12, 50)
-        from .. import enrich
-
-        names, source = enrich.similar_artists(self.conn, artist, limit=20)
-        if names:
-            marks = ",".join("?" for _ in names)
-            # Filter, then take the limit. The other order sampled rows the station
-            # cannot play and reported `owned: false` even when it owns plenty of
-            # tracks by those artists.
-            rows = self.conn.execute(
-                f"SELECT * FROM tracks WHERE artist IN ({marks}) ORDER BY RANDOM()",
-                (*names,),
-            ).fetchall()
-            rows = self.rows_on_station(rows, station)
-            rows = rows[: int(limit)]
-            # Names found but nothing owned is a real answer: report the similar
-            # artists and an empty track list rather than pretending we found none.
-            return {
-                "source": source,
-                "artists": names[:10],
-                "tracks": [self._brief(r) for r in rows],
-                "owned": bool(rows),
-            }
-
-        # Grouped by the record's artist, so "L’Impératrice & Fabiana Martone" shares
-        # the band's dominant genre instead of having none. Matched on the folded key,
-        # because the caller types the name.
-        key = navidrome.name_key(artist)
-        row = self.conn.execute(
-            """SELECT genre FROM tracks WHERE album_artist_key = ? AND genre != ''
-               GROUP BY genre ORDER BY COUNT(*) DESC LIMIT 1""",
-            (key,),
-        ).fetchone()
-        if row:
-            # The one branch that had no station filter at all, so it could hand the
-            # DJ a track the station is not allowed to play.
-            rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE genre = ? AND album_artist_key <> ? ORDER BY RANDOM()",
-                (row["genre"], key),
-            ).fetchall()
-            rows = self.rows_on_station(rows, station)
-            rows = rows[: int(limit)]
-            if rows:
-                return {
-                    "source": "genre",
-                    "genre": row["genre"],
-                    "artists": sorted({r["artist"] for r in rows})[:10],
-                    "tracks": [self._brief(r) for r in rows],
-                }
-        return {"source": "none", "artists": [], "tracks": []}
-
-    def history(self, station: config.Station, limit: int = 20, **_) -> list[dict]:
-        """The station's recent past, newest first, with how long ago each played."""
-        limit = clamp(limit, 20, 100)
-        plays = list(reversed(queue.recent(station, limit)))
-        out: list[dict] = []
-        for ago, entry in enumerate(plays):
-            track_id = entry.get("id") or ""
-            track = self.by_id(track_id) if track_id else None
-            out.append(
-                {
-                    "id": track_id,
-                    "title": entry.get("title") or (track.title if track else ""),
-                    "artist": entry.get("artist") or (track.artist if track else ""),
-                    "album": track.album if track else "",
-                    "year": track.year if track else None,
-                    "songs_ago": ago,
-                    "on_air": ago == 0,
-                }
-            )
-        return out
-
-    def catalogue(
-        self,
-        artist: str | None = None,
-        album: str | None = None,
-        limit: int = 25,
-        station: config.Station | None = None,
-        **_,
-    ) -> dict:
-        """One artist's holdings, or one album in running order.
-
-        An album name alone is enough when only one artist owns it; if several do,
-        the one with most tracks on this station wins and the reply says so.
-        """
-        limit = clamp(limit, 25, 100)
-        where, args = ["uri != ''"], []
-        if artist:
-            # Either name finds the record: the credit ("& Fabiana Martone") and the
-            # act are the same shelf, and a listener naming the guest should land on it.
-            # Matched on the key, so an ASCII apostrophe finds the typographic one and
-            # a missing accent still lands: the model types names, it does not copy them.
-            where.append("(album_artist_key = ? OR artist = ? COLLATE NOCASE)")
-            args.extend([navidrome.name_key(artist), artist.strip()])
-        if album:
-            where.append("album LIKE ?")
-            args.append(f"%{album.strip()}%")
-        if not artist and not album:
-            return {"error": "give an artist, an album, or both"}
-
-        rows = self.conn.execute(
-            "SELECT * FROM tracks WHERE " + " AND ".join(where)
-            + " ORDER BY artist, album, track_no", args
-        ).fetchall()
-        rows = self.rows_on_station(rows, station)
-        if not rows:
-            return {
-                "artist": artist or "",
-                "album": album or "",
-                "tracks": [],
-                "note": "this station holds nothing under that name",
-            }
-
-        # An album name shared by several artists: keep the one with the most tracks.
-        if album and not artist:
-            counts: dict[str, int] = {}
-            for row in rows:
-                key = (row["album_artist"] or row["artist"])
-                counts[key] = counts.get(key, 0) + 1
-            artist = max(counts, key=counts.get)
-            rows = [r for r in rows if (r["album_artist"] or r["artist"]) == artist]
-
-        played = {e["id"] for e in queue.recent(station, 40) if e.get("id")} if station else set()
-        queued = set(mixer.queued_ids(station)) if station else set()
-        albums: dict[str, dict] = {}
-        tracks: list[dict] = []
-        for row in rows[:limit]:
-            item = self._brief(row)
-            item["track_no"] = row["track_no"]
-            item["played"] = row["id"] in played
-            item["queued"] = row["id"] in queued
             tracks.append(item)
             key = row["album"] or ""
             albums.setdefault(key, {"album": key, "year": row["year"], "tracks": []})
@@ -746,18 +607,68 @@ class Library:
         except Exception as exc:  # a tool must never take the pick down with it
             return {"error": f"{name} failed: {exc}"}
 
+    def _station_rows(self, station: config.Station | None) -> list:
+        """The station's playable rows, remembered for a few seconds.
+
+        `rows_for_station` runs the station's rules over every track — 47 ms on this
+        library — and a single pick asks for it in every tool call. The rules only
+        change on a rebuild, so a short memo turns four calls into one without ever
+        serving a stale index for long.
+        """
+        if station is None:
+            return self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+        cached = getattr(self, "_rows_cache", None)
+        now = time.monotonic()
+        if cached and cached[0] is station and now - cached[1] < 5.0:
+            return cached[2]
+        rows = navidrome.rows_for_station(self.conn, station)
+        self._rows_cache = (station, now, rows)
+        return rows
+
+    def _context(self, station: config.Station | None) -> dict:
+        """Everything a track row needs, gathered once per call rather than per row.
+
+        Genres, how well known each track is for its act, whether it is inside the
+        avoid window, and whether it is already queued — the four things the DJ needs
+        to judge a row, and the four things only some tools used to carry.
+        """
+        rows = self._station_rows(station)
+        played = queue.recent_ids(station, 40) if station else set()
+        try:
+            queued = set(mixer.queued_ids(station)) if station else set()
+        except Exception:
+            queued = set()
+        return {
+            "labels": navidrome.labels_by_track(self.conn),
+            "ranks": self.popularity_ranks(rows),
+            "played": played,
+            "queued": queued,
+        }
+
     @staticmethod
-    def _brief(row: sqlite3.Row) -> dict:
-        # The record's artist, not the track credit: the DJ reasons about acts, and
-        # "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
+    def _clock(seconds: int | None) -> str:
+        total = int(seconds or 0)
+        return f"{total // 60}:{total % 60:02d}" if total else ""
+
+    def _row(self, row: sqlite3.Row, ctx: dict) -> dict:
+        """The row every tool returns, so the model never has to guess what is missing.
+
+        The record's artist, not the track credit: the DJ reasons about acts, and
+        "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
+        """
         keys = row.keys()
+        genres = ctx["labels"].get(row["id"]) or ([row["genre"]] if row["genre"] else [])
         return {
             "id": row["id"],
             "title": row["title"],
             "artist": (row["album_artist"] if "album_artist" in keys else "") or row["artist"],
             "album": row["album"],
             "year": row["year"],
-            "genre": row["genre"],
+            "genre": " / ".join(genres),
+            "duration": self._clock(row["duration"] if "duration" in keys else 0),
+            "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
+            "played": row["id"] in ctx["played"],
+            "queued": row["id"] in ctx["queued"],
         }
 
     @staticmethod

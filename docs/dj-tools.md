@@ -42,41 +42,41 @@ Already queued, in order: …
 Your pick starts right after <track>, so that is the one the listener hears just before it.
 The last 5 songs went out as Disco and Nu Disco — De Lux, Nu Genea, Gativideo, De Lux, Nu Genea.
 That is 3 acts in a row, one corner of a 1961-track station: leave the room tonight — another
-label, another era, another temperature.
+genre, another era, another temperature.
 Your last picks, most recent first. 1 is the pick you made immediately before this one:
 1. Voyage Automatique — 35007: quiet, unhurried, and it ends where the next one starts.
 2. 20 09 — 35007: same warmth, a little more motion.
 3. 23 32 — 35007: it sat right after the last one and opened the room up.
-Five records pulled at random from the racks — the pile, not a recommendation. Take a track
-from any of them if something fits, or ignore all five and go looking: something similar, a
+Three records pulled at random from the racks — the pile, not a recommendation. Take a track
+from any of them if something fits, or ignore all three and go looking: something similar, a
 completely different genre, or the same genre in another era.
-1. Doolittle — Pixies (1989) · Alternative Rock · a hit
+1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock · a hit
    2FNFckudFqIFAYQnksJBbU  Debaser
    6LJ1ZUPnF1A7Bx7FR8xgPV  Tame
    (+12 more)
 2. …
 ```
 
-**The run of labels** comes from what actually played, not from the DJ's own picks, and the
+**The run of genres** comes from what actually played, not from the DJ's own picks, and the
 nudge to leave the room only fires when the run is genuinely tight — five songs from five
 acts is not a corner, and a line that cries wolf every pick is a line the model learns to
 skip.
 
-**The crates** are the standing counterweight to "continue the sound": five albums drawn at
+**The crates** are the standing counterweight to "continue the sound": three albums drawn at
 random from the station's playable set, one per act, skipping the acts just played, each with
-its label and whether it holds a well-known song — the best-covered track on the record, not
+its genres (narrowest first) and whether it holds a well-known song — the best-covered track on the record, not
 the median, because a median over one album's own tracks is ~0.5 by construction and says
 nothing. Up to five track ids per record, so the DJ can pick straight from the pile or ignore
-all five and search instead.
+all three and search instead.
 
 This is what broke the rut, measured on the live library over twelve real picks each way:
 without the crates, twelve picks produced **three distinct acts** (De Lux, L'Impératrice,
-Nu Genea, cyclically — labels Disco ×12); with them, **eight** (Foo Fighters, Ratatat,
+Nu Genea, cyclically — Disco on all twelve); with them, **eight** (Foo Fighters, Ratatat,
 Spinetta, Kasabian, Mansun, Pearl Jam… — Alternative Rock ×9, Indie Rock ×6).
 
-The brief is the timeline, the crates and the run of labels — state, in other words. What
+The brief is the timeline, the crates and the run of genres — state, in other words. What
 the station *is* lives in the system prompt, which
-is where the racks went: label weights and every act with its track count, because the
+is where the racks went: genre weights and every act with its track count, because the
 model's other source of names is its own memory and a name from memory is usually not
 here. That is the fix for a measurable waste — 80 of 93 `search` calls in one ledger
 came back empty, all of them names the model knew from outside this library.
@@ -92,6 +92,28 @@ system prompt adds one line taking the model further back than the brief does:
 > "The brief tells you what is on air, what came before it and what is already queued.
 > For anything further back — the last half hour, what you played before the current
 > record — call history."
+
+## The row every tool returns
+
+One shape, everywhere — `history`, `search`, `filter`, `catalogue` and `similar` all
+answer with the same fields, so the DJ never has to wonder whether a tool happened to
+carry the thing it needs:
+
+```json
+{"id": "53dkqGZQDnFJZuPX0HqkXE", "title": "L’Équilibriste", "artist": "L’Impératrice",
+ "album": "Tako Tsubo", "year": 2021, "genre": "Disco / Indie Rock", "duration": "4:05",
+ "popularity": 0.48, "played": false, "queued": false}
+```
+
+- `genre` is **all** the track's genres, joined with ` / ` — not the primary tag, which is
+  what made `filter {genre: "Disco"}` answer with rows reading `Électronique`.
+- `duration` is clock time, so a 40-second interlude and a 9-minute epic are distinguishable.
+- `popularity` is the track's standing **among its own act's tracks**, 0 = their deepest
+  cut, 1 = the one everybody knows. Absolute play counts would only measure how big the act
+  is; this asks which of their songs people actually know. It is the number the crates
+  turn into *a hit / mid / a deep cut*.
+- `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
+  `catalogue` adds `track_no`; `history` adds `songs_ago` and `on_air`.
 
 ## The five tools
 
@@ -167,12 +189,12 @@ SQL, `ORDER BY RANDOM()`, genre matched loosely on purpose: `Punk` also brings
 
 It answers with shape, not just rows — `{matching, offset, returned, results}` — so the
 model can tell a 600-track slice from a 6-track one, and page through it with `offset`.
-No page carries more than three tracks by one artist, which is what stops a label with
+No page carries more than three tracks by one artist, which is what stops a genre with
 one big name in it from filling the whole answer.
 
-Note the asymmetry: station membership is exact label-set matching, while this tool
+Note the asymmetry: station membership is exact genre-set matching, while this tool
 refines. Deliberate — a listener asking for "punk" shouldn't get nothing because the
-label says `Punk Rock`.
+genre says `Punk Rock`.
 
 ### `catalogue` — one artist, or one album
 
