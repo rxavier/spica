@@ -365,7 +365,16 @@ Before any of that, genres are normalised:
 - **builtin merges**: a short list of spelling and translation noise
   (`rock progresivo` → `Progressive Rock`, `alt rock` → `Alternative Rock`).
 - **operator rules**: `genre-aliases.json` in `state/`, which win over the builtin list.
-  Merging in the admin writes one of these, so a rebuild lands in the same place.
+  These are a **station-selection rollup, applied when a station is matched** — ticking
+  `Electronic` catches a record the library files under `Nu Disco`. They are not a rewrite
+  of the index: the tools and the DJ keep the library's own vocabulary, which is what makes
+  `filter {'genre': 'Nu Disco'}` answer with nu-disco records instead of the whole shelf.
+  Merging in the admin writes one of these rules; relabelling the stored tracks is a
+  separate, explicit action, because it throws the fine label away.
+
+The admin's genres pane shows one row per collapsed name with the fine labels nested
+underneath: the console exists to build stations, so it keeps the short list, while the
+index keeps the long one.
 
 Two things outrank all of it, set in the admin's genres pane:
 

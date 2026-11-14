@@ -47,7 +47,7 @@ class FakeLibrary:
     def recent_labels(self, station, n=5):
         return ["Rock"], ["Someone"]
 
-    def fresh_artists(self, station, k=3, window=20):
+    def fresh_artists(self, station, k=3, window=20, exclude=None):
         return ["Fresh One", "Fresh Two", "Fresh Three"][:k]
 
     def heavy_artist(self, station, window=20, floor=3):

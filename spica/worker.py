@@ -76,7 +76,7 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
                 continue
             if genres.fold(tag) not in vocabulary:
                 continue
-            label = genres.canonical(tag)
+            label = genres.canonical(tag, operator=False)
             if label and label.casefold() not in {x.casefold() for x in labels}:
                 labels.append(label)
         if labels:

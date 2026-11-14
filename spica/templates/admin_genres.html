@@ -15,6 +15,10 @@
       {% for c in counts %}<option value="{{ c.label }}"></option>{% endfor %}
     </datalist>
     <button class="primary" type="submit">Merge / rename</button>
+    <label class="sub" title="Rewrite the stored labels as well. Off by default: a merge
+      is a rule for station matching, and the DJ's tools match the library's own names.">
+      <input type="checkbox" name="relabel" value="1"> also relabel the stored tracks
+    </label>
     <button class="link" type="button" id="clear-picks">Clear</button>
   </div>
 
@@ -32,7 +36,11 @@
         {% for c in counts %}
           <tr>
             <td><input type="checkbox" name="labels" value="{{ c.label }}"></td>
-            <td>{{ c.label }}</td>
+            <td>{{ c.label }}
+              {% if c.members %}
+                <div class="sub">{% for m in c.members %}{{ m.label }} · {{ "{:,}".format(m.tracks) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+              {% endif %}
+            </td>
             <td class="num sub">{{ "{:,}".format(c.tracks) }}</td>
             <td class="num sub">{{ "{:,}".format(c.albums) }}</td>
           </tr>

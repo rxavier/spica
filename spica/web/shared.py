@@ -330,13 +330,29 @@ def _conn():
 
 
 def known_labels(names: list[str]) -> list[str]:
-    """Only labels the library actually has; a typo would otherwise select nothing."""
+    """Only labels the library actually has; a typo would otherwise select nothing.
+
+    The console offers the operator's collapsed vocabulary ("Electronic"), while the
+    index stores the library's fine labels ("Nu Disco"), so a name counts as known when
+    any stored label canonicalises to it — otherwise saving a station quietly drops the
+    genre whose tracks are only stored fine.
+    """
+    from .. import genres as genre_lib
+
     conn = _conn()
-    known = {row["label"] for row in conn.execute("SELECT DISTINCT label FROM track_genres")}
+    shelf = {
+        genre_lib.fold(genre_lib.canonical(row["label"]))
+        for row in conn.execute("SELECT DISTINCT label FROM track_genres")
+    }
     seen, out = set(), []
     for name in names:
         name = str(name or "").strip()
-        if name in known and name not in seen:
+        if not name:
+            continue
+        # The console offers collapsed names ("Electronic"), the index stores the fine
+        # ones ("Nu Disco"). A name the operator can pick is one that resolves into the
+        # shelf, not one that appears verbatim in a column.
+        if genre_lib.fold(genre_lib.canonical(name)) in shelf and name not in seen:
             seen.add(name)
             out.append(name)
     return out
