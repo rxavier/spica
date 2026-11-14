@@ -33,7 +33,7 @@ def clamp(value, default: int, high: int) -> int:
     return max(1, min(number, high))
 
 
-# How many tracks one act may contribute to a page of `filter` results.
+# How many tracks one artist may contribute to a page of `filter` results.
 PER_ARTIST = 3
 
 
@@ -105,12 +105,12 @@ class Library:
         return [like, like, like, like, f"%{navidrome.name_key(token)}%"]
 
     def _search_miss(self, text: str, station) -> dict:
-        """A name that plays nowhere here, answered with the acts that do.
+        """A name that plays nowhere here, answered with the artists that do.
 
         What the model wanted was a sound, not a spelling: "Parcels" is a way of
         asking for what Parcels sound like, and telling it the name is absent leaves
         it with nothing. So the miss asks the same similar-artist machinery `similar`
-        uses, keeps only the acts this station plays, and hands back a track id for
+        uses, keeps only the artists this station plays, and hands back a track id for
         each — one call, and the next move is a pick rather than another search.
         Whether the name exists on disk is not the question; whether it can play is.
         """
@@ -124,7 +124,7 @@ class Library:
             note = (
                 f"nothing by '{text}' plays on this station, and nothing here sounds "
                 "much like it. Take the set somewhere else: filter draws from the "
-                "whole station, catalogue knows what you own by an act you can name."
+                "whole station, catalogue knows what you own by an artist you can name."
             )
         payload: dict = {"results": [], "note": note, "similar_here": alike}
         if not alike:
@@ -169,8 +169,8 @@ class Library:
         names, _source = enrich.similar_artists(self.conn, name, limit=25)
         out = gather(names)
         if len(out) < 3:
-            # A cached or short list is twenty names, and on a library of sixty acts
-            # the act that plays here is often the twenty-first. Ask for a hundred.
+            # A cached or short list is twenty names, and on a library of sixty artists
+            # the artist that plays here is often the twenty-first. Ask for a hundred.
             wider = enrich.lfm_similar(name, 100)
             fresh = [n for n in wider if n not in names]
             if fresh:
@@ -251,7 +251,7 @@ class Library:
 
         limit = clamp(kw.get("limit"), 30, 200)
         offset = max(0, int(kw.get("offset") or 0))
-        # Spread the page across acts. A random draw over a label with one big name in
+        # Spread the page across artists. A random draw over a label with one big name in
         # it hands back five tracks by the same band and looks like variety; three is
         # enough to show a record exists without letting it fill the page.
         seen: Counter = Counter()
@@ -276,15 +276,15 @@ class Library:
         """Who and what this station holds, in the shape the system prompt wants.
 
         The numbers the DJ needs before it can choose anything: what this station is
-        made of, in the only terms that matter to it — labels with weight, and every act
+        made of, in the only terms that matter to it — labels with weight, and every artist
         it can play. Two tools used to answer this a page at a time; a prompt can simply
         state it, and a stated fact costs no rounds.
         """
         rows = self._station_rows(station)
 
-        acts: Counter = Counter()
+        artists: Counter = Counter()
         for row in rows:
-            acts[(row["album_artist"] or row["artist"]) or "?"] += 1
+            artists[(row["album_artist"] or row["artist"]) or "?"] += 1
         labels: Counter = Counter()
         by_track = navidrome.labels_by_track(self.conn)
         for row in rows:
@@ -293,8 +293,8 @@ class Library:
 
         return {
             "tracks": len(rows),
-            "acts": acts.most_common(limit),
-            "acts_total": len(acts),
+            "artists": artists.most_common(limit),
+            "artists_total": len(artists),
             "labels": labels.most_common(limit),
             "labels_total": len(labels),
         }
@@ -310,9 +310,9 @@ class Library:
         return hashlib.blake2b(f"{seed}|{row['id']}".encode(), digest_size=8).digest()
 
     def popularity_ranks(self, rows: list) -> dict[str, float]:
-        """Each track's standing among its own act's tracks, 0 = the deep cut.
+        """Each track's standing among its own artist's tracks, 0 = the deep cut.
 
-        Absolute play counts only say how big the act is; the question in front of the
+        Absolute play counts only say how big the artist is; the question in front of the
         DJ is which of their songs people actually know.
         """
         from .. import pool
@@ -332,7 +332,7 @@ class Library:
 
         Nothing here is curated: it is the pile, and the DJ may take one or ignore all
         of them. Acts it has just played are left out, and each album comes from a
-        different act, so the five are five directions rather than five De Lux records.
+        different artist, so the five are five directions rather than five De Lux records.
         """
         rows = self._station_rows(station)
         if not rows:
@@ -359,17 +359,17 @@ class Library:
         if not by_album:
             return []
 
-        # One album per act, then take the acts at random: a crate of five, not a crate
+        # One album per artist, then take the artists at random: a crate of five, not a crate
         # of five records by whoever owns the most of the library.
         by_act: dict[str, list[str]] = {}
         for album_id, tracks in by_album.items():
             by_act.setdefault(navidrome.name_key(tracks[0]["album_artist"] or tracks[0]["artist"]), []).append(album_id)
-        acts = list(by_act)
-        random.shuffle(acts)
+        artists = list(by_act)
+        random.shuffle(artists)
 
         picks: list[str] = []
-        for act in acts:
-            picks.append(random.choice(by_act[act]))
+        for artist in artists:
+            picks.append(random.choice(by_act[artist]))
             if len(picks) >= size:
                 break
         self._remember_dealt(picks)
@@ -420,26 +420,58 @@ class Library:
             })
         return out
 
+    def fresh_artists(self, station: config.Station, k: int = 3, window: int = 20) -> list[str]:
+        """Acts the station owns and hasn't aired lately, a different draw each time.
+
+        The racks in the system prompt are sorted by weight and identical on every
+        pick — that is what makes them cheap to cache, and also why the same handful
+        of big artists is what the model reads first and reaches for. This is the
+        counterweight: random, and chosen from outside the recent plays.
+        """
+        played = {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
+        artists = [
+            name
+            for name, _ in self.roster(station, limit=1000)["artists"]
+            if navidrome.name_key(name) not in played
+        ]
+        if len(artists) <= k:
+            return artists
+        return random.sample(artists, k)
+
+    def heavy_artist(
+        self, station: config.Station, window: int = 20, floor: int = 3
+    ) -> tuple[str, int] | None:
+        """The artist that has run the station ragged lately, if any has.
+
+        One artist three times in twenty plays is a corner, not a set: worth saying out
+        loud, because the model has no ears and cannot hear it happening.
+        """
+        counted = Counter(a for a in self.recent_labels(station, window)[1] if a)
+        if not counted:
+            return None
+        name, plays = counted.most_common(1)[0]
+        return (name, plays) if plays >= floor else None
+
     def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
-        """The labels and acts of the last few songs, newest first.
+        """The labels and artists of the last few songs, newest first.
 
         This is the evidence a DJ would use to notice he has been in one corner all
         night: not what he meant to play, what actually went out.
         """
         plays = queue.recent(station, n)
         labels = navidrome.labels_by_track(self.conn)
-        acts: list[str] = []
+        artists: list[str] = []
         counted: Counter = Counter()
         for entry in plays:
             track_id = entry.get("id") or ""
             row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone() if track_id else None
             if row is not None:
-                acts.append(row["album_artist"] or row["artist"] or "")
+                artists.append(row["album_artist"] or row["artist"] or "")
                 for label in labels.get(track_id, ()):
                     counted[label] += 1
             elif entry.get("artist"):
-                acts.append(entry["artist"])
-        return [label for label, _ in counted.most_common(3)], acts
+                artists.append(entry["artist"])
+        return [label for label, _ in counted.most_common(3)], artists
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
         row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
@@ -532,12 +564,13 @@ class Library:
         "nothing here fits" needed an answer that produces ids: another three covers,
         and another three after that.
         """
-        albums = self.crate(station, avoid_acts=getattr(self, "_crate_skip", set()))
+        _, recent_acts = self.recent_labels(station, 6)
+        albums = self.crate(station, avoid_acts=set(recent_acts))
         if not albums:
             return {
                 "albums": [],
                 "note": "the racks ran out for this pick — every record has been dealt "
-                        "or is by an act already in play. Use filter or search instead.",
+                        "or is by an artist already in play. Use filter or search instead.",
             }
         return {"albums": albums}
 
@@ -583,7 +616,7 @@ class Library:
         where, args = ["uri != ''"], []
         if artist:
             # Either name finds the record: the credit ("& Fabiana Martone") and the
-            # act are the same shelf, and a listener naming the guest should land on it.
+            # artist are the same shelf, and a listener naming the guest should land on it.
             # Matched on the key, so an ASCII apostrophe finds the typographic one and
             # a missing accent still lands: the model types names, it does not copy them.
             where.append("(album_artist_key = ? OR artist = ? COLLATE NOCASE)")
@@ -667,7 +700,7 @@ class Library:
     def _context(self, station: config.Station | None) -> dict:
         """Everything a track row needs, gathered once per call rather than per row.
 
-        Genres, how well known each track is for its act, whether it is inside the
+        Genres, how well known each track is for its artist, whether it is inside the
         avoid window, and whether it is already queued — the four things the DJ needs
         to judge a row, and the four things only some tools used to carry.
         """
@@ -692,7 +725,7 @@ class Library:
     def _row(self, row: sqlite3.Row, ctx: dict) -> dict:
         """The row every tool returns, so the model never has to guess what is missing.
 
-        The record's artist, not the track credit: the DJ reasons about acts, and
+        The record's artist, not the track credit: the DJ reasons about artists, and
         "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
         """
         keys = row.keys()

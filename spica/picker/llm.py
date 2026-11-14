@@ -18,13 +18,26 @@ from .. import config
 # unreadable. Trimming happens on whole rows instead.
 TOOL_RESULT_CHARS = 6000
 
+# A set is one line plus up to ten ids, which is a few hundred tokens — but the cap
+# is a ceiling, not a spend, and this model thinks before it writes. At 700 it spent
+# the whole budget reasoning and answered with nothing, which read downstream as a
+# failed pick. The ceiling is set where the answer always fits.
+MAX_TOKENS = 4096
+
+# Unbounded thinking is what filled that budget: with no knob set, one plan produced
+# nine thousand characters of reasoning and no reply at all. `low` keeps the judgement
+# and bounds the length.
+REASONING_EFFORT = "low"
+
 # The reply contract, in one place: the system prompt and both retries used to
 # state it in three slightly different wordings.
-REPLY_CONTRACT = (
-    'Reply with ONLY a JSON object: {"track_id": "<id from a tool result>", '
-    '"why": "<spoken line, at most 180 characters>"}'
+SET_CONTRACT = (
+    'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
+    'what this set is and where it is going>", "ids": ["<id from a tool result>", ...]}'
 )
-ANSWER_NOW = "No more lookups. " + REPLY_CONTRACT + " Use an id from the results you already have."
+ANSWER_NOW = (
+    "No more lookups. " + SET_CONTRACT + " Use ids from the results you already have."
+)
 
 
 def chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
@@ -38,12 +51,18 @@ def chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
         "tools": tools,
         "tool_choice": "none" if no_tools else ("required" if require_call else "auto"),
         "temperature": 0.7,
-        "max_tokens": 700,
+        "max_tokens": MAX_TOKENS,
+        "reasoning_effort": REASONING_EFFORT,
     }
     r = httpx.post(f"{llm['base']}/chat/completions", headers=headers, json=body, timeout=90.0)
-    if require_call and r.status_code in (400, 422):
-        # Not every "OpenAI-compatible" server accepts tool_choice: required.
-        body["tool_choice"] = "auto"
+    if r.status_code in (400, 422):
+        # Two things not every "OpenAI-compatible" server implements: the forced first
+        # lookup, and the reasoning knob. A pick is worth more than either guarantee, so
+        # both are dropped and the call goes once more — without them the model may
+        # think longer than the budget allows, which the retry below cannot fix.
+        body.pop("reasoning_effort", None)
+        if require_call:
+            body["tool_choice"] = "auto"
         r = httpx.post(f"{llm['base']}/chat/completions", headers=headers, json=body, timeout=90.0)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]
@@ -105,7 +124,9 @@ def json_object(text: str) -> dict | None:
         except ValueError:
             at = text.find("{", at + 1)
             continue
-        if isinstance(value, dict) and value.get("track_id"):
+        if isinstance(value, dict) and (
+            value.get("ids") or value.get("tracks") or value.get("track_id")
+        ):
             return value
         at = text.find("{", at + 1)
     return None

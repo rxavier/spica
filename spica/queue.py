@@ -11,8 +11,9 @@ A listener request is the exception, and it does not take the slot either: it go
 into its own ordered list and is then promoted into the mixer's queue, ahead of the
 pick waiting there. That pick is dropped rather than moved — "play something
 heavier" is about the mood the listener just changed, and the pick in hand was
-chosen for the mood they changed from. The loop chooses again within a tick, with
-the request still remembered.
+chosen for the mood they changed from — and so is the rest of the DJ's set, which
+was chosen for that same mood. The loop picks a new set within a tick, with the
+request still remembered.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import json
 import time
 from pathlib import Path
 
-from . import config, subsonic
+from . import config, plan, subsonic
 
 
 def _write(station: config.Station, uri: str, label: str) -> None:
@@ -137,6 +138,11 @@ def promote_requests(station: config.Station) -> int:
     if pending != want and not mixer.set_queue(station, want):
         _write_request_lines(station, lines)
         return 0
+    # The DJ's set was chosen for the mood the listener has just changed, and the
+    # queue no longer holds the track it was going to play next. Its remaining
+    # tracks go with it; the loop asks for a new set with the request in the brief,
+    # which is the point of the request.
+    plan.clear(station, "listener request")
     for line in lines:
         line["sent"] = True
     _write_request_lines(station, lines)

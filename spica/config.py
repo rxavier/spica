@@ -150,6 +150,11 @@ class Station:
         """Where the mixer writes the track it has just started playing."""
         return STATE_DIR / "now" / f"{self.id}.txt"
 
+    @property
+    def plan_file(self) -> Path:
+        """The set the DJ is playing through: ids in order, under one line."""
+        return STATE_DIR / "plans" / f"{self.id}.json"
+
 
 def parse_codecs(raw) -> tuple[str, ...]:
     """Read a station's stream list: codec names, in the order they were given.
@@ -194,7 +199,7 @@ def load_stations(path: Path | None = None) -> list[Station]:
 
 
 def ensure_dirs() -> None:
-    for sub in ("pools", "queue", "history", "logs", "now"):
+    for sub in ("pools", "queue", "history", "logs", "now", "plans"):
         (STATE_DIR / sub).mkdir(parents=True, exist_ok=True)
 
 

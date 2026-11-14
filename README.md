@@ -115,13 +115,20 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
   tracks. Two rebuilds of the same library do not produce the same order, so the
   playlist on disk is the record of what a station was playing.
+- **Sets, not picks.** The DJ is asked for three to ten tracks at once and one line
+  that says what the set is, and the set is then played out one track at a time from
+  `state/plans/<station>.json`. Asking "what follows this song" once per track has only
+  one cheap answer — the nearest thing to what is already playing — which is how the
+  station ended up circling the same corner; asking for a set costs one decision per
+  stretch of night instead of one per record. A listener request throws the rest of the
+  set away, because it was chosen for the mood they asked to leave.
 - **LLM picks with real tools.** Six of them: `history` (what the station just played,
   with how many songs ago), `flip` (three more records from the racks, never the ones
   already dealt), `search` (word-wise, and a name that plays nowhere here answers with
-  the acts that sound like it), `filter` (a draw from the station, narrowed by genre and
+  the artists that sound like it), `filter` (a draw from the station, narrowed by genre and
   years, with totals and paging), `catalogue` (an artist's holdings or one album in
   running order), and `similar`. The station's own shape — genre weights, every
-  act with its track count — is in the system prompt rather than behind a tool. Every
+  artist with its track count — is in the system prompt rather than behind a tool. Every
   result is filtered
   through the station's rules, so a narrow station cannot return something outside its
   palette. Track ids exist only inside tool results, so a pick is always grounded in a
@@ -132,11 +139,11 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   provider is required; a library with no ids and no API key still gets an answer.
 - **Listener requests that last more than one song.** Free text, kept for N tracks, and
   the DJ is told both how many songs have passed and how many remain. A request
-  supersedes the pick already waiting rather than queueing behind it: "play something
-  heavier" is about the mood, and the pick in hand was chosen for the old one, so it is
-  dropped and chosen again within a tick. The system prompt
-  tells it to honour requests, including mood changes, without ever moving the station
-  away from its own identity.
+  supersedes what is waiting rather than queueing behind it: "play something heavier" is
+  about the mood, and both the waiting track and the rest of the set were chosen for the
+  old one, so they are dropped and a new set is picked with the request in the brief. The
+  system prompt tells it to honour requests, including mood changes, without ever moving
+  the station away from its own identity.
 - **Genres from the best source available, not from guesses.** Your file tags, then
   MusicBrainz genres with their vote counts, and Last.fm only for artists MusicBrainz
   does not know. Every genre records where it came from — `file`, `musicbrainz`,
@@ -246,7 +253,7 @@ constraint.
   `Alternative` is not a genre, and the picker will not store it.
 - `include_artists` is a second way *in*, not a filter on the genres: a track plays if it
   carries an included genre **or** is by an included artist — the record's artist, so
-  naming an act also catches its tracks with guests. That is how a station
+  naming an artist also catches its tracks with guests. That is how a station
   reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
   Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
   make a genre station.
@@ -379,7 +386,7 @@ album — 486 calls, about eight seconds.
 Every track keeps two names: `artist`, the credit on the recording, and
 `album_artist`, the artist of the record it sits on. The second is the identity
 everything groups by — counts, `catalogue`, station artist rules, the pool's
-"don't repeat an artist for twelve tracks" — because a guest turns one act into two
+"don't repeat an artist for twelve tracks" — because a guest turns one artist into two
 ("L’Impératrice & Fabiana Martone" is L’Impératrice), and because names are typed,
 not copied: lookups compare a folded key, so `L'Impératrice` with an ASCII apostrophe
 finds the typographic one.

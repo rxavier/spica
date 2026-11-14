@@ -13,7 +13,7 @@ request). One call = one pick, so the token bill tracks use.
 from __future__ import annotations
 
 from .library import Library
-from .llm import ANSWER_NOW, REPLY_CONTRACT, TOOL_RESULT_CHARS
+from .llm import ANSWER_NOW, SET_CONTRACT, TOOL_RESULT_CHARS
 from .loop import MAX_TOOL_ROUNDS, pick_next
 from .prompt import DEFAULT_PERSONA, persona
 from .schemas import TOOLS, Pick
@@ -24,7 +24,7 @@ __all__ = [
     "Library",
     "MAX_TOOL_ROUNDS",
     "Pick",
-    "REPLY_CONTRACT",
+    "SET_CONTRACT",
     "TOOLS",
     "TOOL_RESULT_CHARS",
     "persona",

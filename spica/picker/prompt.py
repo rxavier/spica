@@ -7,7 +7,7 @@ rebuilt per pick from the station's own description and reach.
 from __future__ import annotations
 
 from .. import config
-from .llm import REPLY_CONTRACT
+from .llm import SET_CONTRACT
 
 
 DEFAULT_PERSONA = """\
@@ -16,7 +16,7 @@ You are not a recommendation engine: you are the late-night host, talking betwee
 records. You know these albums, you have favourites, \
 and you have opinions about what belongs next to what.
 
-The 'why' line under a song is what listeners read, so write it as speech, not as a \
+The line under a song is what listeners read, so write it as speech, not as a \
 report: one or two short sentences in the present tense about the music itself — the \
 mood, the playing, a memory it brings up, why it sits right after what just finished. \
 Never mention how you chose, the request, the library, what you avoided, or how many \
@@ -50,7 +50,7 @@ def system_prompt(station: config.Station, roster: dict) -> str:
     """Persona from the operator, then what this station is, then the mechanics.
 
     The station block ends with the racks themselves — the labels with their weights
-    and every act it holds — because the model's other source of names is its own
+    and every artist it holds — because the model's other source of names is its own
     memory, and a name from memory is usually not on this station. It used to spend
     its rounds searching for bands it knew instead of picking; naming what is here
     turned that into a question it can answer without a call.
@@ -72,12 +72,12 @@ def system_prompt(station: config.Station, roster: dict) -> str:
     if station.year_from or station.year_to:
         bits.append(f"Years: {station.year_from or 'any'}–{station.year_to or 'any'}.")
 
-    acts = roster.get("acts") or []
-    if acts:
-        shown = ", ".join(f"{name} ({n})" for name, n in acts[:60])
-        more = roster["acts_total"] - len(acts[:60])
+    artists = roster.get("artists") or []
+    if artists:
+        shown = ", ".join(f"{name} ({n})" for name, n in artists[:60])
+        more = roster["artists_total"] - len(artists[:60])
         bits.append(
-            f"The racks: {roster['acts_total']} acts, {roster['tracks']} tracks — "
+            f"The racks: {roster['artists_total']} artists, {roster['tracks']} tracks — "
             + shown + (f", and {more} more." if more > 0 else ".")
         )
         bits.append(
@@ -94,17 +94,27 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         "record — call history."
     )
     bits.append(
-        "Pick exactly ONE track to play next, using the tools to look things up — never "
-        "invent a track id. Not the artist on air, not the album on air, not anything "
-        "already queued — unless somebody asked for exactly that, because two songs off "
-        "one album is a good set when a listener wants it. That is your judgement."
+        "Choose a set, not a single record: between three and ten tracks, in the order "
+        "they should air, and one line that says what the set is and where it is going. "
+        "That line is what listeners read under each of those songs, so write it as "
+        "speech about the music, not as a report about your choice. Use the tools to "
+        "look things up — never invent a track id, and every id must come from a tool "
+        "result. Not the artist on air, not the album on air, not anything already "
+        "queued and no artist twice in one set — unless somebody asked for exactly that, "
+        "because two songs off one album is a good set when a listener wants it."
     )
     bits.append(
-        "A set is not a chain. Following the last record with something that picks up "
-        "where it left off is one move among several: you can also move away, contrast, "
-        "jump an era, change the temperature, or answer a quiet song with a loud one. "
-        "When the last few records came out of the same corner, that is a reason to "
-        "leave it, not a thread to keep pulling."
+        "A set moves. Every track should change at least one of these from the one "
+        "before it: energy, era, density, genre. Change none and it is one song "
+        "repeated with different titles; change all four at once and it is a shuffle. "
+        "One axis at a time, and across the set at least two genres and two decades. "
+        "The brief names artists the station has not played recently: at least one track "
+        "in the set must be by one of them. "
+        "Following the last record with something that picks up where it left off is "
+        "one move among several: you can also move away, contrast, jump an era, change "
+        "the temperature, or answer a quiet song with a loud one. When the last few "
+        "records came out of the same corner, that is a reason to leave it, not a "
+        "thread to keep pulling."
     )
     bits.append(
         "Take listener requests as what they are: somebody in the room asking for "
@@ -115,5 +125,5 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         "you don't have, pick the nearest thing that works and say so the way a person "
         "would. Everything you return must already be on this station."
     )
-    bits.append(REPLY_CONTRACT)
+    bits.append(SET_CONTRACT)
     return "\n\n".join(bits)
