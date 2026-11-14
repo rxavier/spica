@@ -33,6 +33,24 @@ The body says *why*, and quotes numbers when there are numbers to quote ("prog 2
 prog + Bloc Party 2,248"). Documentation is part of the change: if behaviour moves,
 the README moves in the same PR.
 
+## Tests
+
+```sh
+uv sync --group dev
+uv run pytest
+```
+
+Hermetic on purpose: no model, no network, no Navidrome and no station. Every test
+points `SPICA_STATE` at a temporary directory, so none of them can touch a real
+`state/` — the directory that is on air. What is covered is the part that has to be
+right: what the code accepts as an answer and what it refuses, the set's life on disk,
+the picker's flow when a set exists or a request arrives, and the arithmetic behind the
+two lines the brief draws from what aired. The prompt itself is not tested, because it
+belongs to whoever runs the station.
+
+A test that cannot fail is not worth its runtime: break the behaviour deliberately and
+watch the test go red before trusting it.
+
 ## Running it locally
 
 ```sh
