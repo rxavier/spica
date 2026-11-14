@@ -1,0 +1,20 @@
+name: tests
+
+# Every push and pull request runs the suite. It is hermetic by design — no model, no
+# network, no station — so it costs a few seconds and can be the first thing to fail.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run pytest

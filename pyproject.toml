@@ -12,5 +12,15 @@ dependencies = [
     "mutagen>=1.47",
 ]
 
+[dependency-groups]
+# Tests only: no test may reach the network, a model, or a real station.
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The project is not installed as a package: the tests import it from the source tree.
+pythonpath = ["."]
+addopts = "-q"
+
 [tool.uv]
 package = false
