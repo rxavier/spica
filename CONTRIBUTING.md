@@ -45,8 +45,9 @@ points `SPICA_STATE` at a temporary directory, so none of them can touch a real
 `state/` — the directory that is on air. What is covered is the part that has to be
 right: what the code accepts as an answer and what it refuses, the set's life on disk,
 the picker's flow when a set exists or a request arrives, and the arithmetic behind the
-two lines the brief draws from what aired. The prompt itself is not tested, because it
-belongs to whoever runs the station.
+shelf — which artists it excludes, how the slots are shared out, and what happens when
+there are too few left. The prompt itself is not tested, because it belongs to whoever
+runs the station.
 
 A test that cannot fail is not worth its runtime: break the behaviour deliberately and
 watch the test go red before trusting it.
@@ -76,3 +77,7 @@ git push origin v<version>
 
 `.github/workflows/release.yml` builds `linux/amd64` and `linux/arm64` and pushes
 `ghcr.io/rxavier/spica` with the version, the minor tag, and `latest`.
+
+The version lives in `pyproject.toml` and `uv.lock`, and it is bumped in the pull request
+that changes behaviour — not in a release pull request afterwards. A published tag is
+immutable: anything that misses it is a patch release, never a moved tag.

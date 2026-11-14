@@ -40,7 +40,7 @@ same corner: fourteen L'Impératrice tracks in an hour, every one of them defens
 its own.
 
 A set answers *where is this stretch of the night going*, and it is held in
-`state/plans/<station>.json` as `{theme, ids, made}`. `pick_next` hands the queue the
+`state/plans/<station>.json` as `{theme, ids, made, shelf}`. `pick_next` hands the queue the
 next id and asks the model nothing at all until the set runs out: twelve tracks measured
 at six model calls, half a call per track, instead of three or four each.
 
@@ -58,18 +58,58 @@ for:
 
 Track ids exist only inside tool results. The brief carries titles and artists, never
 ids, and `parse_set` then requires each id to exist, to have a playable `uri`, to be
-outside the last 40 played ids, to appear once, and to pass the station's own matcher —
-the same check the tools apply, so a guessed id cannot leave the palette either.
+outside the avoid window, to appear once, to be by an artist on the shelf, and to pass
+the station's own matcher — the same check the tools apply, so a guessed id cannot leave
+the palette either.
 
-Those are facts about the track, and they are the only thing the code decides. How many
-tracks a set holds, whether one artist dominates it, where it goes: all of that is the
-DJ's judgement and the operator's prompt, and an installation whose prompt says
-something else entirely must still work. The one place the prompt is referred to from
-code is the brief's wording, never a check on the answer.
+Two of those are the only things the code has ever decided about the *shape* of a set
+rather than the legality of a track: **every artist has to be on the shelf**, and **no
+artist twice in one set**. A listener request passes no shelf, and may put two songs by
+one artist in a set.
+
+Everything else is still the DJ's judgement and the operator's prompt: how many tracks,
+which of the shelf's artists, in what order, and the line. An installation whose prompt
+says something else entirely still works — the prompt steers those choices, the shelf
+only bounds where the choice may come from.
 
 So a reply written without calling a tool can only pass by guessing 21-character
 Navidrome ids. `tool_choice: "required"` on round 0 makes that explicit instead of
 leaving a wasted retry as the failure mode.
+
+## The shelf
+
+A set is drawn from a named list of about a dozen artists, and the reply is checked
+against it. `spica/picker/shelf.py`, one call per set.
+
+**What is excluded, before any drawing.** The artists of the last five plays, the five
+queued tracks, what is on air, every artist on the previous set's shelf, and the three
+closest neighbours of the previous, on-air and next tracks — the neighbours coming from
+Last.fm's scored list (`artist_similarity.match >= 0.15`), with edges counted in both
+directions because the provider's lists are one-way: L'Impératrice naming Nu Genea has to
+count for Nu Genea too. That last rule is what lets Bleu Toucan be kept off a set not
+because it played but because Therapie TAXI played and the two are near enough.
+
+**What fills the rest.** Ten slots allocated by label weight (D'Hondt, capped at three
+per label, so no single label can own the list), at least two decades, and one artist
+from each third of the roster by median play count — a smaller version of the station
+rather than a smaller version of the model's taste. Two more slots go to whoever has
+been off the air longest among the artists clean of the last forty plays; the threshold
+alone would not do, because on a sixty-artist station most artists are clean of forty
+plays, so the pair is ranked by how long ago they last aired.
+
+**When it is too small to be a shelf.** Below three names the shelf is dropped and the
+set is picked freely: two names is a wall, not a choice, and a station that cannot pick
+anything is worse than one that repeats itself.
+
+The list is logged with each pick, which is what lets the next set exclude it. Rotation
+memory is the previous shelf, not the previous *set*: an artist offered and not used has
+still had its turn.
+
+The shelf replaced a line in the brief that named ten artists which had not played
+recently. Measured from the pick log, three to five of every six tracks in a set came off
+that line — a list of names is a cast, and the model plays the cast. Keep that in mind
+when changing any of this: the mechanism is neutral, and the list is the whole
+instrument.
 
 ## The brief
 
@@ -289,10 +329,13 @@ answer, because the station holds none of their records.
 
 ## Known limits
 
-- **No audio features, no popularity, no per-listener history.** Obscurity is inferred
-  from what the model knows about the artists, guided by the station brief; there is no
-  play-count signal anywhere by design.
-- **History ends at 40 plays.** `avoid` and `history` share that window.
+- **No audio features and no per-listener history.** Obscurity is inferred from what the
+  model knows about the artists, guided by the station brief. The only popularity signal
+  anywhere is public ListenBrainz and Last.fm totals, ranked inside each artist's own
+  catalogue; nothing is read from the listener's own plays.
+- **Two different windows.** `avoid` and `history` share the forty-play window; the shelf
+  looks at the last five plays, the five queued tracks and the three neighbours either
+  side, because a set is a decision about the next few minutes, not about the night.
 - **Tool descriptions are the whole instruction.** Nothing in the loop decides which
   tool to call and there is no planner; when a pick is bad, the first thing to rewrite is
   a description.
