@@ -31,19 +31,21 @@ def load(station: config.Station) -> dict | None:
     return data
 
 
-def _write(station: config.Station, theme: str, ids: list[str], made: float) -> None:
+def _write(station: config.Station, theme: str, ids: list[str], made: float,
+           shelf: list[str] | None = None) -> None:
     path = station.plan_file
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps({"theme": theme, "ids": list(ids), "made": made}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    body = {"theme": theme, "ids": list(ids), "made": made}
+    if shelf:
+        body["shelf"] = list(shelf)
+    tmp.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
 
 
-def save(station: config.Station, theme: str, ids: list[str]) -> None:
-    _write(station, theme, ids, time.time())
+def save(station: config.Station, theme: str, ids: list[str],
+         shelf: list[str] | None = None) -> None:
+    _write(station, theme, ids, time.time(), shelf=shelf)
 
 
 def clear(station: config.Station, reason: str = "") -> None:
@@ -77,7 +79,8 @@ def take(station: config.Station, blocked: set[str] | None = None) -> tuple[str,
         return None
     first, rest = ids[0], ids[1:]
     if rest:
-        _write(station, str(data.get("theme") or ""), rest, float(data.get("made") or time.time()))
+        _write(station, str(data.get("theme") or ""), rest, float(data.get("made") or time.time()),
+               shelf=data.get("shelf"))
     else:
         clear(station)
     return first, data

@@ -220,6 +220,44 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     return {"artists": total, "found": found}
 
 
+def run_similarity(conn, job_id: int, log=print) -> dict:
+    """Cache the scored neighbourhood of every artist on the index.
+
+    Last.fm is the only provider that says *how* similar, and the shortlist needs the
+    number: "the three nearest, none below 0.15" is a cut a bare name list cannot make.
+    Re-running costs nothing for artists already cached.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT album_artist AS name FROM tracks WHERE album_artist != '' ORDER BY 1"
+    ).fetchall()
+    total = len(rows)
+    jobs.progress(conn, job_id, 0, total)
+    if not total:
+        return {"artists": 0, "edges": 0}
+    edges = 0
+    for i, row in enumerate(rows, 1):
+        pairs = enrich.similarity_for(conn, row["name"])
+        edges += len(pairs)
+        jobs.progress(conn, job_id, i, total)
+        if i % 20 == 0 or i == total:
+            log(f"similarity {i}/{total} artists ({edges} edges known)")
+    return {"artists": total, "edges": edges}
+
+
+def missing_similarity(conn) -> int:
+    """Artists with nothing scored yet. Zero without a Last.fm key — there is nothing
+    to ask, and a job queued for it would retry forever."""
+    if not config.LASTFM_KEY:
+        return 0
+    row = conn.execute(
+        """SELECT count(*) FROM (
+             SELECT DISTINCT album_artist AS name FROM tracks WHERE album_artist != ''
+           ) a
+           WHERE NOT EXISTS (SELECT 1 FROM artist_similarity s WHERE s.name = a.name)"""
+    ).fetchone()
+    return int(row[0] or 0)
+
+
 def stale_reason(conn) -> str:
     """Why the index should be rebuilt, or "" when it is current."""
     # Raises when Navidrome is unreachable; the loop logs it and tries again on the
@@ -234,13 +272,14 @@ def stale_reason(conn) -> str:
     return ""
 
 
-HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz}
+HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity}
 
 # The follow-ups worth queueing when the index changes, in the order they matter:
 # MusicBrainz decides the genre for anything without a file tag, so it should be
 # in place before the pools are judged again.
 FOLLOWUPS = (
     ("musicbrainz", missing_musicbrainz, "artist(s) without musicbrainz genres"),
+    ("similarity", missing_similarity, "artist(s) without scored neighbours"),
     ("popularity", missing_popularity, "track(s) without popularity"),
 )
 

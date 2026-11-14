@@ -208,6 +208,24 @@ def _picks_path(station: config.Station) -> Path:
     return station.history_file.with_suffix(".picks.jsonl")
 
 
+def last_shelf(station: config.Station, look: int = 6) -> list[str]:
+    """The artists offered for the last set that was planned, if the log has them.
+
+    Rotation memory: an artist that was on the shelf a set ago has had its turn at
+    being offered, whether or not the DJ played it. Re-offering the same twelve names
+    every set would make the shelf a fixed menu again, only smaller.
+    """
+    for line in reversed(_tail_lines(_picks_path(station), look)):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        names = entry.get("shelf")
+        if isinstance(names, list) and names:
+            return [str(name) for name in names]
+    return []
+
+
 # How many picks the log keeps. Small enough to read in the admin, long enough that
 # last night is still there; the file is rewritten only when it outgrows this twice.
 PICKS_KEPT = 500
@@ -230,6 +248,8 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
             entry["brief"] = str(detail["brief"])[:2000]
         if detail.get("tools"):
             entry["tools"] = list(detail["tools"])[:8]
+        if detail.get("shelf"):
+            entry["shelf"] = list(detail["shelf"])[:16]
         if detail.get("reply"):
             entry["reply"] = str(detail["reply"])[:500]
     path = _picks_path(station)

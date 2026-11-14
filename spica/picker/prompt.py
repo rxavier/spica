@@ -81,9 +81,9 @@ def system_prompt(station: config.Station, roster: dict) -> str:
             + shown + (f", and {more} more." if more > 0 else ".")
         )
         bits.append(
-            "Those are the only names that can play tonight. A band you know from "
-            "elsewhere is very likely not here: name what you see in this list, not what "
-            "you remember, and when a name is not here the tools answer with what is."
+            "Those are the names this station holds. A band you know from elsewhere is "
+            "very likely not here: name what you see in this list, not what you "
+            "remember, and when a name is not here the tools answer with what is."
         )
     else:
         bits.append(f"There are about {roster.get('tracks', 0)} tracks within reach.")
@@ -108,13 +108,18 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         "before it: energy, era, density, genre. Change none and it is one song "
         "repeated with different titles; change all four at once and it is a shuffle. "
         "One axis at a time, and across the set at least two genres and two decades. "
-        "The brief names artists the station has not played recently: at least one track "
-        "in the set must be by one of them. "
         "Following the last record with something that picks up where it left off is "
         "one move among several: you can also move away, contrast, jump an era, change "
         "the temperature, or answer a quiet song with a loud one. When the last few "
         "records came out of the same corner, that is a reason to leave it, not a "
         "thread to keep pulling."
+    )
+    bits.append(
+        "The brief names the artists on the shelf for this set. Every track comes from "
+        "one of them, no artist twice, and nothing outside the list will air whatever it "
+        "says: that is the station's boundary, not a suggestion. Which of them you use, "
+        "how many, in what order and why is the part that is yours — a shelf of ten is a "
+        "range of directions, not a setlist to get through."
     )
     bits.append(
         "Take listener requests as what they are: somebody in the room asking for "

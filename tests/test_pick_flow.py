@@ -35,8 +35,8 @@ class FakeLibrary:
                 "id": track_id,
                 "uri": f"http://navidrome/{track_id}.flac",
                 "title": f"title {track_id[:2]}",
-                "artist": "an artist",
-                "album_artist": "an artist",
+                "artist": f"artist {track_id}",
+                "album_artist": f"artist {track_id}",
                 "as_line": lambda self=None: "line",
             },
         )()
@@ -47,12 +47,6 @@ class FakeLibrary:
     def recent_labels(self, station, n=5):
         return ["Rock"], ["Someone"]
 
-    def fresh_artists(self, station, k=3, window=20, exclude=None):
-        return ["Fresh One", "Fresh Two", "Fresh Three"][:k]
-
-    def heavy_artist(self, station, window=20, floor=3):
-        return None
-
     def roster(self, station=None, limit=60):
         return {"tracks": 3, "artists": [("Someone", 3)], "artists_total": 1,
                 "labels": [("Rock", 3)], "labels_total": 1}
@@ -62,6 +56,11 @@ class FakeLibrary:
 
     def count(self, station):
         return 3
+
+
+def fake_shelf(lib, station):
+    """Every track on the fake station, one artist each, so sets survive validation."""
+    return [{"artist": f"artist {i}", "why": "shelf"} for i in lib.ids]
 
 
 @pytest.fixture
@@ -79,6 +78,7 @@ def flow(monkeypatch, station):
 
     monkeypatch.setattr(loop, "chat", fake_chat)
     monkeypatch.setattr(loop, "already_airing", lambda lib, st: set())
+    monkeypatch.setattr(loop.shelf_module, "build", fake_shelf)
     monkeypatch.setattr(loop.queue, "recent", lambda st, n=20: [])
     monkeypatch.setattr(loop.mixer, "queued_ids", lambda st: [])
     monkeypatch.setattr(loop.icecast, "listen_states", lambda: {})
@@ -158,16 +158,43 @@ def test_a_request_drops_the_set_and_asks_again(flow, station):
     )
 
 
-def test_the_brief_names_artists_and_the_heavy_one(flow, station):
+def test_the_brief_names_the_shelf_and_nothing_else(flow, station):
     lib, sent, replies = flow
     replies.append(a_set(T))
-    lib.heavy_artist = lambda station, window=20, floor=3: ("A Heavy Artist", 4)
 
     loop.pick_next(lib, station, None, set())
 
     brief = next(m["content"] for m in sent[0] if m["role"] == "user")
-    assert "Fresh One" in brief and "Fresh Two" in brief
-    assert "A Heavy Artist has played 4 times" in brief
+    assert "On the shelf for this set, and nothing else" in brief
+    for track_id in lib.ids:
+        assert f"artist {track_id}" in brief
+    # What played is not repeated: the artists that aired are simply not on the shelf.
+    assert "haven't played" not in brief
+    assert "times in the last hour" not in brief
+
+
+def test_a_request_is_not_policed_by_the_shelf(flow, station):
+    lib, sent, replies = flow
+    replies.append(a_set(T))
+
+    loop.pick_next(lib, station, "play something heavier", set())
+
+    brief = next(m["content"] for m in sent[0] if m["role"] == "user")
+    assert "On the shelf" not in brief
+
+
+def test_a_track_off_the_shelf_is_dropped(flow, station, monkeypatch):
+    lib, sent, replies = flow
+    monkeypatch.setattr(
+        loop.shelf_module, "build",
+        lambda l, st: [{"artist": f"artist {T}", "why": "shelf"}],
+    )
+    replies.append(a_set(T, U, V))
+
+    pick = loop.pick_next(lib, station, None, set())
+
+    assert pick is not None and pick.track.id == T
+    assert plan.remaining(station) == 0, "only the artist on the shelf got through"
 
 
 def test_an_answer_that_ignores_the_prompt_is_still_taken(flow, station):

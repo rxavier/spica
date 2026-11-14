@@ -1,9 +1,10 @@
 """What the code accepts as an answer, and what it refuses.
 
 Only facts are checked: the track exists, has a file, is on this station, is not
-already airing or queued, and appears once. Nothing here tests length, artists, or any
-other thing the prompt asks for — an operator may change the prompt, and the answer
-must still be playable.
+already airing or queued, and its artist is on the set's shelf. Nothing here tests
+length, order, or anything else the prompt asks for — an operator may change the
+prompt, and the answer must still be playable. The two tests that pass a shelf are the
+exception: being on it, and not appearing twice, are facts too.
 """
 
 from __future__ import annotations
@@ -24,7 +25,11 @@ class FakeLibrary:
         uri = self.tracks.get(track_id)
         if uri is None:
             return None
-        return type("Track", (), {"id": track_id, "uri": uri})()
+        return type(
+            "Track", (),
+            {"id": track_id, "uri": uri, "artist": f"artist {track_id}",
+             "album_artist": f"artist {track_id}"},
+        )()
 
     def on_station(self, station, track_id):
         return track_id in self.station_ids

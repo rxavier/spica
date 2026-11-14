@@ -134,9 +134,23 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   palette. Track ids exist only inside tool results, so a pick is always grounded in a
   lookup rather than a remembered name. The toolbox and its contract are in
   [`docs/dj-tools.md`](docs/dj-tools.md).
+- **The shelf: ten artists, enforced.** Each set is drawn from a named shelf of about
+  twelve artists, and the reply is checked against it — an artist that is not on the
+  shelf is dropped like a track that is not on the station, and no artist appears twice
+  in a set. The shelf leaves out what played in the last five tracks, what is queued,
+  and the three closest neighbours of the records either side of the set (Last.fm match
+  ≥ 0.15, edges taken both ways), then fills ten slots by label weight with a cap of
+  three per label, at least two decades and one artist from each third of the roster.
+  Two more slots go to whoever has been off the air longest, so a record that has not
+  had its turn in hours is not excluded by a stratification that never thinks about
+  time. The point is that a smaller version of the station is a better brief than a
+  larger version of the model's taste: given a list, the DJ plays from the list.
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
   then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
-  provider is required; a library with no ids and no API key still gets an answer.
+  provider is required; a library with no ids and no API key still gets an answer. The
+  shelf uses the scored `artist_similarity` table when Last.fm has filled it (the
+  `similarity` job); with no key it simply does not exclude neighbours, rather than
+  guessing them from genres.
 - **Listener requests that last more than one song.** Free text, kept for N tracks, and
   the DJ is told both how many songs have passed and how many remain. A request
   supersedes what is waiting rather than queueing behind it: "play something heavier" is
