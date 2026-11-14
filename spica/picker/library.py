@@ -147,6 +147,7 @@ class Library:
         by_act: dict[str, list] = {}
         for row in rows:
             by_act.setdefault(navidrome.name_key(row["album_artist"] or row["artist"]), []).append(row)
+        recent = self._recent_act_keys(station)
 
         def gather(names: list[str]) -> list[dict]:
             found = []
@@ -154,7 +155,10 @@ class Library:
                 hits = by_act.get(navidrome.name_key(candidate))
                 if not hits:
                     continue
-                lead = hits[0]
+                # The same track was handed out on every miss — "Là-haut" for
+                # L'Impératrice, "Like Eating Glass" for Bloc Party — because the lead
+                # was the first row in table order. Draw it from this pick's seed.
+                lead = sorted(hits, key=self._shuffle_key)[0]
                 found.append({
                     "artist": lead["album_artist"] or lead["artist"],
                     "tracks": len(hits),
@@ -163,7 +167,8 @@ class Library:
                     "album": lead["album"],
                     "year": lead["year"],
                 })
-            found.sort(key=lambda d: (-d["tracks"], str(d["artist"]).casefold()))
+            found.sort(key=lambda d: (navidrome.name_key(str(d["artist"])) in recent,
+                                      -d["tracks"], str(d["artist"]).casefold()))
             return found
 
         names, _source = enrich.similar_artists(self.conn, name, limit=25)
@@ -177,7 +182,8 @@ class Library:
                 more = gather(fresh)
                 seen = {d["artist"] for d in out}
                 out += [d for d in more if d["artist"] not in seen]
-                out.sort(key=lambda d: (-d["tracks"], str(d["artist"]).casefold()))
+                out.sort(key=lambda d: (navidrome.name_key(str(d["artist"])) in recent,
+                                        -d["tracks"], str(d["artist"]).casefold()))
         return out[:limit]
 
     def nearest(self, text: str, station: config.Station | None = None, limit: int = 5) -> list[dict]:
@@ -227,6 +233,11 @@ class Library:
         Built on the station's own rows rather than querying the table again: the
         station rules are the expensive part and they have already been applied, so a
         narrower question only needs to narrow the list it is given.
+
+        `genre` matches the library's own labels, not the operator's station rollup, and
+        artists that aired in the last twenty tracks sort last — a genre word used to be
+        answered with the whole shelf an alias filed it under, and the page always opened
+        on whoever had just played.
         """
         rows = self._station_rows(station)
         if kw.get("year_from"):
@@ -238,15 +249,20 @@ class Library:
         # "Punk" finds "Punk Rock" here exactly as it does on air.
         want = kw.get("genre")
         if want:
-            target = genres_module.targets([want])
+            # Fine labels, not the operator's station rollup: "Nu Disco" answers the
+            # nu-disco shelf, not everything the station files under Electronic.
+            target = genres_module.targets_fine([want])
             by_track = navidrome.labels_by_track(self.conn)
             rows = [r for r in rows if genres_module.matches(by_track.get(r["id"], ()), target)]
 
         # A shuffle keyed to this pick, not to this call. `offset` can only mean
         # "the next page" if the order holds still between the two calls, so the
         # seed is drawn once per pick — every call within one decision pages the
-        # same list, and the next pick gets a fresh order.
-        rows = sorted(rows, key=self._shuffle_key)
+        # same list, and the next pick gets a fresh order. Artists that aired
+        # recently sort behind everyone else, deterministically, so paging stays
+        # stable within the pick.
+        recent = self._recent_act_keys(station)
+        rows = sorted(rows, key=lambda r: (self._act_key(r) in recent, self._shuffle_key(r)))
         total = len(rows)
 
         limit = clamp(kw.get("limit"), 30, 200)
@@ -308,6 +324,21 @@ class Library:
     def _shuffle_key(self, row: sqlite3.Row):
         seed = self.draw_seed or 0
         return hashlib.blake2b(f"{seed}|{row['id']}".encode(), digest_size=8).digest()
+
+    def _act_key(self, row) -> str:
+        """The folded identity of the record's artist, for recency comparisons."""
+        return navidrome.name_key(row["album_artist"] or row["artist"])
+
+    def _recent_act_keys(self, station: config.Station | None, window: int = 20) -> set[str]:
+        """Artists aired in the last `window` plays, folded.
+
+        Tools demote these; they never exclude them. Excluding would let a tool answer
+        "nothing here" about music the station holds, and an empty page sends the model
+        somewhere worse than a repeated artist does.
+        """
+        if station is None:
+            return set()
+        return {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
 
     def popularity_ranks(self, rows: list) -> dict[str, float]:
         """Each track's standing among its own artist's tracks, 0 = the deep cut.
@@ -509,6 +540,7 @@ class Library:
         from .. import enrich
 
         ctx = self._context(station)
+        recent = self._recent_act_keys(station)
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
             marks = ",".join("?" for _ in names)
@@ -520,6 +552,9 @@ class Library:
                 (*names,),
             ).fetchall()
             rows = self.rows_on_station(rows, station)
+            # Stable sort: the artist that played ten minutes ago goes to the back,
+            # the random order survives within each group.
+            rows.sort(key=lambda r: self._act_key(r) in recent)
             rows = rows[: int(limit)]
             # Names found but nothing owned is a real answer: report the similar
             # artists and an empty track list rather than pretending we found none.
@@ -547,6 +582,7 @@ class Library:
                 (row["genre"], key),
             ).fetchall()
             rows = self.rows_on_station(rows, station)
+            rows.sort(key=lambda r: self._act_key(r) in recent)
             rows = rows[: int(limit)]
             if rows:
                 return {
@@ -611,6 +647,9 @@ class Library:
 
         An album name alone is enough when only one artist owns it; if several do,
         the one with most tracks on this station wins and the reply says so.
+
+        Albums come back in this pick's order, tracks in running order inside each —
+        alphabetical order meant every browse of an artist opened on the same record.
         """
         limit = clamp(limit, 25, 100)
         where, args = ["uri != ''"], []
@@ -650,6 +689,16 @@ class Library:
             rows = [r for r in rows if (r["album_artist"] or r["artist"]) == artist]
 
         ctx = self._context(station)
+        if not album:
+            # Albums in this pick's order, tracks still in running order within each
+            # album: browsing an artist used to open on the same records every time —
+            # alphabetical order is a favourite in disguise.
+            grouped: dict[str, list] = {}
+            for row in rows:
+                grouped.setdefault(row["album_id"] or row["album"], []).append(row)
+            ordered = sorted(grouped.values(), key=lambda rs: self._shuffle_key(rs[0]))
+            rows = [r for rs in ordered for r in rs]
+
         albums: dict[str, dict] = {}
         tracks: list[dict] = []
         for row in rows[:limit]:

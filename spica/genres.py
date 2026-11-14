@@ -23,6 +23,13 @@ asked for, never broader.
     station "Punk"      ← track "Pop Punk"         ✓ refines
     station "Pop Punk"  ← track "Pop"              ✗ broader than asked
     station "Rap"       ← track "Trap"             ✗ not a word boundary
+
+Two registers use these layers. The INDEX and the DJ's tools use layers 1-2 only
+(the fine vocabulary the library, MusicBrainz and Last.fm actually carry). STATION
+MATCHING and the admin console use all three: an operator alias like
+"nu disco -> Electronic" is how the operator ticks one shelf instead of twelve, and
+it is applied when a station is matched — never when a label is stored. Applying it
+at import is what made a "Nu Disco" filter answer with the whole Electronic shelf.
 """
 
 from __future__ import annotations
@@ -173,15 +180,22 @@ def operator_aliases(path: Path | None = None) -> dict[str, str]:
 # ------------------------------------------------------------------- resolution
 
 
-def canonical(label: object) -> str:
-    """Operator rule, then builtin, then the label spelled as the library has it."""
+def canonical(label: object, *, operator: bool = True) -> str:
+    """Operator rule, then builtin, then the label spelled as the library has it.
+
+    `operator=False` skips the operator's alias file. The aliases are a rollup for
+    station selection (a station that ticks "Electronic" should catch a track tagged
+    "Nu Disco"); they are not a rewrite of the library's vocabulary, and the DJ's
+    tools match on the fine labels.
+    """
     text = str(label or "").strip()
     if not text:
         return ""
     key = fold(text)
-    user = operator_aliases()
-    if key in user:
-        return user[key]
+    if operator:
+        user = operator_aliases()
+        if key in user:
+            return user[key]
     if key in BUILTIN:
         return BUILTIN[key]
     squashed = key.replace(" ", "")
@@ -190,7 +204,7 @@ def canonical(label: object) -> str:
     return text
 
 
-def labels_of(raw: object) -> list[str]:
+def labels_of(raw: object, *, operator: bool = True) -> list[str]:
     """Split one tag value into canonical labels.
 
     Tags are frequently multi-valued inside a single string
@@ -200,7 +214,7 @@ def labels_of(raw: object) -> list[str]:
     """
     out: list[str] = []
     for part in re.split(r"[;,]|\s\|\s|\s/\s", str(raw or "")):
-        label = canonical(part)
+        label = canonical(part, operator=operator)
         if label and label.lower() not in {x.lower() for x in out}:
             out.append(label)
     return out
@@ -209,6 +223,16 @@ def labels_of(raw: object) -> list[str]:
 def targets(station_genres) -> list[list[str]]:
     """Station genre words -> canonical word lists, ready for `covers`."""
     return [_words(canonical(g)) for g in (station_genres or ()) if fold(g)]
+
+
+def targets_fine(genres) -> list[list[str]]:
+    """DJ-tool genre words -> canonical word lists, WITHOUT the operator rollup.
+
+    `filter` must answer what the model actually asked: "Nu Disco" matches the
+    nu-disco labels, not the "Electronic" shelf the operator rolls them up into for
+    stations. Builtin spelling fixes ("synthpop" -> "Synth Pop") still apply.
+    """
+    return [_words(canonical(g, operator=False)) for g in (genres or ()) if fold(g)]
 
 
 def covers(label: object, target_words: list[str]) -> bool:
@@ -315,30 +339,41 @@ def _add_alias(source: str, target: str) -> None:
     path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def merge(conn, labels, into) -> int:
+def merge(conn, labels, into, *, relabel: bool = False) -> int:
     """Fold any number of labels (raw tags or canonical names) into one name.
 
-    The rows move now and the rule is recorded, so the next rebuild lands in the
-    same place instead of resurrecting the old spelling.
+    The rule is what makes this stick: station matching canonicalises both sides, so
+    a "Nu Disco" track answers a station that ticks "Electronic" without the stored
+    label being rewritten. Rewriting rows is therefore NOT what a merge does any
+    more — it would destroy the fine vocabulary the DJ's tools match on. `relabel`
+    keeps the old behaviour for the operator who really does want one label instead
+    of two, as an explicit second action.
+
+    Returns how many stored labels the rule now covers.
     """
     target = pretty(str(into or "").strip())
     if not target:
         return 0
-    moved = 0
+    covered = 0
     for label in labels:
         label = str(label or "").strip()
         if not label:
             continue
-        canon = canonical(label)
+        canon = canonical(label, operator=False)
         if fold(canon) == fold(target):
             continue  # already there: nothing to move, nothing worth remembering
         _add_alias(label, target)
-        with conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
-                " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
-                (target, canon),
-            )
-            conn.execute("DELETE FROM track_genres WHERE label = ?", (canon,))
-        moved += 1
-    return moved
+        keys = {fold(canon), fold(canonical(label))}
+        for row in conn.execute("SELECT label, COUNT(*) c FROM track_genres GROUP BY label"):
+            if fold(row["label"]) in keys:
+                covered += 1
+        if relabel:
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
+                    " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
+                    (target, canon),
+                )
+                conn.execute("DELETE FROM track_genres WHERE label = ?", (canon,))
+    return covered
+

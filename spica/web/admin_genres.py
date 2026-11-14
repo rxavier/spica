@@ -67,22 +67,24 @@ async def admin_genres_merge(
     request: Request,
     labels: list[str] = Form(default=[]),
     into: str = Form(""),
+    relabel: str = Form(""),
 ):
     auth.require_admin(request)
     from .. import genres as genre_lib
 
     conn = _conn()
-    moved = 0
+    covered = 0
     if labels and into.strip():
-        moved = genre_lib.merge(conn, labels, into)
-        if moved:
+        covered = genre_lib.merge(conn, labels, into, relabel=bool(relabel))
+        if covered:
             pool.write_pools(conn, store.stations())
     if not labels:
         return _genres_page("Nothing was selected, so nothing changed.")
-    if not moved:
+    if not covered:
         return _genres_page(f"Everything selected was already called {genre_lib.pretty(into)}.")
+    verb = "relabelled and folded into" if relabel else "now answers"
     return _genres_page(
-        f"Merged {moved} label{'s' if moved > 1 else ''} into {genre_lib.pretty(into)}; "
+        f"{covered} label{'s' if covered > 1 else ''} {verb} {genre_lib.pretty(into)}; "
         "the pools were rebuilt."
     )
 

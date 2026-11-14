@@ -215,6 +215,12 @@ twenty names and the artist that plays here is often the twenty-first, so a thin
 re-asks Last.fm for a hundred. When nothing here sounds like it, the note says so and
 points at `filter` — no invented matches.
 
+The `id` offered beside each artist is a **lead track drawn for this pick**, not a fixed
+one: it used to be the first row in table order, which handed back `Là-haut` for
+L'Impératrice and `Like Eating Glass` for Bloc Party on every single miss. Artists that
+played in the last twenty tracks sort to the bottom of the list for the same reason —
+the route out of a miss should not be the record that just finished.
+
 Whether the name exists on disk but not on the station, or nowhere at all, is not a
 distinction the caller can use: either way it cannot play, and saying which invites it
 to rephrase and try again. The one case where it matters is the DJ's own line — "not in
@@ -234,9 +240,16 @@ model can tell a 600-track slice from a 6-track one, and page through it with `o
 No page carries more than three tracks by one artist, which is what stops a genre with
 one big name in it from filling the whole answer.
 
-Note the asymmetry: station membership is exact genre-set matching, while this tool
-refines. Deliberate — a listener asking for "punk" shouldn't get nothing because the
-genre says `Punk Rock`.
+`genre` is matched against the library's own labels, **without the operator's station
+rollup**: asking for `Nu Disco` answers the nu-disco records, not every record the
+station files under `Electronic` because an alias says so. Artists that played in the
+last twenty tracks sort behind everyone else — demoted, never removed, because a tool
+that answers "nothing here" about music the station holds sends the model somewhere
+worse than a repeated artist does.
+
+Note the asymmetry: station membership is exact genre-set matching on the collapsed
+shelf name, while this tool refines on the fine label. Deliberate — a listener asking
+for "punk" shouldn't get nothing because the genre says `Punk Rock`.
 
 ### `catalogue` — one artist, or one album
 
@@ -247,6 +260,11 @@ The artist is the record's — `catalogue {'artist': 'L’Impératrice'}` return
 tracks, guests included, and the lookup folds apostrophes and accents.
 Each track carries `track_no`, `played` (in the last 40) and `queued`, so the model can
 sequence a record instead of picking blind. `played_recently` summarises the lot.
+
+Albums come back in this pick's order, with the tracks still in running order inside
+each one — they used to come back alphabetically, so browsing an artist opened on the
+same record every time and alphabetical order is a favourite in disguise. When `album`
+is given, nothing changes: one album, its own running order.
 
 An album name alone is enough when one artist owns it; when several do, the artist with
 the most tracks on the station wins and the reply names them. Artist names are matched

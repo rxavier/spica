@@ -111,15 +111,32 @@ def test_the_genre_page_shows_what_the_library_has(console):
     assert "Indie" in response.text and "Rock" in response.text
 
 
-def test_merging_a_label_moves_its_tracks(console):
+def test_merging_a_label_records_the_rule_and_keeps_the_fine_label(console):
+    """A merge is a station-selection rule now, not a rewrite of the index.
+
+    The DJ's tools match the library's own vocabulary, so folding "Indie" into "Rock"
+    by moving rows would delete a label the model can ask for. The rule is what makes
+    the two names one shelf for station matching.
+    """
     client, _, state, conn = console
     response = client.post(
         "/admin/genres/merge", data={"labels": ["Indie"], "into": "Rock"}, follow_redirects=False
     )
     assert response.status_code == 303
+    assert "Indie" in labels_of(conn, "t1" * 11), "the stored label is left alone"
+    assert has_alias(state, "Indie", "Rock"), "the rule is what makes them one name"
+
+
+def test_merging_can_relabel_the_rows_when_the_operator_asks(console):
+    client, _, state, conn = console
+    client.post(
+        "/admin/genres/merge",
+        data={"labels": ["Indie"], "into": "Rock", "relabel": "1"},
+        follow_redirects=False,
+    )
     assert "Indie" not in labels_of(conn, "t1" * 11)
     assert "Rock" in labels_of(conn, "t1" * 11)
-    assert has_alias(state, "Indie", "Rock"), "the rule is kept for the next rebuild"
+    assert has_alias(state, "Indie", "Rock")
 
 
 def test_merging_nothing_changes_nothing(console):
