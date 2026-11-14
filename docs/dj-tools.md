@@ -86,18 +86,21 @@ Before that, newest first — the reason when you chose it, standby when the sta
 Already queued, in order: …
 Your set starts right after <track>, so that is the one the listener hears just before it.
 The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Everything Everything, De Lux, Pearl Jam.
-These three haven't played recently: Toy Matinee, Soundgarden, Gardenia y el adversario del tiempo.
+These ten haven't played in the last 40 tracks: Toy Matinee, Soundgarden, Gardenia y el adversario del tiempo, …
 L'Impératrice has played 3 times in the last hour — prefer avoiding it.
 ```
 
-**Three names that have not played, and one that has played too much.** The racks in the
-system prompt are sorted by weight and byte-identical on every call — that is what makes
-them worth caching, and also why the same handful of big artists is what the model reads
-first. Three artists drawn at random from outside the recent plays give it somewhere else
-to go; the heavy-artist line is the opposite signal, stated as a count, because the model
-has no ears to notice that one artist has become the station. Measured over ten sets it
-took the offered names about forty per cent of the time and never played the artist it was
-told to avoid.
+**Ten names that have provably not been heard, and one that has played too much.** The
+racks in the system prompt are sorted by weight and byte-identical on every call — that
+is what makes them worth caching, and also why the same handful of big artists is what
+the model reads first. Ten artists drawn at random from outside the last **forty** plays
+(and outside whatever is on air or already queued) give it somewhere else to go: forty
+tracks is roughly two and a half hours of airtime, so no name in that line was heard
+tonight. Measured over five starting points it keeps the four most repetitive acts on a
+2,200-track station at their share of the shelf — 4% of picks against 4.7% of the pool —
+and removing it takes them to 21%. The heavy-artist line is the opposite signal, stated
+as a count, because the model has no ears to notice that one artist has become the
+station.
 
 The crate is no longer handed over in the brief. It was three records with ids in front
 of it, which is why it picked from them: the tools cost a round trip and the crate was
@@ -199,27 +202,28 @@ scattered rather than all present.
 
 A miss is an answer, not an empty list. `"Parcels"` plays nowhere here, but the model
 asked for a sound, not a spelling — so the miss runs the same similar-artist machinery
-`similar` uses (cache, ListenBrainz, Last.fm), keeps only the artists this station plays,
-and hands back a track id for each:
+`similar` uses, keeps only the artists this station plays, and answers with **at most
+three artist names and nothing else**:
 
 ```json
 {"results": [],
- "note": "nothing by 'Parcels' plays on this station. These do, and they are what it sounds like …",
- "similar_here": [{"artist": "L’Impératrice", "tracks": 34, "id": "6tphReoW…", "title": "Là-haut", "album": "…", "year": 2024}]}
+ "note": "nothing by 'Parcels' plays on this station. These do, and they are what it sounds like — call catalogue on one of them to see its tracks; no ids here, the record has to be opened.",
+ "similar_here": [{"artist": "Everything Everything", "tracks": 28}]}
 ```
 
-On this library that turns the ledger's worst misses into routes: *Metronomy* → Future
-Islands, Everything Everything, Ratatat; *Hot Chip* → Everything Everything, Bloc Party,
-Ratatat; *Polo & Pan* → L’Impératrice, Therapie TAXI, Bleu Toucan. A cached list is only
-twenty names and the artist that plays here is often the twenty-first, so a thin result
-re-asks Last.fm for a hundred. When nothing here sounds like it, the note says so and
-points at `filter` — no invented matches.
+No id, no title, no album. That is deliberate: handing back a ready-to-use id turned
+every miss into a pick, and because the acts that sound like the model's favourite
+French-touch names on this shelf are the three it owns, a night of asking for that scene
+fed the same three acts straight into the sets. A name has to be opened with `catalogue`
+to become a track, which puts the pick back through the album order and the
+recently-played demotion.
 
-The `id` offered beside each artist is a **lead track drawn for this pick**, not a fixed
-one: it used to be the first row in table order, which handed back `Là-haut` for
-L'Impératrice and `Like Eating Glass` for Bloc Party on every single miss. Artists that
-played in the last twenty tracks sort to the bottom of the list for the same reason —
-the route out of a miss should not be the record that just finished.
+Two more rules on the same path. An act that has aired in the last twenty tracks is not
+offered at all; when *everything* similar has just been on air the answer is an empty
+list plus "something here does sound like it, but it has been on air recently — take the
+set somewhere else and change the temperature". And when nothing here sounds like the
+name at all, the answer says so and points at `filter` and `flip` ("find another vibe"),
+with `did_you_mean` for a name that is here under a different spelling.
 
 Whether the name exists on disk but not on the station, or nowhere at all, is not a
 distinction the caller can use: either way it cannot play, and saying which invites it

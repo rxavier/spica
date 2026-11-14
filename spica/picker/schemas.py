@@ -66,10 +66,11 @@ TOOLS = [
                 "Free-text lookup across titles, artists and albums. Every word has to land "
                 "somewhere, so 'Ride Vapour Trail' finds the track. Best when you have a name in "
                 "mind. When the name plays nowhere here it does not come back empty: it answers "
-                "with `similar_here` — artists this station does play that sound like the one you "
-                "named, each with a track id — so a name you know from outside is a route into "
-                "the library rather than a dead end. Use catalogue for order and completeness, "
-                "filter for a kind of thing rather than a name."
+                "with `similar_here` — at most three artists this station does play that sound "
+                "like the one you named, names only and never a track id, so pick one and call "
+                "catalogue to see its tracks. If everything similar has been on air recently it "
+                "says so and offers nothing; then change the vibe. Use catalogue for order and "
+                "completeness, filter for a kind of thing rather than a name."
             ),
             "parameters": {
                 "type": "object",

@@ -44,9 +44,12 @@ def _count(result) -> int:
     return 0
 
 
-# How many artists the brief offers from outside the recent plays. Three was invisible
-# against sixty names on the racks; ten reads as a menu, and one of them is required.
+# How many artists the brief offers from outside the recent plays, and how far back
+# "recent" reaches. Ten names against sixty on the racks is a counterweight, not a
+# menu; forty tracks is roughly two and a half hours of airtime, so a name in this line
+# has not been heard tonight.
 FRESH_ARTISTS = 10
+FRESH_WINDOW = 40
 
 
 def pick_next(
@@ -216,13 +219,22 @@ def plan_pick(
 
     # The racks above are a fixed list sorted by weight, so the same handful of big
     # artists is the first thing the model reads every time and the first thing it
-    # reaches for. These three are the counterweight: random, and left out of the
-    # recent plays, so the set has somewhere to go that is not the top of the list.
-    fresh = lib.fresh_artists(station, k=FRESH_ARTISTS)
+    # reaches for. These are the counterweight: random, and taken from outside a wide
+    # window of recent plays plus whatever is on air or already queued, so a name in
+    # this line has demonstrably not been heard tonight.
+    queued_acts = {
+        row.album_artist or row.artist
+        for song_id in mixer.queued_ids(station)
+        if (row := lib.by_id(song_id)) is not None
+    }
+    fresh = lib.fresh_artists(
+        station, k=FRESH_ARTISTS, window=FRESH_WINDOW,
+        exclude=queued_acts | ({on_air_artist} if on_air_artist else set()),
+    )
     if fresh:
         lines.append(
-            f"{len(fresh)} artists that haven't played recently: {', '.join(fresh)}. "
-            "At least one track in this set should be by one of them."
+            f"{len(fresh)} artists that haven't played in the last {FRESH_WINDOW} tracks: "
+            f"{', '.join(fresh)}. At least one track in this set should be by one of them."
         )
 
     # The other side of the same coin: one artist can quietly become the station. Said

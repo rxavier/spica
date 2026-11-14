@@ -105,31 +105,47 @@ class Library:
         return [like, like, like, like, f"%{navidrome.name_key(token)}%"]
 
     def _search_miss(self, text: str, station) -> dict:
-        """A name that plays nowhere here, answered with the artists that do.
+        """A name that plays nowhere here, answered with names, never with a track.
 
-        What the model wanted was a sound, not a spelling: "Parcels" is a way of
-        asking for what Parcels sound like, and telling it the name is absent leaves
-        it with nothing. So the miss asks the same similar-artist machinery `similar`
-        uses, keeps only the artists this station plays, and hands back a track id for
-        each — one call, and the next move is a pick rather than another search.
-        Whether the name exists on disk is not the question; whether it can play is.
+        What the model wanted was a sound, not a spelling: "Parcels" is a way of asking
+        for what Parcels sound like. So the miss asks the same similar-artist machinery
+        `similar` uses and keeps only the artists this station plays — at most three,
+        artist names only.
+
+        Two things it deliberately does not do. It does not hand back a track id: that
+        turned every miss into a pick, and because the acts that sound like the model's
+        favourite French-touch names on this shelf are the three it owns, a night of
+        asking for that scene fed the same three straight into the sets. And it does not
+        offer acts that have just been on air: when everything similar is recent, the
+        honest answer is that this corner of the shelf has had its turn.
         """
-        alike = self.similar_here(text, station)
-        if alike:
-            note = (
-                f"nothing by '{text}' plays on this station. These do, and they are "
-                "what it sounds like — each carries a track id you can use."
+        offers = self.similar_here(text, station)
+        recent = self._recent_act_keys(station)
+        fresh = [o for o in offers if navidrome.name_key(o["artist"]) not in recent]
+        payload: dict = {"results": [], "similar_here": []}
+        if fresh:
+            payload["similar_here"] = [
+                {"artist": o["artist"], "tracks": o["tracks"]} for o in fresh[:3]
+            ]
+            payload["note"] = (
+                f"nothing by '{text}' plays on this station. These do, and they are what "
+                "it sounds like — call catalogue on one of them to see its tracks; no ids "
+                "here, the record has to be opened."
+            )
+        elif offers:
+            payload["note"] = (
+                f"nothing by '{text}' plays on this station. Something here does sound like "
+                "it, but it has been on air recently — take the set somewhere else and "
+                "change the temperature."
             )
         else:
-            note = (
-                f"nothing by '{text}' plays on this station, and nothing here sounds "
-                "much like it. Take the set somewhere else: filter draws from the "
-                "whole station, catalogue knows what you own by an artist you can name."
+            payload["note"] = (
+                f"nothing by '{text}' plays on this station, and nothing here sounds much "
+                "like it. Find another vibe: filter draws from the whole station, flip "
+                "deals three records, catalogue knows what you own by an artist you can name."
             )
-        payload: dict = {"results": [], "note": note, "similar_here": alike}
-        if not alike:
-            # Nothing here sounds like it; the only useful thing left is a spelling
-            # correction for a name that does exist.
+            # Nothing similar at all: the only useful thing left is a spelling correction
+            # for a name that does exist.
             payload["did_you_mean"] = self.nearest(text, station)
         return payload
 
@@ -451,15 +467,20 @@ class Library:
             })
         return out
 
-    def fresh_artists(self, station: config.Station, k: int = 3, window: int = 20) -> list[str]:
+    def fresh_artists(self, station: config.Station, k: int = 3, window: int = 20,
+                      exclude: set[str] | None = None) -> list[str]:
         """Acts the station owns and hasn't aired lately, a different draw each time.
 
         The racks in the system prompt are sorted by weight and identical on every
         pick — that is what makes them cheap to cache, and also why the same handful
         of big artists is what the model reads first and reaches for. This is the
         counterweight: random, and chosen from outside the recent plays.
+
+        `exclude` is for the acts that are not "recent" by the window but are in front
+        of the listener right now — the one on air and whatever is already queued.
         """
         played = {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
+        played |= {navidrome.name_key(a) for a in (exclude or ()) if a}
         artists = [
             name
             for name, _ in self.roster(station, limit=1000)["artists"]

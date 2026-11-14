@@ -149,6 +149,58 @@ def test_similar_puts_the_artist_that_just_played_last(db, station, monkeypatch)
 
 # --- 6 and 7. the search-miss path ------------------------------------------
 
+def test_a_search_miss_offers_at_most_three_names_and_no_track(db, station, monkeypatch):
+    """A miss is a route, not a pick: three artist names, no ids, no albums.
+
+    The four acts that sound like the model's favourite French-touch names were being
+    handed over with a playable id on every miss, so a night of asking for that scene
+    fed them straight into the sets. Opening the record with `catalogue` puts the pick
+    back through the album order and the recency demotion.
+    """
+    names = ["Solo", "Duo", "Trio", "Quartet"]
+    seed(db, [track(f"{i}" * 22, n) for i, n in enumerate(names)],
+         [label(f"{i}" * 22, "Rock") for i in range(len(names))])
+    monkeypatch.setattr(enrich, "similar_artists",
+                        lambda conn, name, limit=25: (names, "cache"))
+
+    lib = picker_library.Library(db)
+    lib.draw_seed = 4
+    res = lib.run_tool("search", {"query": "Nobody We Own", "limit": 5}, station)
+    offers = res["similar_here"]
+    assert res["results"] == []
+    assert len(offers) == 3, "three names, not a shopping list"
+    assert all(set(offer) == {"artist", "tracks"} for offer in offers)
+    assert "catalogue" in res["note"]
+
+
+def test_a_search_miss_stops_offering_what_just_played(db, station, monkeypatch):
+    """Everything similar has been on air: say so, and offer nothing."""
+    names = ["Solo", "Duo"]
+    seed(db, [track("1" * 22, "Solo", track_no=1), track("2" * 22, "Duo")],
+         [label("1" * 22, "Rock"), label("2" * 22, "Rock")])
+    queue.record(station, "1" * 22, "title 1", "Solo", "dj")
+    queue.record(station, "2" * 22, "title 2", "Duo", "dj")
+    monkeypatch.setattr(enrich, "similar_artists", lambda conn, name, limit=25: (names, "cache"))
+
+    lib = picker_library.Library(db)
+    lib.draw_seed = 4
+    res = lib.run_tool("search", {"query": "Nobody We Own", "limit": 5}, station)
+    assert res["similar_here"] == [], "the corner has had its turn"
+    assert "Duo" not in res["note"] and "Solo" not in res["note"], "no names smuggled in the note"
+    assert "on air recently" in res["note"]
+
+
+def test_a_search_miss_with_nothing_similar_says_to_change_the_vibe(db, station, monkeypatch):
+    seed(db, [track("1" * 22, "Solo")], [label("1" * 22, "Rock")])
+    monkeypatch.setattr(enrich, "similar_artists", lambda conn, name, limit=25: ([], "none"))
+    monkeypatch.setattr(enrich, "lfm_similar", lambda name, limit=100: [])
+
+    lib = picker_library.Library(db)
+    res = lib.run_tool("search", {"query": "Nobody We Own", "limit": 5}, station)
+    assert res["similar_here"] == []
+    assert "another vibe" in res["note"]
+
+
 def test_a_search_miss_no_longer_hands_out_one_fixed_track(db, station, monkeypatch):
     seed(db, [track("1" * 22, "Solo", album="One", album_id="al1", track_no=1),
               track("2" * 22, "Solo", album="Two", album_id="al2", track_no=1)],
