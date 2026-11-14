@@ -24,6 +24,9 @@ class Pick:
     brief: str = ""
     tools: tuple = ()
     reply: str = ""
+    # The artists the set was allowed to come from, as offered. Logged with the pick so
+    # "what was on the shelf at 23:14" is answerable later.
+    shelf: tuple = ()
 
 
 TOOLS = [

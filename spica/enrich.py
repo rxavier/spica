@@ -90,8 +90,13 @@ def lb_similar_artists(artist_mbid: str, limit: int = 25) -> list[str]:
     return out[:limit]
 
 
-def lfm_similar(name: str, limit: int = 25) -> list[str]:
-    """Last.fm similarity by NAME — the ID-free path, needs an API key."""
+def lfm_similar_scored(name: str, limit: int = 100) -> list[tuple[str, float]]:
+    """Last.fm neighbours with their match, best first.
+
+    The match is what tells "sounds a lot like this" from "somebody once tagged them
+    together": a list of a hundred names always ends in noise, and a caller that only
+    wants the three nearest has to be able to cut it.
+    """
     if not config.LASTFM_KEY or not name:
         return []
     _throttle("lfm", 0.2)
@@ -101,9 +106,25 @@ def lfm_similar(name: str, limit: int = 25) -> list[str]:
     )
     try:
         d = _get_json(f"{LF}/?{q}")
-        return [a["name"] for a in d.get("similarartists", {}).get("artist", [])][:limit]
+        out: list[tuple[str, float]] = []
+        for a in d.get("similarartists", {}).get("artist", []):
+            label = str(a.get("name") or "").strip()
+            if not label:
+                continue
+            try:
+                match = float(a.get("match") or 0.0)
+            except (TypeError, ValueError):
+                match = 0.0
+            out.append((label, match))
+        return out[:limit]
     except Exception:
         return []
+
+
+def lfm_similar(name: str, limit: int = 25) -> list[str]:
+    """Last.fm similarity by NAME — the ID-free path, needs an API key."""
+    return [n for n, _ in lfm_similar_scored(name, limit)]
+
 
 
 def lfm_tags(name: str) -> list[str]:
@@ -148,7 +169,19 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             fetched_at INTEGER,
             PRIMARY KEY (name, tag)
         );
+        -- Scored similarity. `similar_artists` answers "who sounds like this" for the
+        -- tools and keeps whatever a provider returned; this one keeps the match, so a
+        -- caller can say "the three nearest" and mean it.
+        CREATE TABLE IF NOT EXISTS artist_similarity (
+            name TEXT NOT NULL,
+            similar TEXT NOT NULL,
+            match REAL NOT NULL DEFAULT 0,
+            source TEXT NOT NULL,
+            fetched_at INTEGER,
+            PRIMARY KEY (name, similar)
+        );
         CREATE INDEX IF NOT EXISTS similar_by_name ON similar_artists(name);
+        CREATE INDEX IF NOT EXISTS similarity_by_name ON artist_similarity(name);
         """
     )
     conn.commit()
@@ -206,6 +239,48 @@ def similar_artists(conn: sqlite3.Connection, name: str, limit: int = 25) -> tup
         return names, "lastfm"
 
     return [], "none"
+
+
+def similarity_for(conn: sqlite3.Connection, name: str, limit: int = 100,
+                   refresh: bool = False) -> list[tuple[str, float]]:
+    """One artist's neighbours with their match, cached.
+
+    Last.fm is the only provider here that scores, so an artist whose only cached
+    answer came from ListenBrainz is asked again: a list of names cannot be cut at
+    "close enough", and the shortlist needs the cut.
+    """
+    if not name:
+        return []
+    cached = cached_scores(conn, name)
+    if cached and not refresh:
+        return cached[:limit]
+    pairs = lfm_similar_scored(name, limit)
+    if pairs:
+        remember_scores(conn, name, pairs)
+        return pairs[:limit]
+    return cached[:limit]
+
+
+def remember_scores(conn: sqlite3.Connection, name: str, pairs: list[tuple[str, float]],
+                    source: str = "lastfm") -> None:
+    now = int(time.time())
+    with conn:
+        conn.executemany(
+            "INSERT INTO artist_similarity (name, similar, match, source, fetched_at)"
+            " VALUES (?,?,?,?,?) ON CONFLICT(name, similar) DO UPDATE SET"
+            " match=excluded.match, source=excluded.source, fetched_at=excluded.fetched_at",
+            [(name, s, float(m), source, now) for s, m in pairs],
+        )
+
+
+def cached_scores(conn: sqlite3.Connection, name: str) -> list[tuple[str, float]]:
+    return [
+        (r["similar"], float(r["match"] or 0.0))
+        for r in conn.execute(
+            "SELECT similar, match FROM artist_similarity WHERE name = ? ORDER BY match DESC",
+            (name,),
+        )
+    ]
 
 
 def navidrome_artist_mbid(artist_id: str) -> str:

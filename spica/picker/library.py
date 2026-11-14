@@ -467,43 +467,6 @@ class Library:
             })
         return out
 
-    def fresh_artists(self, station: config.Station, k: int = 3, window: int = 20,
-                      exclude: set[str] | None = None) -> list[str]:
-        """Acts the station owns and hasn't aired lately, a different draw each time.
-
-        The racks in the system prompt are sorted by weight and identical on every
-        pick — that is what makes them cheap to cache, and also why the same handful
-        of big artists is what the model reads first and reaches for. This is the
-        counterweight: random, and chosen from outside the recent plays.
-
-        `exclude` is for the acts that are not "recent" by the window but are in front
-        of the listener right now — the one on air and whatever is already queued.
-        """
-        played = {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
-        played |= {navidrome.name_key(a) for a in (exclude or ()) if a}
-        artists = [
-            name
-            for name, _ in self.roster(station, limit=1000)["artists"]
-            if navidrome.name_key(name) not in played
-        ]
-        if len(artists) <= k:
-            return artists
-        return random.sample(artists, k)
-
-    def heavy_artist(
-        self, station: config.Station, window: int = 20, floor: int = 3
-    ) -> tuple[str, int] | None:
-        """The artist that has run the station ragged lately, if any has.
-
-        One artist three times in twenty plays is a corner, not a set: worth saying out
-        loud, because the model has no ears and cannot hear it happening.
-        """
-        counted = Counter(a for a in self.recent_labels(station, window)[1] if a)
-        if not counted:
-            return None
-        name, plays = counted.most_common(1)[0]
-        return (name, plays) if plays >= floor else None
-
     def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
         """The labels and artists of the last few songs, newest first.
 

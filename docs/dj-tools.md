@@ -85,22 +85,27 @@ Before that, newest first — the reason when you chose it, standby when the sta
 3. Pearl Jam — Release (standby — the station played it while you were offline)
 Already queued, in order: …
 Your set starts right after <track>, so that is the one the listener hears just before it.
-The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Everything Everything, De Lux, Pearl Jam.
-These ten haven't played in the last 40 tracks: Toy Matinee, Soundgarden, Gardenia y el adversario del tiempo, …
-L'Impératrice has played 3 times in the last hour — prefer avoiding it.
+On the shelf for this set, and nothing else: Toy Matinee, Soundgarden, Gardenia y el
+adversario del tiempo, Odisea, Nil, …
+Every track comes from one of those artists, none of them twice, and the set still has to
+move — two eras, two genres, one thing changing between each track. Which of them, in
+what order, is yours.
 ```
 
-**Ten names that have provably not been heard, and one that has played too much.** The
-racks in the system prompt are sorted by weight and byte-identical on every call — that
-is what makes them worth caching, and also why the same handful of big artists is what
-the model reads first. Ten artists drawn at random from outside the last **forty** plays
-(and outside whatever is on air or already queued) give it somewhere else to go: forty
-tracks is roughly two and a half hours of airtime, so no name in that line was heard
-tonight. Measured over five starting points it keeps the four most repetitive acts on a
-2,200-track station at their share of the shelf — 4% of picks against 4.7% of the pool —
-and removing it takes them to 21%. The heavy-artist line is the opposite signal, stated
-as a count, because the model has no ears to notice that one artist has become the
-station.
+**The shelf replaces telling the model what played.** The artists that aired are not on
+the list, so the brief never has to name them — which is the point: a list of what to
+avoid is a list of names to work through, and a list of names is what the model turns
+into a cast. Ten names drawn from the station's own shape (label weight, cap three per
+label, two decades, one artist from each third of the roster), plus two for whoever has
+been off the air longest, are a smaller version of the station. What comes back is
+checked against them: an artist off the shelf is dropped like a track off the station,
+and no artist appears twice in a set. A listener request is exempt — it is a person
+asking, not the station rotating.
+
+The exclusions that build the shelf are: the last five plays, the five queued tracks,
+what is on air, and the three closest neighbours (Last.fm match ≥ 0.15, edges counted
+both ways) of the records either side of the set. So Bleu Toucan can be excluded not
+because it played, but because Therapie TAXI played and the two are near enough.
 
 The crate is no longer handed over in the brief. It was three records with ids in front
 of it, which is why it picked from them: the tools cost a round trip and the crate was

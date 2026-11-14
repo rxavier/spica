@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import secrets
 
-from .. import config, icecast, mixer, plan, queue
+from .. import config, icecast, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
+from . import shelf as shelf_module
 from .library import Library
 from .llm import ANSWER_NOW, SET_CONTRACT, chat, fit, json_object
 from .prompt import system_prompt
@@ -44,12 +45,9 @@ def _count(result) -> int:
     return 0
 
 
-# How many artists the brief offers from outside the recent plays, and how far back
-# "recent" reaches. Ten names against sixty on the racks is a counterweight, not a
-# menu; forty tracks is roughly two and a half hours of airtime, so a name in this line
-# has not been heard tonight.
-FRESH_ARTISTS = 10
-FRESH_WINDOW = 40
+# What the shelf is: the artists this set may come from, drawn in shelf.py. The brief
+# no longer names what played — the names that aired are already off the shelf, and
+# saying so twice is what made the model treat the list as a cast list.
 
 
 def pick_next(
@@ -196,53 +194,22 @@ def plan_pick(
     elif on_air:
         lines.append("Nothing is queued: your set starts right after what is on air.")
 
-    # Without this the model has no memory of its own voice: every pick is a new
-    # conversation, so "vary your phrasing" asked it not to repeat a construction it
-    # had no record of having used, and a line could never pick up a thread from the
-    # pick before it.
-    # What actually went out, not what it meant to play. A DJ notices he has been in
-    # one corner by hearing it, and the model has no ears — so the run of labels is
-    # stated, and stated as a reason to leave rather than a thread to continue.
-    labels_seen, artists_seen = lib.recent_labels(station, RECENT_PLAYS)
-    if labels_seen:
-        corner = " and ".join(labels_seen[:2])
-        heard = ", ".join(dict.fromkeys(a for a in artists_seen if a))
-        lines.append(f"The last {len(artists_seen)} songs went out as {corner} — {heard}.")
-        # Only nag when the run really is tight. Five songs from five artists is not a
-        # corner, and saying so every pick would just teach it to ignore the line.
-        if len(set(artists_seen)) <= 3:
-            lines.append(
-                f"That is {len(set(artists_seen))} artists in a row, one corner of a "
-                f"{lib.count(station)}-track station: leave the room tonight — another "
-                "label, another era, another temperature."
-            )
-
-    # The racks above are a fixed list sorted by weight, so the same handful of big
-    # artists is the first thing the model reads every time and the first thing it
-    # reaches for. These are the counterweight: random, and taken from outside a wide
-    # window of recent plays plus whatever is on air or already queued, so a name in
-    # this line has demonstrably not been heard tonight.
-    queued_acts = {
-        row.album_artist or row.artist
-        for song_id in mixer.queued_ids(station)
-        if (row := lib.by_id(song_id)) is not None
-    }
-    fresh = lib.fresh_artists(
-        station, k=FRESH_ARTISTS, window=FRESH_WINDOW,
-        exclude=queued_acts | ({on_air_artist} if on_air_artist else set()),
-    )
-    if fresh:
+    # What the DJ may choose from tonight. The artists that aired, the ones already
+    # queued and the ones that sound most like the three tracks either side of this set
+    # are not on it — so the brief never has to say what played, and the list cannot be
+    # read as a cast list of "names to get through".
+    shelf_names: list[str] = []
+    if not request_text:
+        drawn = shelf_module.build(lib, station)
+        shelf_names = [item["artist"] for item in drawn]
+    if shelf_names:
         lines.append(
-            f"{len(fresh)} artists that haven't played in the last {FRESH_WINDOW} tracks: "
-            f"{', '.join(fresh)}. At least one track in this set should be by one of them."
+            "On the shelf for this set, and nothing else: " + ", ".join(shelf_names) + "."
         )
-
-    # The other side of the same coin: one artist can quietly become the station. Said
-    # as a count, because the model has no ears and cannot hear that it is looping.
-    heavy = lib.heavy_artist(station)
-    if heavy:
         lines.append(
-            f"{heavy[0]} has played {heavy[1]} times in the last hour — prefer avoiding it."
+            "Every track comes from one of those artists, none of them twice, and the "
+            "set still has to move — two eras, two genres, one thing changing between "
+            "each track. Which of them, in what order, is yours."
         )
 
     # One thought per line. Run together as a paragraph, the on-air line, the queue and
@@ -269,26 +236,28 @@ def plan_pick(
 
     brief = messages[1]["content"] if len(messages) > 1 else ""
     called: list[dict] = []
+    allowed = {navidrome.name_key(name) for name in shelf_names} or None
 
     def finish(content: str) -> Pick | None:
         """Turn a reply into a stored set.
 
-        The ten drawn artists are named in the brief and required by the prompt, and
-        that is where it stays: the model decides what the set is, the code only checks
-        that what it returns can actually play.
+        The shelf is the one thing about a set that is checked rather than asked for:
+        every artist has to be on it, and none of them twice. Everything else — how
+        many tracks, which records, the order, the line — is the DJ's.
         """
-        theme, ids = parse_set(lib, content, avoid, station)
+        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed)
         if not ids:
             return None
         # The set is stored before its first track is handed over: the next call finds
         # it there and plays the second track without asking the model anything.
-        plan.save(station, theme, ids[1:])
+        plan.save(station, theme, ids[1:], shelf=shelf_names)
         track = lib.by_id(ids[0])
         if track is None or not track.uri:
             return None
         pick = Pick(track=track, why=theme, theme=theme)
         pick.brief, pick.tools = brief, tuple(called)
         pick.reply = (content or "")[:500]
+        pick.shelf = tuple(shelf_names)
         return pick
 
     for round_no in range(MAX_TOOL_ROUNDS + 1):
@@ -313,8 +282,8 @@ def plan_pick(
                 {
                     "role": "user",
                     "content": "That reply could not be used. " + SET_CONTRACT
-                    + " Pick a track that is not in the recent list and is not already "
-                    "playing or queued.",
+                    + " Every artist must be one of the names on the shelf, none of "
+                    "them twice, and no track already playing or queued.",
                 }
             )
             retry = chat(messages, TOOLS, no_tools=True)
@@ -370,15 +339,16 @@ def plan_pick(
 
 
 def parse_set(
-    lib: Library, content: str, avoid: set[str], station: config.Station
+    lib: Library, content: str, avoid: set[str], station: config.Station,
+    allowed: set[str] | None = None,
 ) -> tuple[str, list[str]]:
     """The set the model chose: one line, and the ids that can actually play.
 
-    Only facts are checked here — the track exists, it has a file, it is on this
-    station, it is not already airing or queued, and it appears once. How many tracks a
-    set holds, which artists it uses and where it goes are the DJ's business and the
-    operator's prompt; none of it is enforced in code, because the prompt is theirs and
-    an installation may want it to say something else entirely.
+    Facts only — the track exists, it has a file, it is on this station, it is not
+    already airing or queued, its artist is on tonight's shelf, and no artist appears
+    twice. How many tracks the set holds, which of the shelf's artists it uses and where
+    it goes are the DJ's business; the shelf is the one boundary the station draws,
+    because an artist that has just played cannot be the answer to what comes next.
     """
     data = json_object(content)
     if data is None:
@@ -386,6 +356,7 @@ def parse_set(
     theme = str(data.get("theme") or "").strip()[:200]
     raw = data.get("ids") or data.get("tracks") or []
     ids: list[str] = []
+    used: set[str] = set()
     for item in raw:
         track_id = item if isinstance(item, str) else str((item or {}).get("id") or "")
         if not track_id or track_id in avoid or track_id in ids:
@@ -397,6 +368,15 @@ def parse_set(
         # id from a tool that forgot them still has to be allowed to play.
         if not lib.on_station(station, track_id):
             continue
+        who = navidrome.name_key(getattr(track, "album_artist", "") or track.artist)
+        if allowed is not None:
+            if who not in allowed:
+                continue
+            # One artist a set, in normal rotation. A request is exempt: two songs off
+            # the album somebody asked for is a good set, not a repeat.
+            if who in used:
+                continue
+        used.add(who)
         ids.append(track_id)
     return theme, ids
 
