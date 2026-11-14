@@ -47,7 +47,7 @@ class Track:
 def name_key(name: str) -> str:
     """A name reduced to what it says, not how it was typed.
 
-    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one act; a model typing
+    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one artist; a model typing
     an ASCII apostrophe used to get nothing back from a library that stores the
     typographic one.
     """
@@ -106,7 +106,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     if "artist_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}:
         conn.execute("ALTER TABLE tracks ADD COLUMN artist_id TEXT DEFAULT ''")
     # The record's artist, which is the identity everything groups by: a guest on a
-    # track ("L’Impératrice & Fabiana Martone") is a credit, not a different act, and
+    # track ("L’Impératrice & Fabiana Martone") is a credit, not a different artist, and
     # counting by the track artist split one band across five names.
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}
     if "album_artist" not in columns:
@@ -293,7 +293,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
             if not track_id:
                 continue
             # The record's artist, always, and the track credit only when the record
-            # has none: that is what makes "L’Impératrice & Fabiana Martone" one act
+            # has none: that is what makes "L’Impératrice & Fabiana Martone" one artist
             # with the rest of the album instead of a sixth spelling of the band.
             own = (song.get("albumArtists") or album_artists or [{}])[0] or {}
             album_artist = str(

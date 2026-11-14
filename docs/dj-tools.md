@@ -3,10 +3,11 @@
 What the picker lets the model look at, what it hands back, and why a pick can never
 skip a lookup. Describes the code in `spica/picker/`.
 
-## The shape of one pick
+## The shape of one set
 
-One pick is one `POST {base}/chat/completions` with six function schemas,
-`temperature: 0.7`, `max_tokens: 700`, a 90-second timeout, and
+One set is one `POST {base}/chat/completions` with six function schemas,
+`temperature: 0.7`, `max_tokens: 4096`, `reasoning_effort: "low"`, a 90-second
+timeout, and
 
 - `tool_choice: "required"` on round 0,
 - `"auto"` on rounds 1–3,
@@ -17,18 +18,57 @@ One pick is one `POST {base}/chat/completions` with six function schemas,
 guarantee.
 
 If every round is exhausted without a usable answer, one last no-tools ask goes out
-with *"Stop searching…"*. If that fails too the pick is abandoned and the station walks
-its own pool.
+with the set contract again. If that fails too the pick is abandoned and the station
+walks its own pool.
 
-## Why a pick cannot skip a lookup
+The answer is a set, not a track:
+
+```json
+{"theme": "Out of the guitar bands and into the synths: awake and twitchy first, then the floor, then a slow, sun-drunk landing.",
+ "ids": ["53dkqGZQDnFJZuPX0HqkXE", "2XU1uFbkWKinwLX7woyDpN", "…"]}
+```
+
+One line for the whole set, three to ten ids. Asking for a per-track `why` produced six
+separate justifications for one decision and spent the budget on them; the theme is what
+listeners read under each of those songs, and it is written once.
+
+## The set, and why it is not a pick
+
+A pick answers *what follows this song*. That question has only one cheap answer — the
+nearest thing to what is already playing — which is why the station kept circling the
+same corner: fourteen L'Impératrice tracks in an hour, every one of them defensible on
+its own.
+
+A set answers *where is this stretch of the night going*, and it is held in
+`state/plans/<station>.json` as `{theme, ids, made}`. `pick_next` hands the queue the
+next id and asks the model nothing at all until the set runs out: twelve tracks measured
+at six model calls, half a call per track, instead of three or four each.
+
+The set is dropped three ways, all of them something changing the mood it was chosen
+for:
+
+- **a listener request**, in `pick_next` and in `queue.promote_requests` — the request
+  airs next and the rest of the set was chosen for the mood they asked to leave;
+- **ninety minutes on the clock** — a set is for the night it was chosen for, and the
+  DJ coming back after an outage should not play out a mood from before it;
+- **a track that can no longer play** — aired from the pool in the meantime, or gone
+  from the library. That one id is skipped and the set continues without it.
+
+## Why a set cannot skip a lookup
 
 Track ids exist only inside tool results. The brief carries titles and artists, never
-ids, and `parse_final` then requires the id to exist, to have a playable `uri`, to
-be outside the last 40 played ids, and to pass the station's own matcher — the same
-check the tools apply, so a guessed id cannot leave the palette either.
+ids, and `parse_set` then requires each id to exist, to have a playable `uri`, to be
+outside the last 40 played ids, to appear once, and to pass the station's own matcher —
+the same check the tools apply, so a guessed id cannot leave the palette either.
 
-So a reply written without calling a tool can only pass by guessing a 21-character
-Navidrome id. `tool_choice: "required"` on round 0 makes that explicit instead of
+Those are facts about the track, and they are the only thing the code decides. How many
+tracks a set holds, whether one artist dominates it, where it goes: all of that is the
+DJ's judgement and the operator's prompt, and an installation whose prompt says
+something else entirely must still work. The one place the prompt is referred to from
+code is the brief's wording, never a check on the answer.
+
+So a reply written without calling a tool can only pass by guessing 21-character
+Navidrome ids. `tool_choice: "required"` on round 0 makes that explicit instead of
 leaving a wasted retry as the failure mode.
 
 ## The brief
@@ -44,24 +84,32 @@ Before that, newest first — the reason when you chose it, standby when the sta
 2. De Lux — Validation (standby — the station played it while you were offline)
 3. Pearl Jam — Release (standby — the station played it while you were offline)
 Already queued, in order: …
-Your pick starts right after <track>, so that is the one the listener hears just before it.
+Your set starts right after <track>, so that is the one the listener hears just before it.
 The last 5 songs went out as Alternative Rock and Indie Rock — Bloc Party, Everything Everything, De Lux, Pearl Jam.
-Three albums picked uniformly at random from the tracks this station can play. Each comes
-from a different act, and acts in the recent history above are excluded. Every track line
-is: track id, length, popularity (0 = that act's least played track, 1 = its most played),
-title — five tracks per album, with a count of the rest. You are not required to choose
-from these three: the draw is random, and where the station goes next is your taste, the
-flow of what has just played and what you know about this music. Call flip for another
-three albums, or use search, filter or similar, if that is where the next record lives.
-1. Doolittle — Pixies (1989) · Alternative Rock / Indie Rock
-   2FNFckudFqIFAYQnksJBbU   2:53  pop 0.95  Debaser
-   (+13 more)
+These three haven't played recently: Toy Matinee, Soundgarden, Gardenia y el adversario del tiempo.
+L'Impératrice has played 3 times in the last hour — prefer avoiding it.
 ```
+
+**Three names that have not played, and one that has played too much.** The racks in the
+system prompt are sorted by weight and byte-identical on every call — that is what makes
+them worth caching, and also why the same handful of big artists is what the model reads
+first. Three artists drawn at random from outside the recent plays give it somewhere else
+to go; the heavy-artist line is the opposite signal, stated as a count, because the model
+has no ears to notice that one artist has become the station. Measured over ten sets it
+took the offered names about forty per cent of the time and never played the artist it was
+told to avoid.
+
+The crate is no longer handed over in the brief. It was three records with ids in front
+of it, which is why it picked from them: the tools cost a round trip and the crate was
+free. `flip` still produces that pile on demand.
 
 **One timeline, and the reason only where the reason is the DJ's.** The song on air is
 part of that timeline — it carries its reason too when the DJ chose it, and a standby note
 when the station did. When it stops, the
-mixer keeps playing from the standby pool, so a station can be three songs past the last
+A set of six would otherwise print the same theme six times, so the timeline says it once
+and marks the rest `(same set)`.
+
+The mixer keeps playing from the standby pool, so a station can be three songs past the last
 thing the DJ chose. Listing those under "your last picks" let it build a set on a choice it
 never made, and the brief then disagreed with what was actually playing. Each entry now
 carries its own provenance: the DJ's reason where it chose the track, and a standby note
@@ -90,8 +138,8 @@ carry the thing it needs:
 - `genre` is **all** the track's genres, joined with ` / ` — not the primary tag, which is
   what made `filter {genre: "Disco"}` answer with rows reading `Électronique`.
 - `duration` is clock time, so a 40-second interlude and a 9-minute epic are distinguishable.
-- `popularity` is the track's standing **among its own act's tracks**, 0 = their deepest
-  cut, 1 = the one everybody knows. Absolute play counts would only measure how big the act
+- `popularity` is the track's standing **among its own artist's tracks**, 0 = their deepest
+  cut, 1 = the one everybody knows. Absolute play counts would only measure how big the artist
   is; this asks which of their songs people actually know. It is the number the crates
   turn into *a hit / mid / a deep cut*.
 - `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
@@ -131,13 +179,13 @@ so `songs_ago` counts real advances.
 
 `{}`
 
-Same pile, turned over: three albums drawn the same way as the brief's crate, never one
-already dealt in this pick, still skipping the acts just played. Answers `{albums: [...]}`
-in the crate's shape, or a note when the racks are exhausted.
+Three records turned over, with their ids: drawn from the tracks this station can play,
+never one already dealt in this set, and skipping the artists just played. Answers
+`{albums: [...]}`, or a note when the racks are exhausted.
 
-It exists because the DJ reliably picks from ids it has already been handed rather than
-going looking, so "nothing here fits" needed an answer that produces ids. One pick can
-hold the crate plus three flips, twelve different records.
+This is the only way a pile of records is put in front of the model now — the brief used
+to carry one, which made the tools optional and the same three albums the easiest thing
+to pick from. Asking for it costs a call, which is the point: it is a move, not a menu.
 
 ### `search` — a name you have in mind
 
@@ -151,7 +199,7 @@ scattered rather than all present.
 
 A miss is an answer, not an empty list. `"Parcels"` plays nowhere here, but the model
 asked for a sound, not a spelling — so the miss runs the same similar-artist machinery
-`similar` uses (cache, ListenBrainz, Last.fm), keeps only the acts this station plays,
+`similar` uses (cache, ListenBrainz, Last.fm), keeps only the artists this station plays,
 and hands back a track id for each:
 
 ```json
@@ -163,7 +211,7 @@ and hands back a track id for each:
 On this library that turns the ledger's worst misses into routes: *Metronomy* → Future
 Islands, Everything Everything, Ratatat; *Hot Chip* → Everything Everything, Bloc Party,
 Ratatat; *Polo & Pan* → L’Impératrice, Therapie TAXI, Bleu Toucan. A cached list is only
-twenty names and the act that plays here is often the twenty-first, so a thin result
+twenty names and the artist that plays here is often the twenty-first, so a thin result
 re-asks Last.fm for a hundred. When nothing here sounds like it, the note says so and
 points at `filter` — no invented matches.
 

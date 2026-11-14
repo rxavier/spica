@@ -15,7 +15,10 @@ from .. import navidrome
 @dataclass
 class Pick:
     track: navidrome.Track
+    # What listeners read under the song. For a track played from a set it is the
+    # set's line, not a fresh justification for this one record.
     why: str
+    theme: str = ""
     # What the DJ was working with, kept for the admin: the brief it read, the tools
     # it called, and the reply it produced. Empty when the caller does not record it.
     brief: str = ""
@@ -46,11 +49,11 @@ TOOLS = [
         "function": {
             "name": "flip",
             "description": (
-                "Three more records from the racks, never the ones already in front of "
-                "you. The crate in the brief is a pile you can take from; this turns the "
-                "pile over. Use it when nothing among the records you were handed fits "
-                "the moment, and especially before settling for a track you have already "
-                "seen twice tonight."
+                "Three records pulled at random from the tracks this station can play, with "
+                "their track ids — a pile to flip through when you want somewhere to go "
+                "rather than something to look up. Each comes from a different artist, and "
+                "artists from the recent history are left out. Not a recommendation: take "
+                "from it if something fits, or keep looking."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -63,7 +66,7 @@ TOOLS = [
                 "Free-text lookup across titles, artists and albums. Every word has to land "
                 "somewhere, so 'Ride Vapour Trail' finds the track. Best when you have a name in "
                 "mind. When the name plays nowhere here it does not come back empty: it answers "
-                "with `similar_here` — acts this station does play that sound like the one you "
+                "with `similar_here` — artists this station does play that sound like the one you "
                 "named, each with a track id — so a name you know from outside is a route into "
                 "the library rather than a dead end. Use catalogue for order and completeness, "
                 "filter for a kind of thing rather than a name."
