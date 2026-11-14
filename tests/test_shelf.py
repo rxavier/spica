@@ -107,6 +107,20 @@ def test_a_thin_pool_comes_back_whole():
     assert len(drawn) == 4
 
 
+def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
+    """Rotation memory: offered once, not again next set, played or not."""
+    from spica import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    station = config.Station(id="rot", name="Rotation")
+    station.history_file.parent.mkdir(parents=True, exist_ok=True)
+    station.history_file.with_suffix(".picks.jsonl").write_text(
+        json.dumps({"t": "2026-11-14T00:00:00Z", "id": "x", "shelf": ["Old One", "Old Two"]}) + "\n",
+        encoding="utf-8",
+    )
+    assert shelf.queue.last_shelf(station) == ["Old One", "Old Two"]
+
+
 def test_a_shelf_too_small_to_choose_from_is_no_shelf_at_all(monkeypatch):
     """Two names is a wall, not a choice: the restriction is dropped, not tightened."""
     class Tiny:

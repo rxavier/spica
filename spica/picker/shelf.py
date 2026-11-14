@@ -161,6 +161,12 @@ def _blocked(lib, station, profiles: dict[str, dict]) -> set[str]:
             blocked.add(navidrome.name_key(name))
             anchors.append(name)
 
+    # The artists offered a set ago have had their turn at being offered. Without this
+    # the same twelve names come back whenever the plays in between happen to leave them
+    # clear, and the shelf becomes a fixed menu again, only smaller.
+    for name in queue.last_shelf(station):
+        blocked.add(navidrome.name_key(name))
+
     queued: list[str] = []
     try:
         waiting = mixer.queued_ids(station)[:QUEUED]
