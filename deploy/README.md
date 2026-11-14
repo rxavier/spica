@@ -68,23 +68,26 @@ In the admin:
    merge and rename labels until the list makes sense to you.
 3. **Stations** → edit **Everything** or add another, tick the genres it should
    play, and add artists that walk outside them.
-4. **Settings** → an OpenAI-compatible endpoint, if you want the DJ. Without one
+4. **Library** → a *Similar artists (scored)* job fills the neighbour graph the DJ's
+   shelf uses to keep an artist off the next set when something close to it just played.
+   It needs `LASTFM_KEY`; without one the shelf simply does not exclude neighbours.
+5. **Settings** → an OpenAI-compatible endpoint, if you want the DJ. Without one
    the stations still play, in order, with no picks and no reasons.
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.11.0`. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.12.0`. To build from source instead,
 replace the `image:` line in each of `init`, `picker` and `worker` with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.11.0
+    build: https://github.com/rxavier/spica.git#v0.12.0
 ```
 
 or, with a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.11.0 .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.12.0 .
 ```
 
 ## Behind a reverse proxy

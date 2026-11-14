@@ -5,6 +5,12 @@
 Internet radio for a local music library: several stations on air at once, an LLM DJ
 that picks, and a page you can leave open.
 
+> **Alpha software.** Spica runs and is in daily use, but it is not a product: expect
+> rough edges, thin documentation in places, and breaking changes between minor versions
+> — in configuration, in `state/`, and in the API. Pin `SPICA_TAG` to a version rather
+> than riding `latest`, keep a copy of `config/`, and read what changed before pulling a
+> new one. Nothing here is written with multi-user installs in mind.
+
 ## Where it comes from
 
 Spica is inspired by [SUB/WAVE](https://github.com/perminder-klair/subwave), the project it
@@ -44,10 +50,10 @@ attaches the Icecast output to that same source, which is where the encoder star
 one MP3 encode per station, fanned out by Icecast to every listener.
 
 **The DJ only speaks to somebody.** Every twenty seconds the picker looks at who is
-really listening and, for a station with an audience, asks the LLM to choose the next track;
-the choice goes to `state/queue/<station>.txt`, Liquidsoap polls that file, pushes it
-into the station's request queue and deletes it. With nobody there, the station keeps
-walking its pool and the DJ is not called at all.
+really listening and, for a station with an audience, asks the LLM for the next set of
+tracks; the choice goes to `state/queue/<station>.txt`, Liquidsoap polls that file,
+pushes it into the station's request queue and deletes it. With nobody there, the station
+keeps walking its pool and the DJ is not called at all.
 
 **The ledger records what aired.** The mixer writes each track it starts to
 `state/now/<station>.txt`; the picker tails that file and appends to the play log. It
@@ -134,8 +140,8 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   palette. Track ids exist only inside tool results, so a pick is always grounded in a
   lookup rather than a remembered name. The toolbox and its contract are in
   [`docs/dj-tools.md`](docs/dj-tools.md).
-- **The shelf: ten artists, enforced.** Each set is drawn from a named shelf of about
-  twelve artists, and the reply is checked against it — an artist that is not on the
+- **The shelf: about a dozen artists, enforced.** Each set is drawn from a named shelf of
+  about twelve artists, and the reply is checked against it — an artist that is not on the
   shelf is dropped like a track that is not on the station, and no artist appears twice
   in a set. The shelf leaves out what played in the last five tracks, what is queued,
   and the three closest neighbours of the records either side of the set (Last.fm match
@@ -167,9 +173,9 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   genuinely both. Stations pick genres from that vocabulary, so matching is set
   membership and not string guessing.
 - **Popularity from real play counts.** ListenBrainz listen counts per track (batched),
-  ranked inside the artist's own catalogue, so "hits" and "deep cuts" mean which of their
-  songs people know rather than how big the artist is. Nothing is read from your own
-  listening.
+  Last.fm for whatever has no MusicBrainz id, ranked inside the artist's own catalogue, so
+  "hits" and "deep cuts" mean which of their songs people know rather than how big the
+  artist is. Nothing is read from your own listening.
 - **Coverage reporting and background jobs.** `GET /coverage` reports how much of the
   library the DJ actually knows. `POST /jobs` queues work for the worker.
 - **No storage coupling.** The library is read through the Subsonic API and played back
@@ -230,7 +236,7 @@ this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
                          dj-persona.md, llm.json, artist-mbids.json
-state/                   index.db, pools/, queue/, history/, now/, requests/,
+state/                   index.db, pools/, plans/, queue/, history/, now/, requests/,
                          art/, genre-aliases.json, logs/
 ```
 
@@ -493,8 +499,9 @@ one thing picking needs and which not every "OpenAI-compatible" server does.
 
 The global prompt is the DJ's character — the voice it speaks in, which is also the line
 listeners read under each song. It is prepended to every pick on every station; each
-station's brief is added on top, and the mechanics of picking (one track at a time, tools
-only, the JSON reply) stay in the code so an edit cannot break them. It lives in
+station's brief is added on top, and the mechanics of picking (sets rather than single
+tracks, tools only, the JSON reply, and the shelf the answer has to come from) stay in
+the code so an edit cannot break them. It lives in
 `config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
 voice* deletes it.
 
@@ -629,7 +636,7 @@ page uses.
 | GET | `/listen/<station>` | the default stream, relayed and opened on demand |
 | GET | `/listen/<station>/<codec>` | one stream: `mp3`, `opus` or `flac` |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
-| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "musicbrainz" \| "refresh"}` |
+| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh"}` |
 | GET | `/jobs` | recent jobs with progress |
 | DELETE | `/requests/<station>` | clear the station's live requests |
 
@@ -640,7 +647,7 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.11.0` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.12.0` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
@@ -701,9 +708,10 @@ docker compose restart mixer
 
 The worker watches the library for you: it compares Navidrome's track count every 15
 minutes, rebuilds the index and pools when it changes, and queues the cheap follow-ups —
-popularity for tracks that have none, MusicBrainz for artists without genres. The jobs
-are also on the admin's library page. Operator merges and the alias maps are applied at
-rebuild time, so a rebuild also re-canonicalises every genre.
+popularity for tracks that have none, scored similar artists for artists with no
+neighbours cached, and MusicBrainz for artists without genres. The jobs are also on the
+admin's library page. Operator merges and the alias maps are applied at rebuild time, so
+a rebuild also re-canonicalises every genre.
 
 ## State
 
@@ -712,15 +720,20 @@ rebuild time, so a rebuild also re-canonicalises every genre.
 - `index.db`: SQLite projection of the library. Disposable, rebuilt from Navidrome.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
+- `plans/<station>.json`: the set being played out — its line, its ids, and the shelf it
+  was chosen from.
 - `queue/<station>.txt`: the single-file hand-off between picker and mixer.
 - `now/<station>.txt` and `.offset`: the mixer's own record of each track it starts, and
   how far the picker has read. This is what keeps the ledger honest when no mount is open.
 - `history/<station>.jsonl`: append-only play log, written by this project only.
 - `history/<station>.picks.jsonl`: the DJ's choices with their reasons, the presence
-  that justified them, and — for picks recorded from here on — the brief it read, the tools it
-  called and the reply it gave. The last 500 are kept.
+  that justified them, the shelf it was offered, and — for picks recorded from here on —
+  the brief it read, the tools it called and the reply it gave. The last 500 are kept.
 - `requests/<station>.jsonl`: live listener requests.
 - `art/<albumId>`: cached cover art, one file per album.
+- `mb-genres.json`: MusicBrainz's own genre vocabulary — the list a provider tag has to
+  be on to become a genre. Cached for a month; deleting it costs twenty-three throttled
+  calls to rebuild.
 - `genre-aliases.json`: operator merge rules, empty by default.
 - `logs/`: worker and job output.
 
