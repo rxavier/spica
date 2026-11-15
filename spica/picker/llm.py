@@ -7,6 +7,7 @@ objects long.
 
 from __future__ import annotations
 
+import copy
 import json
 
 import httpx
@@ -71,42 +72,60 @@ def chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
 def fit(payload, limit: int = TOOL_RESULT_CHARS) -> str:
     """A tool result as JSON that always parses, and always fits.
 
-    `catalogue` on a big artist, `filter` at its maximum limit and `search` at 200
-    all encode to more than the budget, and the old blind slice left the model with
-    half an object — including half the ids it is required to answer with. So the
-    list is trimmed by whole rows, largest prefix that fits, and says so.
+    Tools page themselves to this budget, so most calls never reach the trimming below.
+    When one does — a nested album list, a tool that ignores its limit — the largest list
+    anywhere in the payload is cut, not the first one with a familiar name: `catalogue`
+    used to answer with the same tracks twice, and the old order cut the flat list to a
+    single row while the album block beside it still held all twenty, leaving the payload
+    above the cap with a note about the wrong list.
     """
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) <= limit:
         return text
 
-    key = None
-    rows = None
-    if isinstance(payload, dict):
-        for candidate in ("results", "tracks"):
-            if isinstance(payload.get(candidate), list):
-                key, rows = candidate, payload[candidate]
-                break
-    elif isinstance(payload, list):
-        rows = payload
-    if not rows:
+    data = copy.deepcopy(payload)
+    trimmed = 0
+    for _ in range(6):
+        if len(json.dumps(data, ensure_ascii=False)) <= limit:
+            break
+        target = _largest_list(data)
+        if target is None or not target[1]:
+            break
+        rows = target[1]
+        original = list(rows)
+        lo, hi, best = 0, len(original), 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            rows[:] = original[:mid]
+            if len(json.dumps(data, ensure_ascii=False)) <= limit:
+                best, lo = mid, mid + 1
+            else:
+                hi = mid - 1
+        rows[:] = original[:best]
+        trimmed += len(original) - best
+        if best == len(original):
+            break
+
+    if len(json.dumps(data, ensure_ascii=False)) > limit:
         return json.dumps(
-            {"results": [], "note": "too much to show; narrow the lookup"}, ensure_ascii=False
+            {"results": [], "note": "too much to show; ask for less"}, ensure_ascii=False
         )
+    if trimmed and isinstance(data, dict) and not data.get("note"):
+        data["note"] = f"trimmed {trimmed} row(s) to fit"
+    return json.dumps(data, ensure_ascii=False)
 
-    def build(count: int):
-        if key is None:
-            return rows[:count]
-        return {**payload, key: rows[:count], "note": f"showing {count} of {len(rows)}"}
 
-    lo, hi, best = 0, len(rows), 0
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if len(json.dumps(build(mid), ensure_ascii=False)) <= limit:
-            best, lo = mid, mid + 1
-        else:
-            hi = mid - 1
-    return json.dumps(build(best), ensure_ascii=False)
+def _largest_list(node, best=None):
+    """The biggest list anywhere in the payload, with its length, for trimming."""
+    if isinstance(node, list):
+        if best is None or len(node) > best[0]:
+            best = (len(node), node)
+        for item in node:
+            best = _largest_list(item, best)
+    elif isinstance(node, dict):
+        for value in node.values():
+            best = _largest_list(value, best)
+    return best
 
 
 def json_object(text: str) -> dict | None:

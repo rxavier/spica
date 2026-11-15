@@ -133,8 +133,9 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   already dealt), `search` (word-wise, and a name that plays nowhere here answers with
   the artists that sound like it), `filter` (a draw from the station, narrowed by genre and
   years, with totals and paging), `catalogue` (an artist's holdings or one album in
-  running order), and `similar`. The station's own shape — genre weights, every
-  artist with its track count — is in the system prompt rather than behind a tool. Every
+  running order), and `similar`. The station's genre weights and its size are in the
+  system prompt; the artists are not — the shelf names the only ones that can play, and a
+  second list of names beside it is one the model can name from. Every
   result is filtered
   through the station's rules, so a narrow station cannot return something outside its
   palette. Track ids exist only inside tool results, so a pick is always grounded in a

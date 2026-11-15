@@ -10,6 +10,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import html
+import json
 import random
 import sqlite3
 import time
@@ -35,6 +36,13 @@ def clamp(value, default: int, high: int) -> int:
 
 # How many tracks one artist may contribute to a page of `filter` results.
 PER_ARTIST = 3
+
+# How much of the 6,000-character tool result a page may spend on rows, leaving room for
+# the envelope around them (`matching`, `offset`, `returned`, `next_offset`, a note).
+# A page has to fit *before* the model sees it: the trimmer downstream cuts from the end,
+# and a tool that says "returned 30" while the model reads 23 makes `offset` paging skip
+# the seven tracks that were never shown.
+ROW_BUDGET = 5200
 
 
 class Library:
@@ -97,7 +105,7 @@ class Library:
         on_station = self.rows_on_station(rows, station)
         if on_station:
             ctx = self._context(station)
-            return [self._row(r, ctx) for r in on_station[:limit]]
+            return self._visible(on_station[:limit], ctx)
         return self._search_miss(text, station)
 
     def _search_args(self, token: str) -> list:
@@ -297,11 +305,13 @@ class Library:
             if len(picked) >= limit:
                 break
         ctx = self._context(station)
+        visible = self._visible(picked, ctx)
         return {
             "matching": total,
             "offset": offset,
-            "returned": len(picked),
-            "results": [self._row(r, ctx) for r in picked],
+            "returned": len(visible),
+            "next_offset": offset + len(visible),
+            "results": visible,
         }
 
     def roster(self, station: config.Station | None = None, limit: int = 60) -> dict:
@@ -617,7 +627,7 @@ class Library:
             item["songs_ago"] = ago
             item["on_air"] = ago == 0
             out.append(item)
-        return out
+        return self._fit_rows(out)
 
     def catalogue(
         self,
@@ -684,21 +694,38 @@ class Library:
             rows = [r for rs in ordered for r in rs]
 
         albums: dict[str, dict] = {}
-        tracks: list[dict] = []
+        kept = 0
+        played_recently = False
         for row in rows[:limit]:
-            item = self._row(row, ctx)
-            item["track_no"] = row["track_no"]
-            tracks.append(item)
+            item = self._lean_row(row, ctx)
+            played_recently = played_recently or item["played"]
             key = row["album"] or ""
-            albums.setdefault(key, {"album": key, "year": row["year"], "tracks": []})
-            albums[key]["tracks"].append(item)
-        return {
+            block = albums.setdefault(
+                key,
+                {
+                    "album": key,
+                    "year": row["year"],
+                    "genre": " / ".join((ctx["labels"].get(row["id"]) or [])[:3]),
+                    "tracks": [],
+                },
+            )
+            block["tracks"].append(item)
+            kept += 1
+
+        out = {
             "artist": rows[0]["album_artist"] or rows[0]["artist"],
             "album": album or "",
             "albums": list(albums.values()),
-            "tracks": tracks,
-            "played_recently": any(t["played"] for t in tracks),
+            "shown": kept,
+            "total": len(rows),
+            "played_recently": played_recently,
         }
+        if kept < len(rows):
+            out["note"] = (
+                f"showing {kept} of {len(rows)} tracks; ask for the album you want to see "
+                "the rest"
+            )
+        return out
 
     def run_tool(self, name: str, args: dict, station: config.Station):
         """Execute one tool call, turning bad arguments into something the model can read."""
@@ -774,6 +801,40 @@ class Library:
             "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
             "played": row["id"] in ctx["played"],
             "queued": row["id"] in ctx["queued"],
+        }
+
+    def _visible(self, rows: list, ctx: dict) -> list[dict]:
+        """The rows of a page that fit the budget, so the count beside them is true."""
+        return self._fit_rows([self._row(r, ctx) for r in rows])
+
+    @staticmethod
+    def _fit_rows(items: list[dict], budget: int = ROW_BUDGET) -> list[dict]:
+        """As many whole rows as fit — never a slice that leaves half a row behind."""
+        out: list[dict] = []
+        used = 0
+        for item in items:
+            size = len(json.dumps(item, ensure_ascii=False)) + 2
+            if out and used + size > budget:
+                break
+            out.append(item)
+            used += size
+        return out
+
+    def _lean_row(self, row: sqlite3.Row, ctx: dict) -> dict:
+        """One track inside an album block: enough to choose it, nothing the album says.
+
+        The album carries its own name, artist, year and genre, so repeating those on
+        every track made the payload twice the size for half the information — and a
+        `catalogue` answer was two views of the same tracks, which is what the trimmer
+        then cut in the wrong place.
+        """
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "track_no": row["track_no"],
+            "duration": self._clock(row["duration"]),
+            "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
+            "played": row["id"] in ctx["played"],
         }
 
     @staticmethod

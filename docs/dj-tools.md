@@ -173,9 +173,9 @@ system prompt adds one line taking the model further back than the brief does:
 
 ## The row every tool returns
 
-One shape, everywhere — `history`, `search`, `filter`, `catalogue` and `similar` all
-answer with the same fields, so the DJ never has to wonder whether a tool happened to
-carry the thing it needs:
+One shape, everywhere — `history`, `search`, `filter` and `similar` all answer with the
+same fields, so the DJ never has to wonder whether a tool happened to carry the thing it
+needs:
 
 ```json
 {"id": "53dkqGZQDnFJZuPX0HqkXE", "title": "L’Équilibriste", "artist": "L’Impératrice",
@@ -191,7 +191,27 @@ carry the thing it needs:
   is; this asks which of their songs people actually know. It is the number the crates
   turn into *a hit / mid / a deep cut*.
 - `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
-  `catalogue` adds `track_no`; `history` adds `songs_ago` and `on_air`.
+  `search` and `filter` return these rows flat; `history` adds `songs_ago` and `on_air`.
+
+**`catalogue` is the exception, and deliberately lean.** It answers with albums, each
+carrying `album`, `year` and `genre` once, and inside it only what is needed to choose a
+track:
+
+```json
+{"id": "…", "title": "The Queen Is Dead", "track_no": 1, "duration": "6:24",
+ "popularity": 0.37, "played": false}
+```
+
+The same twenty tracks used to appear twice — once nested under the album, once as a flat
+`tracks` list — and the trimmer cut the flat list to a single row while the album block
+beside it still held everything, so a `catalogue` answer sat at 5,700 characters and said
+"showing 1 of 20". One view, lean rows: The Smiths went from 10,681 characters to 3,083,
+and Nine Inch Nails from 16,194 (8,235 after trimming, over the cap) to 3,795.
+
+**Every page fits before the model sees it.** `filter` returns `{matching, offset,
+returned, results, next_offset}` where `returned` is the number of rows actually there —
+a 168-track match ships twenty rows and says so, and `next_offset` is where the next page
+really starts. The trimmer downstream is a backstop now, not the paging mechanism.
 
 ## The six tools
 
@@ -284,8 +304,11 @@ can play, which is the right first move when nothing specific is in mind. Year b
 SQL, `ORDER BY RANDOM()`, genre matched loosely on purpose: `Punk` also brings
 `Punk Rock`.
 
-It answers with shape, not just rows — `{matching, offset, returned, results}` — so the
-model can tell a 600-track slice from a 6-track one, and page through it with `offset`.
+It answers with shape, not just rows — `{matching, offset, returned, results, next_offset}`
+— so the model can tell a 600-track slice from a 6-track one, and page through it with
+`offset`. `returned` counts the rows in the message, not the rows asked for: a page is
+trimmed to the 5,200-character row budget before it is sent, and `next_offset` says where
+the next one really starts, so paging cannot skip a track that was never shown.
 No page carries more than three tracks by one artist, which is what stops a genre with
 one big name in it from filling the whole answer.
 
@@ -307,8 +330,12 @@ for "punk" shouldn't get nothing because the genre says `Punk Rock`.
 An artist's holdings grouped into albums, or one album's tracklist in running order.
 The artist is the record's — `catalogue {'artist': 'L’Impératrice'}` returns all 34
 tracks, guests included, and the lookup folds apostrophes and accents.
-Each track carries `track_no`, `played` (in the last 40) and `queued`, so the model can
-sequence a record instead of picking blind. `played_recently` summarises the lot.
+
+Each album carries its own name, year and genre once, and each track inside it only what
+is needed to choose one: `id`, `title`, `track_no`, `duration`, `popularity`, `played`.
+No flat track list behind it, and no album or artist repeated on every row — that
+duplication was half the payload. `shown` and `total` say when a big artist was cut short
+("showing 25 of 60 tracks"), with the hint to name an album for the rest.
 
 Albums come back in this pick's order, with the tracks still in running order inside
 each one — they used to come back alphabetically, so browsing an artist opened on the
