@@ -72,18 +72,19 @@ def system_prompt(station: config.Station, roster: dict) -> str:
     if station.year_from or station.year_to:
         bits.append(f"Years: {station.year_from or 'any'}–{station.year_to or 'any'}.")
 
+    # The shelf in the brief is the only cast, so listing every artist here was a second,
+    # competing list — and measured over the first sets after the shelf went in, sixteen
+    # of sixteen tool calls opened an artist that was already on the shelf and not one
+    # came from this block. What is left is the size of the station and the reason not to
+    # invent a name, which is the part that makes a search miss informative.
     artists = roster.get("artists") or []
     if artists:
-        shown = ", ".join(f"{name} ({n})" for name, n in artists[:60])
-        more = roster["artists_total"] - len(artists[:60])
         bits.append(
-            f"The racks: {roster['artists_total']} artists, {roster['tracks']} tracks — "
-            + shown + (f", and {more} more." if more > 0 else ".")
-        )
-        bits.append(
-            "Those are the names this station holds. A band you know from elsewhere is "
-            "very likely not here: name what you see in this list, not what you "
-            "remember, and when a name is not here the tools answer with what is."
+            f"{roster['artists_total']} artists and {roster['tracks']} tracks are within "
+            "reach, and the brief narrows tonight's set to a handful of them. A band you "
+            "know from elsewhere is very likely not here, so name what the tools return "
+            "rather than what you remember — and when a name is not here, the tools answer "
+            "with what is."
         )
     else:
         bits.append(f"There are about {roster.get('tracks', 0)} tracks within reach.")
@@ -118,7 +119,7 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         "The brief names the artists on the shelf for this set. Every track comes from "
         "one of them, no artist twice, and nothing outside the list will air whatever it "
         "says: that is the station's boundary, not a suggestion. Which of them you use, "
-        "how many, in what order and why is the part that is yours — a shelf of ten is a "
+        "how many, in what order and why is the part that is yours — a dozen names are a "
         "range of directions, not a setlist to get through."
     )
     bits.append(
