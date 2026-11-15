@@ -253,7 +253,7 @@ def test_catalogue_album_order_follows_the_pick(db, station):
     lib.draw_seed = 3
     one = lib.catalogue(artist="Band", album="Bravo", station=station)
     assert [a["album"] for a in one["albums"]] == ["Bravo"]
-    assert [t["track_no"] for t in one["tracks"]] == [1, 2, 3]
+    assert [t["track_no"] for t in one["albums"][0]["tracks"]] == [1, 2, 3]
 
 
 # --- the admin keeps the collapse -------------------------------------------
