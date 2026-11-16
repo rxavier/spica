@@ -76,7 +76,9 @@ In the admin:
 
 ## Audio analysis
 
-The default image is the picker's half: numpy, to read vectors, and nothing else.
+The default image is the picker's half: numpy, to read vectors, and nothing else. It
+is built on Alpine (~200 MB); the analyser image must be Debian (glibc), because
+onnxruntime and essentia publish manylinux wheels only.
 The worker can run it, but with `SPICA_ANALYSIS=1` it will answer that the analysis
 extra is not installed. Analysis runs from the `-analysis` image, which also carries
 onnxruntime and essentia:
@@ -99,7 +101,8 @@ If you build locally, build both:
 
 ```sh
 docker build -t ghcr.io/rxavier/spica:dev .
-docker build --build-arg SPICA_EXTRAS=analysis -t ghcr.io/rxavier/spica:dev-analysis .
+docker build --build-arg BASE=python:3.12-slim --build-arg SPICA_EXTRAS=analysis \
+  -t ghcr.io/rxavier/spica:dev-analysis .
 ```
 
 ## Building the image yourself

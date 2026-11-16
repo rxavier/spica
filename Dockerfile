@@ -1,4 +1,8 @@
-FROM python:3.12-slim AS builder
+# The picker runs on Alpine (numpy and the pure-Python stack have musl wheels); the
+# analyser needs glibc, because onnxruntime and essentia publish manylinux wheels only.
+# Build the analyser with BASE=python:3.12-slim SPICA_EXTRAS=analysis.
+ARG BASE=python:3.12-alpine
+FROM ${BASE} AS builder
 
 # The picker's half is numpy (to read vectors); the analyser's half adds
 # onnxruntime and essentia. Build the worker with SPICA_EXTRAS=analysis.
@@ -13,7 +17,7 @@ ARG SPICA_EXTRAS=vectors
 RUN uv sync --frozen --no-dev --no-install-project --extra "$SPICA_EXTRAS"
 
 # The runtime image keeps the venv and the code, not uv or its wheel cache.
-FROM python:3.12-slim
+FROM ${BASE}
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
