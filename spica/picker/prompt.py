@@ -115,12 +115,22 @@ def system_prompt(station: config.Station, roster: dict, table: bool = False) ->
             "speech about the music, not as a report about your choice. No artist twice in "
             "one set, nothing already playing or queued."
         )
+        bits.append(
+            "The first track is the one that follows what is on air: open from Continue the "
+            "Flow, or from a record within about 0.15 energy of it. If you deliberately turn "
+            "instead, say so in the line. After the first, move one axis at a time; the other "
+            "groups are for later in the set, and the closer comes last."
+        )
         bits.append(SET_MOVES)
         bits.append(
-            "The table is an offer, not a setlist: more records than a set needs, in four "
+            "The table is an offer, not a setlist: more records than a set needs, in five "
             "directions. The groups are directions — continue, move one axis, change it up, "
-            "land — not a running order. Take the trajectory you want, in the order it "
-            "should air, and leave the rest."
+            "land, the one everyone knows — not a running order. Take the trajectory you "
+            "want, in the order it should air, and leave the rest."
+        )
+        bits.append(
+            "If the line names the record you are following, that record is the one on air "
+            "now — never one from several songs back, even if it is in the timeline."
         )
         bits.append(SET_CONTRACT_TABLE)
         return "\n\n".join(bits)
@@ -128,7 +138,8 @@ def system_prompt(station: config.Station, roster: dict, table: bool = False) ->
     bits.append(
         "The brief tells you what is on air, what came before it and what is already queued. "
         "For anything further back — the last half hour, what you played before the current "
-        "record — call history."
+        "record — call history. If your line names the record it follows, that record is the "
+        "one on air now, never one from several songs back."
     )
     bits.append(
         "Choose a set, not a single record: between three and ten tracks, in the order "
