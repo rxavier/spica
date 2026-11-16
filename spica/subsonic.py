@@ -196,3 +196,18 @@ def download(song_id: str, target: Path) -> Path:
     with urllib.request.urlopen(stream_url(song_id), timeout=120) as r:
         target.write_bytes(r.read())
     return target
+
+
+def download_transcoded(song_id: str, target: Path, bitrate: int = 96,
+                        fmt: str = "mp3") -> Path:
+    """Fetch a track for analysis rather than for listening.
+
+    Analysis works at 16 kHz mono, so asking Navidrome for a small MP3 costs a
+    fraction of the bytes of the original FLAC and changes nothing the models see.
+    """
+    query = urllib.parse.urlencode({
+        **_auth(), "id": song_id, "format": fmt, "maxBitRate": str(int(bitrate)),
+    })
+    with urllib.request.urlopen(f"{_base()}/rest/stream?{query}", timeout=120) as r:
+        target.write_bytes(r.read())
+    return target

@@ -152,6 +152,19 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   had its turn in hours is not excluded by a stratification that never thinks about
   time. The point is that a smaller version of the station is a better brief than a
   larger version of the model's taste: given a list, the DJ plays from the list.
+- **Audio analysis, optional and off by default.** With `SPICA_ANALYSIS=1` the worker
+  streams each track once through Navidrome at 96 kbit/s and stores what it sounds like:
+  a Discogs-EffNet embedding, the 400 Discogs style probabilities, ten mood/danceability/
+  timbre/voice heads, tempo with confidence and key (plus EBU R128 loudness and dynamic
+  range, opt-in). The offer to the DJ becomes **records, not artists**: about thirty-two
+  tracks in four directions — continue the flow, move one axis, change it up, land it —
+  each with style, tempo, key and energy, and the ids written in front, so a set is one
+  model call and no lookups. Listener requests still go through the tools, where a name
+  can be searched. `similar` answers from the vectors first, and the fallback artist
+  shelf's "sounds too like what is playing" rule stops depending on whether Last.fm
+  happens to name an artist you own. ONNX on the CPU, about 4 s of CPU per track
+  (four-minute cap, extra DSP off) — roughly 2–3 h for a 5,000-track library on four
+  cores — models downloaded once. Off, nothing below changes.
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
   then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
   provider is required; a library with no ids and no API key still gets an answer. The
@@ -197,12 +210,17 @@ Deliberate omissions, not backlog:
 - **No transcoding ladder.** Every stream is one encoder at a fixed bitrate; there is no
   adaptive switching inside a stream, no per-listener negotiation, and no bitrate
   dial — the mount name is the extension.
-- **No tempo.** A BPM axis was prototyped and dropped: on synthetic click tracks with
-  exact ground truth the best estimator got 20 of 24, failing precisely on the
-  slow-tempo-versus-half-time case that "play something slower" depends on, and 70% on a
-  real library. No BPM field, tool parameter or station rule exists.
-- **No mood or energy metric.** Loudness was measured and rejected as a proxy: in
-  measurement it separated albums by mastering level, not tracks by intensity.
+- **No tempo unless analysis is on.** A BPM axis alone was prototyped and dropped: on
+  synthetic click tracks with exact ground truth the best estimator got 20 of 24,
+  failing precisely on the slow-tempo-versus-half-time case that "play something
+  slower" depends on, and 70% on a real library. The optional analysis stores tempo
+  *with its confidence* and the brief treats it as a hint, never a rule — tempo is one
+  signal among several, not the axis.
+- **No mood or energy metric in the base install.** Loudness was measured and rejected
+  as a proxy: in measurement it separated albums by mastering level, not tracks by
+  intensity. With analysis on, energy comes from trained heads rather than from
+  loudness, and loudness is stored as loudness — for context and normalisation, not as
+  intensity.
 - **No play-counts of yours.** The popularity lean reads public ListenBrainz and Last.fm
   totals — never your Navidrome history, which is not consulted at all.
 - **No multi-user auth, no HA, no failover.** One host, one library.
@@ -226,6 +244,12 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
 - **The whole stack idle** — picker, worker, Icecast and both station clocks — is about
   4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
   0.2%.
+
+**Audio analysis is off by default.** Turned on, each analysis process uses about
+0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap, `SPICA_ANALYSIS_DEEP`
+off), so a 5,000-track backfill is a couple of hours once — after that only new tracks
+are analysed. Decoding scales with track length even under the cap, so a 20-minute
+track costs more than five four-minute ones. The DJ itself stays invisible.
 
 For scale: the generated `icecast.xml` allows 25 concurrent clients and 40 sources. Both
 are in the file, not compiled in.
@@ -622,7 +646,7 @@ page uses.
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
-| GET | `/coverage` | how much of the library has genres, and what is missing |
+| GET | `/coverage` | how much of the library has genres (and audio analysis, when it is on), and what is missing |
 | GET | `/genres` | genres with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
@@ -637,7 +661,7 @@ page uses.
 | GET | `/listen/<station>` | the default stream, relayed and opened on demand |
 | GET | `/listen/<station>/<codec>` | one stream: `mp3`, `opus` or `flac` |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
-| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh"}` |
+| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh" \| "analysis"}` |
 | GET | `/jobs` | recent jobs with progress |
 | DELETE | `/requests/<station>` | clear the station's live requests |
 
@@ -664,6 +688,15 @@ the keys, and that is the file to start from.
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
 | `LASTFM_KEY` | optional: name-based similarity and tag backfill |
 | `MB_USER_AGENT` | optional: contact string for MusicBrainz |
+| `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker (the image ships the extra) |
+| `SPICA_ANALYSIS_TEMPO` | `degara` (fast, default) or `multifeature` (more accurate, ~3× CPU) |
+| `SPICA_ANALYSIS_SLICE` | tracks analysed per job (default `200`); other jobs interleave |
+| `SPICA_ANALYSIS_WORKERS` | processes for one analysis job (default `2`); each needs ~0.5 GB |
+| `SPICA_ANALYSIS_BATCH` | mel patches per inference (default `32`); raise it only with RAM to spare |
+| `SPICA_ANALYSIS_THREADS` | ONNX threads per analysis process (default `2`) |
+| `SPICA_ANALYSIS_MAX_SECONDS` | how much of each track to analyse (default `240`; `0` = all) |
+| `SPICA_ANALYSIS_DEEP` | also compute loudness, classic danceability, dynamic complexity (off by default; nothing reads them yet) |
+| `SPICA_ANALYSIS_BITRATE` | bitrate of the transcode analysis streams (default `96`) |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
@@ -719,6 +752,10 @@ a rebuild also re-canonicalises every genre.
 `state/` holds everything that survives a restart:
 
 - `index.db`: SQLite projection of the library. Disposable, rebuilt from Navidrome.
+- `analysis.db` and `models/`: the optional audio analysis — per-track vectors, styles,
+  tempo, key and loudness, one vector per artist, and the ONNX weights that produced
+  them. Its own file because the index is disposable and this is an hour of CPU:
+  deleting it only costs a re-analysis.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
 - `plans/<station>.json`: the set being played out — its line, its ids, and the shelf it

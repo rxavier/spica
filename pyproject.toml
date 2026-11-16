@@ -12,9 +12,20 @@ dependencies = [
     "mutagen>=1.47",
 ]
 
+[project.optional-dependencies]
+# Audio analysis (SPICA_ANALYSIS=1). Optional on purpose: without it the DJ works
+# from names, genres, years and similarity alone, and the image is ~100 MB smaller.
+# essentia is pinned because newer builds on PyPI are Python 3.14-only wheels.
+analysis = [
+    "numpy>=1.26",
+    "onnxruntime>=1.20",
+    "essentia==2.1b6.dev1389",
+]
+
 [dependency-groups]
-# Tests only: no test may reach the network, a model, or a real station.
-dev = ["pytest>=8.3"]
+# Tests only: no test may reach the network, a model, or a real station. numpy is
+# here so the analysis plumbing tests (vectors, neighbours) run, not just skip.
+dev = ["pytest>=8.3", "numpy>=1.26"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -8,7 +8,15 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# The analysis extra is installed by default so the published image can be turned on
+# at runtime with SPICA_ANALYSIS=1; nothing imports it unless that flag is set.
+# Build with --build-arg SPICA_ANALYSIS=0 for the smaller image.
+ARG SPICA_ANALYSIS=1
+RUN if [ "$SPICA_ANALYSIS" = "1" ]; then \
+        uv sync --frozen --no-dev --no-install-project --extra analysis; \
+    else \
+        uv sync --frozen --no-dev --no-install-project; \
+    fi
 
 COPY spica ./spica
 

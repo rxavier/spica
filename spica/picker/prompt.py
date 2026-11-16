@@ -7,7 +7,7 @@ rebuilt per pick from the station's own description and reach.
 from __future__ import annotations
 
 from .. import config
-from .llm import SET_CONTRACT
+from .llm import SET_CONTRACT, SET_CONTRACT_TABLE
 
 
 DEFAULT_PERSONA = """\
@@ -46,7 +46,20 @@ def persona() -> str:
     return text
 
 
-def system_prompt(station: config.Station, roster: dict) -> str:
+SET_MOVES = (
+    "A set moves. Every track should change at least one of these from the one "
+    "before it: energy, era, density, genre. Change none and it is one song "
+    "repeated with different titles; change all four at once and it is a shuffle. "
+    "One axis at a time, and across the set at least two genres and two decades. "
+    "Following the last record with something that picks up where it left off is "
+    "one move among several: you can also move away, contrast, jump an era, change "
+    "the temperature, or answer a quiet song with a loud one. When the last few "
+    "records came out of the same corner, that is a reason to leave it, not a "
+    "thread to keep pulling."
+)
+
+
+def system_prompt(station: config.Station, roster: dict, table: bool = False) -> str:
     """Persona from the operator, then what this station is, then the mechanics.
 
     The station block ends with the racks themselves — the labels with their weights
@@ -89,6 +102,29 @@ def system_prompt(station: config.Station, roster: dict) -> str:
     else:
         bits.append(f"There are about {roster.get('tracks', 0)} tracks within reach.")
 
+    if table:
+        bits.append(
+            "The brief carries the timeline and the table for this set: records with their "
+            "ids, grouped by the direction each one takes. Every id must come from that "
+            "table — nothing else can air — and no lookups are needed."
+        )
+        bits.append(
+            "Choose a set, not a single record: between three and ten tracks, in the order "
+            "they should air, and one line that says what the set is and where it is going. "
+            "That line is what listeners read under each of those songs, so write it as "
+            "speech about the music, not as a report about your choice. No artist twice in "
+            "one set, nothing already playing or queued."
+        )
+        bits.append(SET_MOVES)
+        bits.append(
+            "The table is an offer, not a setlist: more records than a set needs, in four "
+            "directions. The groups are directions — continue, move one axis, change it up, "
+            "land — not a running order. Take the trajectory you want, in the order it "
+            "should air, and leave the rest."
+        )
+        bits.append(SET_CONTRACT_TABLE)
+        return "\n\n".join(bits)
+
     bits.append(
         "The brief tells you what is on air, what came before it and what is already queued. "
         "For anything further back — the last half hour, what you played before the current "
@@ -104,17 +140,7 @@ def system_prompt(station: config.Station, roster: dict) -> str:
         "queued and no artist twice in one set — unless somebody asked for exactly that, "
         "because two songs off one album is a good set when a listener wants it."
     )
-    bits.append(
-        "A set moves. Every track should change at least one of these from the one "
-        "before it: energy, era, density, genre. Change none and it is one song "
-        "repeated with different titles; change all four at once and it is a shuffle. "
-        "One axis at a time, and across the set at least two genres and two decades. "
-        "Following the last record with something that picks up where it left off is "
-        "one move among several: you can also move away, contrast, jump an era, change "
-        "the temperature, or answer a quiet song with a loud one. When the last few "
-        "records came out of the same corner, that is a reason to leave it, not a "
-        "thread to keep pulling."
-    )
+    bits.append(SET_MOVES)
     bits.append(
         "The brief names the artists on the shelf for this set. Every track comes from "
         "one of them, no artist twice, and nothing outside the list will air whatever it "

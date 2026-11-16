@@ -104,4 +104,6 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
-    mem_limit: 512m
+    # Idle, the worker needs almost nothing. Audio analysis (SPICA_ANALYSIS=1) adds
+    # ~0.5-0.7 GB per analysis process, two by default.
+    mem_limit: 2g

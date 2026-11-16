@@ -36,6 +36,39 @@ MB_USER_AGENT = os.environ.get(
 )
 LASTFM_KEY = os.environ.get("LASTFM_KEY", "")
 
+# --- optional audio analysis ----------------------------------------------
+# Off by default. Turning it on needs the `analysis` extra in the image and this
+# flag set for the worker; nothing else changes for an installation that leaves it
+# alone — no models downloaded, no jobs queued, no fields added to tool rows.
+ANALYSIS = os.environ.get("SPICA_ANALYSIS", "").strip().lower() in ("1", "true", "yes", "on")
+ANALYSIS_MODELS_DIR = STATE_DIR / "models"
+# "degara" is the fast tempo tracker; "multifeature" is more accurate and ~3x the
+# CPU. Either is stored with its confidence — tempo is a hint, never a rule.
+ANALYSIS_TEMPO = os.environ.get("SPICA_ANALYSIS_TEMPO", "degara")
+# Tracks per job slice: enough to make progress, few enough that popularity and
+# MusicBrainz jobs are not starved behind a multi-hour backfill.
+ANALYSIS_SLICE = int(os.environ.get("SPICA_ANALYSIS_SLICE", "200"))
+# Processes for one analysis job. Each carries its own ONNX sessions (~500 MB at the
+# default batch); raise the worker's mem_limit to match, or leave it at two.
+ANALYSIS_WORKERS = int(os.environ.get("SPICA_ANALYSIS_WORKERS", "0")) or min(2, os.cpu_count() or 1)
+# Patches per ONNX forward pass. One patch is 128 mel frames (~2 s of audio at a ~1 s
+# stride), so 32 means a few dozen at a time; 256 (a whole track) is the same speed
+# and peaks at ~1.7 GB instead of ~0.5 GB, because the activation tensors scale with it.
+ANALYSIS_BATCH = int(os.environ.get("SPICA_ANALYSIS_BATCH", "32"))
+# ONNX threads per analysis process. The network is the only part that scales with
+# threads; tempo and key are single-threaded, so two is the useful default.
+ANALYSIS_THREADS = int(os.environ.get("SPICA_ANALYSIS_THREADS", "2"))
+# Analyse at most this many seconds of each track. The models average 2 s patches
+# over the track, and four minutes is representative; 0 analyses the whole file.
+ANALYSIS_MAX_SECONDS = int(os.environ.get("SPICA_ANALYSIS_MAX_SECONDS", "240"))
+# Extra DSP that nothing in the picker reads (EBU R128 loudness, classic
+# danceability, dynamic complexity). Together they cost a quarter of the pass, so
+# they are opt-in; the models' own energy/mood heads are what the DJ uses.
+ANALYSIS_DEEP = os.environ.get("SPICA_ANALYSIS_DEEP", "").strip().lower() in ("1", "true", "yes", "on")
+# The analyser streams a low-bitrate transcode rather than the original file: at
+# 16 kHz mono the features are unaffected and Navidrome sends ~40x fewer bytes.
+ANALYSIS_BITRATE = int(os.environ.get("SPICA_ANALYSIS_BITRATE", "96"))
+
 # --- web UI ---------------------------------------------------------------
 # Admin side is one password; listener side is public by design.
 ADMIN_PASSWORD = os.environ.get("SPICA_ADMIN_PASSWORD", "")

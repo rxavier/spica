@@ -13,8 +13,9 @@ import secrets
 from .. import config, icecast, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
 from . import shelf as shelf_module
+from . import table as table_module
 from .library import Library
-from .llm import ANSWER_NOW, SET_CONTRACT, chat, fit, json_object
+from .llm import ANSWER_NOW, SET_CONTRACT, SET_CONTRACT_TABLE, chat, fit, json_object
 from .prompt import system_prompt
 from .schemas import TOOLS, Pick
 
@@ -198,11 +199,25 @@ def plan_pick(
     # queued and the ones that sound most like the three tracks either side of this set
     # are not on it — so the brief never has to say what played, and the list cannot be
     # read as a cast list of "names to get through".
+    # With analysis on, the offer is records, not artists: four directions, ids in
+    # front, one call and no lookups. Without it, the artist shelf is unchanged.
+    table = None
     shelf_names: list[str] = []
     if not request_text:
+        table = table_module.build(lib, station)
+    if table:
+        lines.append(table_module.render(table))
+        shelf_names = list(table["artists"])  # rotation memory, as before
+    elif not request_text:
         drawn = shelf_module.build(lib, station)
         shelf_names = [item["artist"] for item in drawn]
-    if shelf_names:
+    if not table and shelf_names:
+        # When analysis ran, the shelf arrives with what it sounds like: the names
+        # alone ask the model to recall artists it may not know, and for a local
+        # collection that recall is exactly what is missing.
+        sound = lib.sound_line(shelf_names) if callable(getattr(lib, "sound_line", None)) else ""
+        if sound:
+            lines.append(sound)
         lines.append(
             "On the shelf for this set, and nothing else: " + ", ".join(shelf_names) + "."
         )
@@ -223,7 +238,7 @@ def plan_pick(
     )
 
     messages: list[dict] = [
-        {"role": "system", "content": system_prompt(station, lib.roster(station))},
+        {"role": "system", "content": system_prompt(station, lib.roster(station), table=bool(table))},
         {
             "role": "user",
             "content": (
@@ -236,7 +251,8 @@ def plan_pick(
 
     brief = messages[1]["content"] if len(messages) > 1 else ""
     called: list[dict] = []
-    allowed = {navidrome.name_key(name) for name in shelf_names} or None
+    allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
+    allowed_ids = set(table["ids"]) if table else None
 
     def finish(content: str) -> Pick | None:
         """Turn a reply into a stored set.
@@ -245,7 +261,8 @@ def plan_pick(
         every artist has to be on it, and none of them twice. Everything else — how
         many tracks, which records, the order, the line — is the DJ's.
         """
-        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed)
+        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed,
+                               allowed_ids=allowed_ids)
         if not ids:
             return None
         # The set is stored before its first track is handed over: the next call finds
@@ -258,6 +275,21 @@ def plan_pick(
         pick.brief, pick.tools = brief, tuple(called)
         pick.reply = (content or "")[:500]
         pick.shelf = tuple(shelf_names)
+        return pick
+
+    if table:
+        # One call, no tools: the table already carries every id that may air.
+        msg = chat(messages, [], no_tools=True)
+        pick = finish(msg.get("content") or "")
+        if pick is None:
+            messages.append({"role": "assistant", "content": msg.get("content") or ""})
+            messages.append({
+                "role": "user",
+                "content": "That reply could not be used. " + SET_CONTRACT_TABLE
+                + " Every id must be one of the table's, no artist twice, and nothing "
+                "already playing or queued.",
+            })
+            pick = finish(chat(messages, [], no_tools=True).get("content") or "")
         return pick
 
     for round_no in range(MAX_TOOL_ROUNDS + 1):
@@ -340,7 +372,7 @@ def plan_pick(
 
 def parse_set(
     lib: Library, content: str, avoid: set[str], station: config.Station,
-    allowed: set[str] | None = None,
+    allowed: set[str] | None = None, allowed_ids: set[str] | None = None,
 ) -> tuple[str, list[str]]:
     """The set the model chose: one line, and the ids that can actually play.
 
@@ -369,13 +401,15 @@ def parse_set(
         if not lib.on_station(station, track_id):
             continue
         who = navidrome.name_key(getattr(track, "album_artist", "") or track.artist)
-        if allowed is not None:
-            if who not in allowed:
-                continue
-            # One artist a set, in normal rotation. A request is exempt: two songs off
-            # the album somebody asked for is a good set, not a repeat.
-            if who in used:
-                continue
+        # The table path restricts by id; the shelf path restricts by artist. Both
+        # keep "one artist a set". A request passes neither and is exempt: two songs
+        # off the album somebody asked for is a good set, not a repeat.
+        if allowed_ids is not None and track_id not in allowed_ids:
+            continue
+        if allowed is not None and who not in allowed:
+            continue
+        if (allowed is not None or allowed_ids is not None) and who in used:
+            continue
         used.add(who)
         ids.append(track_id)
     return theme, ids

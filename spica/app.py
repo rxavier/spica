@@ -454,10 +454,17 @@ async def aliases() -> dict:
 
 @app.get("/coverage")
 async def coverage() -> dict:
-    """What the DJ knows: genre coverage, with what is still missing."""
-    from . import jobs
+    """What the DJ knows: genre coverage, plus audio analysis when it is on."""
+    from . import analysis, jobs
 
-    return await asyncio.to_thread(jobs.coverage, lib().conn)
+    def _run() -> dict:
+        out = jobs.coverage(lib().conn)
+        extra = analysis.coverage_for(lib().conn)
+        if extra is not None:
+            out["analysis"] = extra
+        return out
+
+    return await asyncio.to_thread(_run)
 
 
 @app.post("/jobs")
