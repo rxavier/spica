@@ -109,19 +109,19 @@ With a local clone, set `SPICA_TAG=dev` so `compose.analysis.yaml` picks `dev-an
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.12.0`. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.13.0`. To build from source instead,
 replace the `image:` line in `init` and `picker` (and in `worker`, when analysis is off)
 with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.12.0
+    build: https://github.com/rxavier/spica.git#v0.13.0
 ```
 
 or, with a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.12.0 .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.13.0 .
 ```
 
 For audio analysis, build the analyser variant too and use the overlay; the build

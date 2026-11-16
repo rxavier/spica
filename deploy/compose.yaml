@@ -15,7 +15,7 @@ name: spica
 
 services:
   init:
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.12.0}
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.13.0}
     command: ["python", "-m", "spica.bootstrap"]
     user: "${PUID:-1000}:${PGID:-1000}"
     env_file: [.env]
@@ -65,7 +65,7 @@ services:
         condition: service_completed_successfully
 
   picker:
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.12.0}
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.13.0}
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]
@@ -91,7 +91,7 @@ services:
     # For SPICA_ANALYSIS=1 use compose.analysis.yaml: the worker then runs the
     # -analysis image, which carries onnxruntime and essentia. This image has the
     # picker's half (numpy) and reports the missing extra instead of failing.
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.12.0}
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.13.0}
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]
