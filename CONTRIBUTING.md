@@ -40,14 +40,17 @@ uv sync --group dev
 uv run pytest
 ```
 
+The project targets Python 3.14 (`.python-version`); `uv` picks it up, and the
+analysis extra is not needed for the tests.
+
 Hermetic on purpose: no model, no network, no Navidrome and no station. Every test
 points `SPICA_STATE` at a temporary directory, so none of them can touch a real
 `state/` — the directory that is on air. What is covered is the part that has to be
 right: what the code accepts as an answer and what it refuses, the set's life on disk,
 the picker's flow when a set exists or a request arrives, and the arithmetic behind the
-shelf — which artists it excludes, how the slots are shared out, and what happens when
-there are too few left. The prompt itself is not tested, because it belongs to whoever
-runs the station.
+shelf and the table — which artists it excludes, how the slots are shared out, the five
+directions, and what happens when there are too few left or analysis is partial. The
+prompt itself is not tested, because it belongs to whoever runs the station.
 
 A test that cannot fail is not worth its runtime: break the behaviour deliberately and
 watch the test go red before trusting it.

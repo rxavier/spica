@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from .. import analysis
 from .. import config
 from .. import jobs
 from .. import navidrome
@@ -74,11 +75,16 @@ async def admin_library(request: Request):
     except Exception as exc:  # Navidrome down, or the credentials are wrong
         scan, library_tracks = "", None
         library_error = f"Navidrome did not answer: {exc}"
+    coverage = jobs.coverage(conn)
+    analysis_coverage = analysis.coverage_for(conn)
+    if analysis_coverage is not None:
+        coverage["analysis"] = analysis_coverage
     return templates.TemplateResponse(
         request,
         "admin_library.html",
         {
-            "coverage": jobs.coverage(conn),
+            "coverage": coverage,
+            "analysis_enabled": analysis.enabled(),
             "jobs": jobs.recent(conn, 10),
             "index_tracks": conn.execute("SELECT count(*) FROM tracks").fetchone()[0],
             "library_tracks": library_tracks,

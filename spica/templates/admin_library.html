@@ -21,11 +21,29 @@
   <button type="submit">Recheck the library now</button>
 </form>
 
+{% if coverage.analysis %}
+<div class="notice">
+  <div class="muted">Sounds analyzed</div>
+  <div class="track">{{ coverage.analysis.percent }}%</div>
+  <div class="bar"><span style="width: {{ coverage.analysis.percent }}%"></span></div>
+  <div class="sub">{{ coverage.analysis.known }} of {{ coverage.analysis.total }} tracks · {{ coverage.analysis.remaining }} missing</div>
+  {% if coverage.analysis.stations %}
+  <div class="sub">per station: {% for id, c in coverage.analysis.stations.items() %}{{ id }} {{ c.percent }}%{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  {% endif %}
+</div>
+{% endif %}
+
 <h2>Jobs</h2>
 <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="popularity">
   <button type="submit">Fetch popularity (ListenBrainz + Last.fm)</button>
 </form>
+{% if analysis_enabled %}
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="analysis">
+  <button type="submit">Analyze the library's sound</button>
+</form>
+{% endif %}
 <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="musicbrainz">
   <button type="submit">Fetch MusicBrainz genres</button>

@@ -109,7 +109,7 @@ async def loop() -> None:
                     continue
                 queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                                   presence=presence.reason(st.id, n),
-                                  detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf)})
+                                  detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf), "path": p.path, "coverage": p.coverage})
                 # The pool is the fallback whenever the queue runs dry; push this pick
                 # to the end of it so the two sources cannot play it twice.
                 await asyncio.to_thread(pool.skip_past, [st], p.track.id)
@@ -293,7 +293,7 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                       presence=presence.reason(st.id, n),
-                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf)})
+                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf), "path": p.path, "coverage": p.coverage})
     LAST[st.id] = {"queued": p.track.as_line(), "why": p.why, "at": time.strftime("%H:%M:%S")}
     return p
 
@@ -347,7 +347,7 @@ async def force_pick(station_id: str) -> dict:
     n = icecast.total_listeners(states, st)
     queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
                       presence=presence.reason(st.id, n),
-                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf)})
+                      detail={"brief": p.brief, "tools": p.tools, "reply": p.reply, "shelf": list(p.shelf), "path": p.path, "coverage": p.coverage})
     return {"station": st.id, "track": p.track.as_line(), "why": p.why}
 
 
@@ -454,10 +454,17 @@ async def aliases() -> dict:
 
 @app.get("/coverage")
 async def coverage() -> dict:
-    """What the DJ knows: genre coverage, with what is still missing."""
-    from . import jobs
+    """What the DJ knows: genre coverage, plus audio analysis when it is on."""
+    from . import analysis, jobs
 
-    return await asyncio.to_thread(jobs.coverage, lib().conn)
+    def _run() -> dict:
+        out = jobs.coverage(lib().conn)
+        extra = analysis.coverage_for(lib().conn)
+        if extra is not None:
+            out["analysis"] = extra
+        return out
+
+    return await asyncio.to_thread(_run)
 
 
 @app.post("/jobs")

@@ -15,9 +15,14 @@ changed library and queues the follow-ups the new gaps call for.
 
 from __future__ import annotations
 
+import multiprocessing
+import os
 import sqlite3
 import sys
+import tempfile
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
 from . import bootstrap
 from . import genres as genre_lib
@@ -244,6 +249,149 @@ def run_similarity(conn, job_id: int, log=print) -> dict:
     return {"artists": total, "edges": edges}
 
 
+# ------------------------------------------------------- audio analysis (optional)
+#
+# The models live in the child processes, one set each, created after the fork: an
+# ONNX session is not shared safely across processes, and loading it once per worker
+# rather than once per track is the difference between minutes and hours.
+
+_ANALYZER = None
+
+
+def _analysis_init(models_dir: str, threads: int) -> None:
+    global _ANALYZER
+    from .analysis import Analyzer
+
+    _ANALYZER = Analyzer(Path(models_dir), threads=threads)
+
+
+def _fetch_audio(track_id: str, target: Path) -> Path:
+    """The bytes to analyse: the original by default, a small transcode if asked."""
+    if config.ANALYSIS_TRANSCODE:
+        return subsonic.download_transcoded(track_id, target, bitrate=config.ANALYSIS_BITRATE)
+    return subsonic.download(track_id, target)
+
+
+def _analysis_task(track_id: str) -> tuple[str, dict]:
+    """One track in a worker process: fetch the audio, analyse it, hand it back."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "track"
+        _fetch_audio(track_id, path)
+        return track_id, _ANALYZER.analyze(path)
+
+
+def run_analysis(conn, job_id: int, log=print) -> dict:
+    """Analyse a slice of the library: embeddings, styles, moods, tempo, key, loudness.
+
+    A slice, not the whole backlog. This job can run for hours and the other
+    follow-ups should not wait behind it: `main` requeues the leftover slice after
+    this one finishes, and because a claim takes the oldest queued job, a backfill
+    interleaves with popularity and MusicBrainz instead of starving them.
+    """
+    from . import analysis
+
+    if not config.ANALYSIS:
+        return {"tracks": 0, "note": "audio analysis is off (set SPICA_ANALYSIS=1)"}
+    if not analysis.installed():
+        return {"tracks": 0,
+                "note": "this image was built without the analysis extra; use the -analysis image"}
+    store = analysis.connect(create=True)
+    analysis.ensure_models(config.ANALYSIS_MODELS_DIR, log=log)
+
+    rows = analysis.todo(conn, store, config.ANALYSIS_SLICE)
+    total = len(rows)
+    jobs.progress(conn, job_id, 0, total)
+    if not total:
+        written = analysis.refresh_artists(conn, store)
+        return {"tracks": 0, "artists": written, "note": "every track is analyzed"}
+
+    tasks = [(row["id"], row["album_artist"] or row["artist"] or "") for row in rows]
+    workers = max(1, config.ANALYSIS_WORKERS)
+    done = failed = 0
+    errors: list[str] = []
+    started = time.time()
+
+    def take(track_id: str, artist: str, features: dict) -> None:
+        nonlocal done
+        analysis.save(store, track_id, navidrome.name_key(artist), features)
+        done += 1
+
+    def fetch_and_analyze(analyzer, track_id: str) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "track"
+            _fetch_audio(track_id, path)
+            return analyzer.analyze(path)
+
+    if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
+        context = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=context,
+            initializer=_analysis_init,
+            initargs=(str(config.ANALYSIS_MODELS_DIR), max(1, config.ANALYSIS_THREADS)),
+        ) as pool:
+            futures = {pool.submit(_analysis_task, track_id): (track_id, artist)
+                       for track_id, artist in tasks}
+            for i, future in enumerate(as_completed(futures), 1):
+                track_id, artist = futures[future]
+                try:
+                    _id, features = future.result()
+                    take(track_id, artist, features)
+                except Exception as exc:
+                    failed += 1
+                    errors.append(str(exc))
+                    log(f"analysis: {artist or track_id}: {exc}")
+                jobs.progress(conn, job_id, i, total)
+    else:
+        from .analysis import Analyzer
+
+        analyzer = Analyzer(config.ANALYSIS_MODELS_DIR, threads=min(4, os.cpu_count() or 1))
+        for i, (track_id, artist) in enumerate(tasks, 1):
+            try:
+                take(track_id, artist, fetch_and_analyze(analyzer, track_id))
+            except Exception as exc:
+                failed += 1
+                errors.append(str(exc))
+                log(f"analysis: {artist or track_id}: {exc}")
+            jobs.progress(conn, job_id, i, total)
+
+    if done:
+        analysis.refresh_artists(conn, store)
+    if total and not done:
+        # The per-track errors are in the log; the first one in the summary is what
+        # makes "the whole slice failed" diagnosable from the admin page.
+        detail = errors[0] if errors else "no track could be analyzed"
+        raise RuntimeError(f"no track could be analyzed ({failed} failed): {detail}")
+    return {"tracks": done, "failed": failed, "remaining": analysis.backlog(conn, store),
+            "seconds": int(time.time() - started)}
+
+
+def _analysis_due(conn) -> bool:
+    """The optional backfill has work and nothing is pending for it.
+
+    Deliberately not one of FOLLOWUPS: that rule fires on a backlog *growing*, and
+    an analysis backlog shrinking is progress, so it would never start. A recent
+    failure waits an hour, like any other job.
+    """
+    from . import analysis
+
+    if not config.ANALYSIS or not analysis.installed():
+        return False
+    if conn.execute(
+        "SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued','running')"
+    ).fetchone():
+        return False
+    last = jobs.last(conn, "analysis")
+    if last is not None and last["status"] == "failed":
+        if time.time() - float(last["finished_at"] or 0) < 3600:
+            return False
+    try:
+        return analysis.backlog(conn, analysis.connect(readonly=True)) > 0
+    except Exception as exc:
+        print(f"analysis: could not count the backlog: {exc}", flush=True)
+        return False
+
+
 def missing_similarity(conn) -> int:
     """Artists with nothing scored yet. Zero without a Last.fm key — there is nothing
     to ask, and a job queued for it would retry forever."""
@@ -272,7 +420,7 @@ def stale_reason(conn) -> str:
     return ""
 
 
-HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity}
+HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity, "analysis": run_analysis}
 
 # The follow-ups worth queueing when the index changes, in the order they matter:
 # MusicBrainz decides the genre for anything without a file tag, so it should be
@@ -311,6 +459,10 @@ def queue_followups(conn: sqlite3.Connection, seen: dict[str, int]) -> bool:
             jobs.create(conn, kind)
             return True
         seen[kind] = missing
+    if _analysis_due(conn):
+        print("audio analysis backlog — queueing", flush=True)
+        jobs.create(conn, "analysis")
+        return True
     return False
 
 
@@ -374,6 +526,10 @@ def main() -> int:
         try:
             result = HANDLERS[kind](conn, job_id)
             jobs.finish(conn, job_id, result)
+            # The rest of the slice goes to the back of the queue, so other job kinds
+            # queued in between get a turn instead of waiting behind the whole backfill.
+            if kind == "analysis" and (result or {}).get("remaining"):
+                jobs.create(conn, "analysis")
             print(f"job {job_id} {kind}: done {result}", flush=True)
         except Exception as exc:  # a bad job must not kill the worker
             jobs.fail(conn, job_id, str(exc))

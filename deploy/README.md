@@ -74,10 +74,44 @@ In the admin:
 5. **Settings** → an OpenAI-compatible endpoint, if you want the DJ. Without one
    the stations still play, in order, with no picks and no reasons.
 
+## Audio analysis
+
+The default image is the picker's half: numpy, to read vectors, and nothing else. It
+is built on Alpine (~200 MB); the analyser image must be Debian (glibc), because
+onnxruntime and essentia publish manylinux wheels only.
+The worker can run it, but with `SPICA_ANALYSIS=1` it reports that the image was built
+without the analysis extra. Analysis runs from the `-analysis` image, which also carries
+onnxruntime and essentia:
+
+```sh
+# .env
+SPICA_TAG=0.13.0
+SPICA_ANALYSIS=1
+
+docker compose -f compose.yaml -f compose.analysis.yaml up -d
+```
+
+`compose.analysis.yaml` only swaps the worker's image to
+`ghcr.io/rxavier/spica:<tag>-analysis`. The picker, init, Icecast and Liquidsoap keep
+the lean image. On first use the worker downloads the model weights into
+`state/models/` (~40 MB, CC BY-NC, not redistributable in an image) and starts the
+backfill; `/coverage` shows progress per station.
+
+If you build locally, build both:
+
+```sh
+docker build -t ghcr.io/rxavier/spica:dev .
+docker build --build-arg BASE=python:3.14-slim --build-arg SPICA_EXTRAS=analysis \
+  --build-arg SPICA_RUNTIME_DEPS=libatomic1 -t ghcr.io/rxavier/spica:dev-analysis .
+```
+
+With a local clone, set `SPICA_TAG=dev` so `compose.analysis.yaml` picks `dev-analysis`.
+
 ## Building the image yourself
 
 `compose.yaml` runs `ghcr.io/rxavier/spica:0.12.0`. To build from source instead,
-replace the `image:` line in each of `init`, `picker` and `worker` with:
+replace the `image:` line in `init` and `picker` (and in `worker`, when analysis is off)
+with:
 
 ```yaml
     build: https://github.com/rxavier/spica.git#v0.12.0
@@ -89,6 +123,11 @@ or, with a local clone:
 git clone https://github.com/rxavier/spica.git
 cd spica && docker build -t ghcr.io/rxavier/spica:0.12.0 .
 ```
+
+For audio analysis, build the analyser variant too and use the overlay; the build
+commands are in [Audio analysis](#audio-analysis) above. Set `SPICA_TAG=dev` with a
+local clone so the overlay picks `dev-analysis`; leave the worker on the overlay's image
+rather than a `build:` stanza. The other services keep the lean image.
 
 ## Behind a reverse proxy
 

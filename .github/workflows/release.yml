@@ -47,7 +47,35 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            SPICA_EXTRAS=vectors
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - id: meta-analysis
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/spica
+          flavor: |
+            suffix=-analysis
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE=python:3.14-slim
+            SPICA_EXTRAS=analysis
+            SPICA_RUNTIME_DEPS=libatomic1
+          tags: ${{ steps.meta-analysis.outputs.tags }}
+          labels: ${{ steps.meta-analysis.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

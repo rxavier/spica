@@ -51,6 +51,81 @@ class Library:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+        # The optional analysis store: None means the feature is off, and every
+        # caller below treats that as "behave exactly as before".
+        self._analysis_conn = None
+        self._analysis_at: float | None = None
+        self._analysis_features: dict = {}
+        self._vectors: dict = {}
+        self._vectors_at: float | None = None
+
+    def analysis_store(self):
+        """The read-only analysis store, reopened at most once a minute.
+
+        A separate file from the index on purpose: the index is disposable and the
+        analysis is an hour of CPU. Absent means analysis never ran here.
+        """
+        from .. import analysis
+
+        if not analysis.enabled():
+            return None
+        now = time.monotonic()
+        if self._analysis_at is None or now - self._analysis_at > 60:
+            try:
+                if self._analysis_conn is not None:
+                    self._analysis_conn.close()
+            except Exception:
+                pass
+            self._analysis_conn = analysis.connect(readonly=True)
+            self._analysis_at = now
+            self._analysis_features = analysis.feature_map(self._analysis_conn)
+        return self._analysis_conn
+
+    def _features(self) -> dict:
+        self.analysis_store()
+        return self._analysis_features
+
+    def track_vectors(self) -> dict:
+        """Every analysed track's unit embedding, cached until the store changes.
+
+        ~5 KB per track, which is the price of being able to ask "what sounds like
+        this" locally. Reloaded only when analysis.db is written to.
+        """
+        store = self.analysis_store()
+        if store is None:
+            return {}
+        from .. import analysis
+
+        try:
+            stamp = analysis.store_path().stat().st_mtime
+        except OSError:
+            return {}
+        if self._vectors_at != stamp:
+            self._vectors = analysis.vector_map(store)
+            self._vectors_at = stamp
+        return self._vectors
+
+    def sound_line(self, names: list[str]) -> str:
+        """One compact line on how the shelf sounds, or "" when analysis is off."""
+        if not names or self.analysis_store() is None:
+            return ""
+        from .. import analysis
+
+        try:
+            return analysis.shelf_sound(self._analysis_conn, names)
+        except Exception:
+            return ""
+
+    def _audio_artists(self, name: str, k: int) -> list[str]:
+        store = self.analysis_store()
+        if store is None:
+            return []
+        from .. import analysis
+
+        try:
+            return analysis.nearest_artists(store, name, k=k)
+        except Exception:
+            return []
 
     def rows_on_station(self, rows: list, station: config.Station | None) -> list:
         """Drop whatever the station's rules would not let on air.
@@ -535,6 +610,26 @@ class Library:
 
         ctx = self._context(station)
         recent = self._recent_act_keys(station)
+
+        # Audio first when it exists: it is local, free, and it can only name artists
+        # this library owns — the provider chains below happily name ones it does not.
+        audio_names = self._audio_artists(artist, k=12)
+        if audio_names:
+            keys = [navidrome.name_key(name) for name in audio_names]
+            marks = ",".join("?" for _ in keys)
+            rows = self.conn.execute(
+                f"SELECT * FROM tracks WHERE album_artist_key IN ({marks})", keys
+            ).fetchall()
+            rows = self.rows_on_station(rows, station)
+            if rows:
+                rows.sort(key=lambda r: self._act_key(r) in recent)
+                return {
+                    "source": "audio",
+                    "artists": audio_names[:10],
+                    "tracks": [self._row(r, ctx) for r in rows[: int(limit)]],
+                    "owned": True,
+                }
+
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
             marks = ",".join("?" for _ in names)
@@ -775,6 +870,7 @@ class Library:
             "ranks": self.popularity_ranks(rows),
             "played": played,
             "queued": queued,
+            "analysis": self._features(),
         }
 
     @staticmethod
@@ -790,7 +886,7 @@ class Library:
         """
         keys = row.keys()
         genres = ctx["labels"].get(row["id"]) or ([row["genre"]] if row["genre"] else [])
-        return {
+        item = {
             "id": row["id"],
             "title": row["title"],
             "artist": (row["album_artist"] if "album_artist" in keys else "") or row["artist"],
@@ -802,6 +898,19 @@ class Library:
             "played": row["id"] in ctx["played"],
             "queued": row["id"] in ctx["queued"],
         }
+        # Only when audio analysis has this track: an installation without it gets
+        # exactly the rows it always got.
+        hit = ctx.get("analysis", {}).get(row["id"])
+        if hit:
+            if hit.get("bpm"):
+                item["tempo"] = int(round(hit["bpm"]))
+            if hit.get("key"):
+                item["key"] = hit["key"]
+            if hit.get("sound"):
+                item["sound"] = hit["sound"]
+            if hit.get("energy") is not None:
+                item["energy"] = round(float(hit["energy"]), 2)
+        return item
 
     def _visible(self, rows: list, ctx: dict) -> list[dict]:
         """The rows of a page that fit the budget, so the count beside them is true."""

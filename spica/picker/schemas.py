@@ -27,6 +27,10 @@ class Pick:
     # The artists the set was allowed to come from, as offered. Logged with the pick so
     # "what was on the shelf at 23:14" is answerable later.
     shelf: tuple = ()
+    # Which offer produced the set, and how much of the station was analysed when it
+    # did: "shelf", "table", or "table-partial" (with a not-measured group).
+    path: str = ""
+    coverage: float | None = None
 
 
 TOOLS = [

@@ -5,7 +5,14 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one set
 
-One set is one `POST {base}/chat/completions` with six function schemas,
+There are two paths. With audio analysis off — or for a listener request — the set is
+the tool loop described below: six function schemas, forced lookups, an artist shelf.
+With analysis on and nobody asking for anything, the set is **one call with no tools**:
+the brief carries a table of records with their ids, grouped by direction (see
+[The table](#the-table)). The set contract, the line and the checks are the same; what
+changes is that the offer is made of tracks and no lookup is needed to name one.
+
+In the tool path, one set is one `POST {base}/chat/completions` with six function schemas,
 `temperature: 0.7`, `max_tokens: 4096`, `reasoning_effort: "low"`, a 90-second
 timeout, and
 
@@ -56,11 +63,16 @@ for:
 
 ## Why a set cannot skip a lookup
 
-Track ids exist only inside tool results. The brief carries titles and artists, never
-ids, and `parse_set` then requires each id to exist, to have a playable `uri`, to be
-outside the avoid window, to appear once, to be by an artist on the shelf, and to pass
-the station's own matcher — the same check the tools apply, so a guessed id cannot leave
-the palette either.
+In the tool path, track ids exist only inside tool results. The brief carries titles and
+artists, never ids, and `parse_set` then requires each id to exist, to have a playable
+`uri`, to be outside the avoid window, to appear once, to be by an artist on the shelf,
+and to pass the station's own matcher — the same check the tools apply, so a guessed id
+cannot leave the palette either.
+
+The table path is the deliberate exception: there the ids *are* the offer, written into
+the brief, and the reply needs no lookup. What replaces the grounding is a stricter
+membership check — every id must be one of the table's, so a guessed id still cannot
+air; the difference is that a legal id no longer costs a round trip.
 
 Two of those are the only things the code has ever decided about the *shape* of a set
 rather than the legality of a track: **every artist has to be on the shelf**, and **no
@@ -76,10 +88,72 @@ So a reply written without calling a tool can only pass by guessing 21-character
 Navidrome ids. `tool_choice: "required"` on round 0 makes that explicit instead of
 leaving a wasted retry as the failure mode.
 
+## The table
+
+`spica/picker/table.py`. Only with analysis on, and only for a set nobody requested.
+The unit of the offer is the **record**, not the artist: analysis is what makes two
+tracks by one act distinguishable, and the shelf used artists precisely because nothing
+here could do that.
+
+One call returns about thirty-two records in five directions, each row carrying its id,
+year, style, tempo, key, energy and how well its artist's audience knows it (`known`,
+`mid`, `deep cut`, or `unknown` when no provider has a count — always one of the four,
+never blank):
+
+- **Continue the flow** — closest to the on-air track's vector, within 0.2 energy, 20 bpm
+  and two Camelot steps. Energy alone is not temperature: an anthemic indie record and a
+  raw grunge one can sit at the same loudness and be a jarring transition.
+- **Move one axis** — one of tempo or energy moves, the rest holds.
+- **Change it up** — a different Discogs family, or the far end of the station.
+- **Land it** — calmer and slower than what is on air; a closer.
+- **The one everyone knows** — the top third of the artist's own catalogue, **within
+  the on-air record's Discogs family** (a nu-metal hit is not a familiar option in a
+  synth-pop set); station `popularity` decides how much of the table it gets (seven
+  slots on `hits`, four on `deep`).
+
+Constraints, so the table stays a smaller version of the station rather than a random
+draw: one record per artist across the whole table, at most three per label, two decades
+when the station can pay for it, and the longest-absent artists get a place. A direction
+with nothing honest to offer is dropped, not relabelled — "land it" on a track already
+at the floor of the station's energy simply does not appear. Excluded before drawing:
+the last five plays and their artists, what is queued and on air, and every artist
+offered on the previous table — rotation memory, as the shelf had.
+
+The on-air line in the brief carries that track's own numbers (`117 bpm · E min ·
+energy 0.13 · style`), so the row numbers beside each direction are comparable and the
+DJ can see how far a record actually moves. A calm track over 100 bpm shows both
+readings (`117 bpm (59 half-time)`): the tracker measures the subdivision, and the
+energy heads are what know the record is a ballad.
+
+The ids are in front of each row, so the reply costs one model call and no lookups.
+`parse_set` then enforces the table: ids outside it are dropped, no artist appears
+twice, and the station rules were already applied when the rows were drawn. A listener
+request never takes this path — it still goes through the tools, where a name can be
+searched.
+
+A table that cannot be drawn — too few analysed tracks, no usable anchor for the
+on-air track, or analysis off — returns None and the picker falls back to the artist
+shelf, unchanged.
+
+**Partial analysis is a normal state**, not an error: a backfill is hours long, and a
+new import is unanalysed until the worker catches up. Readiness is judged per station
+(90% of its tracks and 80% of its artists). Below that, the table is drawn from the
+measured records and gains one more group, **Not measured yet** — up to four unanalysed
+records (recent arrivals first, one per artist, no sonic numbers, only the metadata and
+the known/deep-cut tag), so new music is not invisible until analysis reaches it. The
+anchor must be a real one: the on-air track's vector or its artist's centroid. Without
+it the shelf takes over rather than the table guessing against station medians. The
+analysis backlog is ordered one track per artist first (newest arrivals first within
+an artist), so a half-finished backfill already has every artist's sound instead of
+only the first letters of the alphabet. Every pick records which path it took and the
+coverage it saw (`state/history/<station>.picks.jsonl`: `path`, `coverage`).
+
 ## The shelf
 
-A set is drawn from a named list of about a dozen artists, and the reply is checked
-against it. `spica/picker/shelf.py`, one call per set.
+This is the analysis-off path, and the fallback for a station with no usable anchor
+when analysis is on; a normal set with analysis uses the table above. A set is drawn
+from a named list of about a dozen artists, and the reply is checked against it.
+`spica/picker/shelf.py`, one call per set.
 
 **What is excluded, before any drawing.** The artists of the last five plays, the five
 queued tracks, what is on air, every artist on the previous set's shelf, and the three
@@ -192,6 +266,21 @@ needs:
   turn into *a hit / mid / a deep cut*.
 - `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
   `search` and `filter` return these rows flat; `history` adds `songs_ago` and `on_air`.
+
+When the optional audio analysis has run (`SPICA_ANALYSIS=1`), four more fields appear on
+the tracks it has heard — and nothing at all changes for a track it has not:
+
+```json
+{"id": "…", "tempo": 118, "key": "A min", "sound": "Nu-Disco / Funk", "energy": 0.81}
+```
+
+- `tempo` is beats per minute, rounded. A hint, not a rule: the estimator is
+  occasionally half or double, so the brief tells the DJ to read it as approximate.
+- `key` is the extracted key and mode, for harmonic sequencing.
+- `sound` is the two most probable Discogs styles — the vocabulary that survives
+  contact with a local collection where genre tags and the model's memory both thin out.
+- `energy` is a 0–1 axis derived from the trained mood/danceability heads (not from
+  loudness), for building an arc across a set.
 
 **`catalogue` is the exception, and deliberately lean.** It answers with albums, each
 carrying `album`, `year` and `genre` once, and inside it only what is needed to choose a
@@ -350,16 +439,20 @@ case-insensitively and come back spelled the way the library spells them.
 
 `{artist, limit?: 12}`
 
-Cached similar artists → ListenBrainz by MBID → Last.fm by name → shared local genre.
-Returns `{source, artists, tracks, owned}`; `owned: false` means the names are the
-answer, because the station holds none of their records.
+Audio vectors (when analysis is on) → cached similar artists → ListenBrainz by MBID →
+Last.fm by name → shared local genre. Returns `{source, artists, tracks, owned}`;
+`owned: false` means the names are the answer, because the station holds none of their
+records. The audio level is first and answers `source: "audio"`: it is local, costs
+nothing, and can only ever name artists this library owns — which the provider lists
+cannot promise.
 
 ## Known limits
 
-- **No audio features and no per-listener history.** Obscurity is inferred from what the
-  model knows about the artists, guided by the station brief. The only popularity signal
-  anywhere is public ListenBrainz and Last.fm totals, ranked inside each artist's own
-  catalogue; nothing is read from the listener's own plays.
+- **No audio features unless analysis is on, and no per-listener history.** Obscurity is
+  inferred from what the model knows about the artists, guided by the station brief. The
+  only popularity signal anywhere is public ListenBrainz and Last.fm totals, ranked
+  inside each artist's own catalogue; nothing is read from the listener's own plays.
+  Audio features are opt-in (`SPICA_ANALYSIS=1`), stored in `state/analysis.db`.
 - **Two different windows.** `avoid` and `history` share the forty-play window; the shelf
   looks at the last five plays, the five queued tracks and the three neighbours either
   side, because a set is a decision about the next few minutes, not about the night.

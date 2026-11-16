@@ -2,7 +2,7 @@
 name = "spica"
 version = "0.12.1"
 description = "Spica: multi-station internet radio from a local library, with a leather-and-brass face"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "httpx>=0.27",
     "fastapi>=0.115",
@@ -12,9 +12,21 @@ dependencies = [
     "mutagen>=1.47",
 ]
 
+[project.optional-dependencies]
+# The picker's half: it reads vectors and features, nothing else.
+vectors = ["numpy>=1.26"]
+# The analyser's half (SPICA_ANALYSIS=1): the DSP and the ONNX sessions. dev1438 is
+# the build with a 3.14 wheel; its DSP output matches dev1389 on the library.
+analysis = [
+    "numpy>=1.26",
+    "onnxruntime>=1.20",
+    "essentia==2.1b6.dev1438",
+]
+
 [dependency-groups]
-# Tests only: no test may reach the network, a model, or a real station.
-dev = ["pytest>=8.3"]
+# Tests only: no test may reach the network, a model, or a real station. numpy is
+# here so the analysis plumbing tests (vectors, neighbours) run, not just skip.
+dev = ["pytest>=8.3", "numpy>=1.26"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

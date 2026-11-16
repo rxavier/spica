@@ -40,6 +40,12 @@ ANSWER_NOW = (
     "No more lookups. " + SET_CONTRACT + " Use ids from the results you already have."
 )
 
+# The table path gives the ids in the brief and asks for no lookups at all.
+SET_CONTRACT_TABLE = (
+    'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
+    'what this set is and where it is going>", "ids": ["<id from the table>", ...]}'
+)
+
 
 def chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
           require_call: bool = False) -> dict:

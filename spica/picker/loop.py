@@ -9,22 +9,74 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
+from datetime import datetime, timezone
 
-from .. import config, icecast, mixer, navidrome, plan, queue
+from .. import analysis, config, icecast, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
 from . import shelf as shelf_module
+from . import table as table_module
 from .library import Library
-from .llm import ANSWER_NOW, SET_CONTRACT, chat, fit, json_object
+from .llm import ANSWER_NOW, SET_CONTRACT, SET_CONTRACT_TABLE, chat, fit, json_object
 from .prompt import system_prompt
 from .schemas import TOOLS, Pick
 
 
 MAX_TOOL_ROUNDS = 4
 
+# How much of the on-air track must be left before a new set is planned. The brief
+# anchors the set to what is on air; if the track ends while the model is thinking, the
+# set starts after the standby pool's next draw instead, chosen for a record nobody
+# heard. One model call is usually under a minute.
+MIN_LEAD_S = 60
+
 # How many of its own picks the brief repeats, with the reason it gave. Three is
 # enough to keep a thread going and to avoid the same opening twice in a night; more
 # would spend tokens on lines the listener has long forgotten.
 RECENT_PLAYS = 5
+
+
+def _sound_suffix(lib, track_id: str) -> str:
+    """The on-air track's numbers, so the table's directions are comparable.
+
+    Without them the model sees "continue the flow" as a label it has to trust; with
+    them it can see how far a row actually moved (and how far its own set did).
+    """
+    if not track_id:
+        return ""
+    try:
+        feature = lib._features().get(track_id) or {}
+    except Exception:
+        return ""
+    bits = []
+    if feature.get("bpm"):
+        bits.append(analysis.tempo_label(feature["bpm"], feature.get("energy")))
+    if feature.get("key"):
+        bits.append(feature["key"])
+    if feature.get("energy") is not None:
+        bits.append(f"energy {feature['energy']:.2f}")
+    if feature.get("sound"):
+        bits.append(feature["sound"])
+    return (" · " + " · ".join(bits)) if bits else ""
+
+
+def _enough_runway(lib, station) -> bool:
+    """Whether the on-air record has enough left to plan a set against it."""
+    plays = queue.recent(station, 1)
+    if not plays:
+        return True
+    entry = plays[-1]
+    track = lib.by_id(str(entry.get("id") or ""))
+    stamp = str(entry.get("t") or "")
+    duration = int(getattr(track, "duration", 0) or 0)
+    if track is None or not duration or not stamp:
+        return True
+    try:
+        started = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return True
+    return duration - (time.time() - started) >= MIN_LEAD_S
 
 
 def _count(result) -> int:
@@ -106,6 +158,11 @@ def plan_pick(
     avoid: set[str],
 ) -> Pick | None:
     """Ask the model for the next set, store it, and hand back its first track."""
+    # A request is answered now; a set can wait for the next record to settle. Planning
+    # against a track that ends mid-call is how a set ends up starting after the pool's
+    # next draw, anchored to a record the listener never heard.
+    if request_text is None and not _enough_runway(lib, station):
+        return None
     # One seed per set: `filter`'s order must hold still while the DJ is choosing, or
     # `offset` would page a different list every call. The next set reshuffles.
     lib.draw_seed = secrets.randbits(32)
@@ -153,20 +210,25 @@ def plan_pick(
         (e for e in recent if f"{e.get('title')} — {e.get('artist')}" == on_air), {}
     )
 
+    # What the anchor sounds like, once, so the table's numbers can be read against
+    # something. Raw `on_air` stays for the comparisons below.
+    on_air_id = str(live_entry.get("id") or (recent[0].get("id") if recent else "") or "")
+    display = on_air + _sound_suffix(lib, on_air_id)
+
     lines = []
     if on_air:
         # The song on air is part of the same record as the ones before it: if the DJ
         # chose it, its reason belongs here too, and if the station played it while the
         # DJ was offline, that is the fact worth stating.
         if live_entry.get("source") == "dj" and live_entry.get("why"):
-            lines.append(f"On air right now: {on_air}: {live_entry['why']}")
+            lines.append(f"On air right now: {display}: {live_entry['why']}")
         elif live_entry and live_entry.get("source") != "dj":
             lines.append(
-                f"On air right now: {on_air} (standby — the station started this while "
+                f"On air right now: {display} (standby — the station started this while "
                 "you were offline)."
             )
         else:
-            lines.append(f"On air right now: {on_air}.")
+            lines.append(f"On air right now: {display}.")
     else:
         lines.append("Nothing has played yet.")
 
@@ -198,11 +260,25 @@ def plan_pick(
     # queued and the ones that sound most like the three tracks either side of this set
     # are not on it — so the brief never has to say what played, and the list cannot be
     # read as a cast list of "names to get through".
+    # With analysis on, the offer is records, not artists: four directions, ids in
+    # front, one call and no lookups. Without it, the artist shelf is unchanged.
+    table = None
     shelf_names: list[str] = []
     if not request_text:
+        table = table_module.build(lib, station)
+    if table:
+        lines.append(table_module.render(table))
+        shelf_names = list(table["artists"])  # rotation memory, as before
+    elif not request_text:
         drawn = shelf_module.build(lib, station)
         shelf_names = [item["artist"] for item in drawn]
-    if shelf_names:
+    if not table and shelf_names:
+        # When analysis ran, the shelf arrives with what it sounds like: the names
+        # alone ask the model to recall artists it may not know, and for a local
+        # collection that recall is exactly what is missing.
+        sound = lib.sound_line(shelf_names) if callable(getattr(lib, "sound_line", None)) else ""
+        if sound:
+            lines.append(sound)
         lines.append(
             "On the shelf for this set, and nothing else: " + ", ".join(shelf_names) + "."
         )
@@ -223,7 +299,7 @@ def plan_pick(
     )
 
     messages: list[dict] = [
-        {"role": "system", "content": system_prompt(station, lib.roster(station))},
+        {"role": "system", "content": system_prompt(station, lib.roster(station), table=bool(table))},
         {
             "role": "user",
             "content": (
@@ -236,7 +312,8 @@ def plan_pick(
 
     brief = messages[1]["content"] if len(messages) > 1 else ""
     called: list[dict] = []
-    allowed = {navidrome.name_key(name) for name in shelf_names} or None
+    allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
+    allowed_ids = set(table["ids"]) if table else None
 
     def finish(content: str) -> Pick | None:
         """Turn a reply into a stored set.
@@ -245,7 +322,8 @@ def plan_pick(
         every artist has to be on it, and none of them twice. Everything else — how
         many tracks, which records, the order, the line — is the DJ's.
         """
-        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed)
+        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed,
+                               allowed_ids=allowed_ids)
         if not ids:
             return None
         # The set is stored before its first track is handed over: the next call finds
@@ -255,9 +333,27 @@ def plan_pick(
         if track is None or not track.uri:
             return None
         pick = Pick(track=track, why=theme, theme=theme)
+        pick.path = ("shelf" if table is None
+                     else ("table-partial" if table.get("partial") else "table"))
+        pick.coverage = table.get("coverage") if table else None
         pick.brief, pick.tools = brief, tuple(called)
         pick.reply = (content or "")[:500]
         pick.shelf = tuple(shelf_names)
+        return pick
+
+    if table:
+        # One call, no tools: the table already carries every id that may air.
+        msg = chat(messages, [], no_tools=True)
+        pick = finish(msg.get("content") or "")
+        if pick is None:
+            messages.append({"role": "assistant", "content": msg.get("content") or ""})
+            messages.append({
+                "role": "user",
+                "content": "That reply could not be used. " + SET_CONTRACT_TABLE
+                + " Every id must be one of the table's, no artist twice, and nothing "
+                "already playing or queued.",
+            })
+            pick = finish(chat(messages, [], no_tools=True).get("content") or "")
         return pick
 
     for round_no in range(MAX_TOOL_ROUNDS + 1):
@@ -340,7 +436,7 @@ def plan_pick(
 
 def parse_set(
     lib: Library, content: str, avoid: set[str], station: config.Station,
-    allowed: set[str] | None = None,
+    allowed: set[str] | None = None, allowed_ids: set[str] | None = None,
 ) -> tuple[str, list[str]]:
     """The set the model chose: one line, and the ids that can actually play.
 
@@ -369,13 +465,15 @@ def parse_set(
         if not lib.on_station(station, track_id):
             continue
         who = navidrome.name_key(getattr(track, "album_artist", "") or track.artist)
-        if allowed is not None:
-            if who not in allowed:
-                continue
-            # One artist a set, in normal rotation. A request is exempt: two songs off
-            # the album somebody asked for is a good set, not a repeat.
-            if who in used:
-                continue
+        # The table path restricts by id; the shelf path restricts by artist. Both
+        # keep "one artist a set". A request passes neither and is exempt: two songs
+        # off the album somebody asked for is a good set, not a repeat.
+        if allowed_ids is not None and track_id not in allowed_ids:
+            continue
+        if allowed is not None and who not in allowed:
+            continue
+        if (allowed is not None or allowed_ids is not None) and who in used:
+            continue
         used.add(who)
         ids.append(track_id)
     return theme, ids

@@ -18,7 +18,7 @@ import hashlib
 import statistics
 from collections import Counter, defaultdict
 
-from .. import enrich, mixer, navidrome, queue
+from .. import analysis, enrich, mixer, navidrome, queue
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
@@ -190,6 +190,20 @@ def _blocked(lib, station, profiles: dict[str, dict]) -> set[str]:
         for other, match in nearest:
             if match >= SIMILAR_FLOOR:
                 blocked.add(other)
+
+    # The same "sounds too like what is next" rule, from the audio vectors when the
+    # optional analysis ran. Worth having beside Last.fm rather than instead of it:
+    # the provider can only name artists this library does not own, so for more than
+    # half the roster its three nearest neighbours are unplayable and the rule does
+    # nothing. Audio neighbours are drawn from the library by construction.
+    store = lib.analysis_store() if callable(getattr(lib, "analysis_store", None)) else None
+    if store is not None:
+        try:
+            blocked |= analysis.audio_neighbours(
+                lib.conn, store, set(profiles), [a for a in around if a], k=SIMILAR_K
+            )
+        except Exception:  # analysis must never cost a pick
+            pass
     return blocked
 
 
