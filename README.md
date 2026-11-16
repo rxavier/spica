@@ -260,7 +260,8 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
 
 **Audio analysis is off by default and lives in its own image.** The picker runs the
 lean Alpine image (~200 MB; numpy, to read vectors); the worker's `-analysis` image
-(~480 MB, Debian for glibc) carries onnxruntime and essentia. Turned on, each analysis
+(~480 MB, Debian for glibc, amd64 only — essentia has no Linux arm64 wheel) carries
+onnxruntime and essentia. Turned on, each analysis
 process uses about 0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap,
 `SPICA_ANALYSIS_DEEP` off), so a 5,000-track backfill is a couple of hours once — after
 that only new tracks are analysed. Decoding scales with track length even under the cap,
@@ -688,7 +689,7 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.13.0` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.13.1` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
