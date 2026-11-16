@@ -79,7 +79,9 @@ In the admin:
 The default image is the picker's half: numpy, to read vectors, and nothing else. It
 is built on Alpine (~200 MB) for amd64 and arm64. The analyser image must be Debian
 (glibc), because onnxruntime and essentia publish manylinux wheels only, and it is
-amd64-only because essentia has no Linux arm64 wheel.
+amd64-only because essentia has no Linux arm64 wheel. On an arm64 host, add
+`platform: linux/amd64` under the worker in `compose.analysis.yaml` and enable amd64
+emulation; analysis will be slower. With analysis off, the lean image runs natively.
 The worker can run it, but with `SPICA_ANALYSIS=1` it reports that the image was built
 without the analysis extra. Analysis runs from the `-analysis` image, which also carries
 onnxruntime and essentia:
