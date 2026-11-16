@@ -13,8 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Audio analysis (SPICA_ANALYSIS=1). Optional on purpose: without it the DJ works
-# from names, genres, years and similarity alone, and the image is ~100 MB smaller.
+# The picker's half: it reads vectors and features, nothing else.
+vectors = ["numpy>=1.26"]
+# The analyser's half (SPICA_ANALYSIS=1): the DSP and the ONNX sessions.
 # essentia is pinned because newer builds on PyPI are Python 3.14-only wheels.
 analysis = [
     "numpy>=1.26",

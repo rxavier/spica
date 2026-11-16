@@ -68,6 +68,15 @@ def test_library_behaves_as_before_without_analysis(station, tmp_path):
     assert lib._audio_artists("Band A", k=3) == []
 
 
+def test_the_picker_needs_only_vectors(station, monkeypatch):
+    # The picker image has numpy and no onnxruntime/essentia; reading the store is
+    # all it does.
+    monkeypatch.setattr(config, "ANALYSIS", True)
+    monkeypatch.setattr(analysis, "installed", lambda: False)
+    assert analysis.readable() is True
+    assert analysis.enabled() is True
+
+
 # ------------------------------------------------------------------- the store
 
 def test_store_roundtrip_and_todo(station, tmp_path):

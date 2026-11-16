@@ -68,15 +68,26 @@ PATCH_HOP = 62
 
 # ------------------------------------------------------------------ availability
 
+def readable() -> bool:
+    """Can this process read the store? The picker needs only numpy for vectors."""
+    return np is not None
+
+
 def installed() -> bool:
+    """Can this process write the store? The analyser needs the full extra."""
     return np is not None and all(
         importlib.util.find_spec(mod) for mod in ("onnxruntime", "essentia")
     )
 
 
 def enabled() -> bool:
-    """Analysis is on only when the operator asked for it and the extra exists."""
-    return bool(config.ANALYSIS) and installed()
+    """Analysis is on only when the operator asked for it and vectors can be read.
+
+    The picker runs the lean image (numpy); the analyser runs the analysis image.
+    Requiring the full extra here made the picker carry onnxruntime and essentia for
+    a table it only reads vectors for.
+    """
+    return bool(config.ANALYSIS) and readable()
 
 
 def store_path() -> Path:

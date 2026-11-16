@@ -8,15 +8,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 COPY pyproject.toml uv.lock ./
-# The analysis extra is installed by default so the published image can be turned on
-# at runtime with SPICA_ANALYSIS=1; nothing imports it unless that flag is set.
-# Build with --build-arg SPICA_ANALYSIS=0 for the smaller image.
-ARG SPICA_ANALYSIS=1
-RUN if [ "$SPICA_ANALYSIS" = "1" ]; then \
-        uv sync --frozen --no-dev --no-install-project --extra analysis; \
-    else \
-        uv sync --frozen --no-dev --no-install-project; \
-    fi
+# The default image carries the picker's half (numpy, for reading vectors). The
+# analyser's half (onnxruntime + essentia) is a separate build so the always-on web
+# process does not carry ~400 MB it never imports:
+#   docker build --build-arg SPICA_EXTRAS=analysis -t …-analysis .
+ARG SPICA_EXTRAS=vectors
+RUN uv sync --frozen --no-dev --no-install-project --extra "$SPICA_EXTRAS"
 
 COPY spica ./spica
 

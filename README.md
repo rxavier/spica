@@ -248,7 +248,9 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
   4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
   0.2%.
 
-**Audio analysis is off by default.** Turned on, each analysis process uses about
+**Audio analysis is off by default and lives in a separate image layer.** The picker
+runs the lean image (numpy, to read vectors); only the worker's `-analysis` image
+carries onnxruntime and essentia (~400 MB). Turned on, each analysis process uses about
 0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap, `SPICA_ANALYSIS_DEEP`
 off), so a 5,000-track backfill is a couple of hours once — after that only new tracks
 are analysed. Decoding scales with track length even under the cap, so a 20-minute
@@ -691,7 +693,7 @@ the keys, and that is the file to start from.
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
 | `LASTFM_KEY` | optional: name-based similarity and tag backfill |
 | `MB_USER_AGENT` | optional: contact string for MusicBrainz |
-| `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker (the image ships the extra) |
+| `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker; the worker must run the `-analysis` image (see [deploy/README.md](deploy/README.md#audio-analysis)) |
 | `SPICA_ANALYSIS_TEMPO` | `degara` (fast, default) or `multifeature` (more accurate, ~3× CPU) |
 | `SPICA_ANALYSIS_SLICE` | tracks analysed per job (default `200`); other jobs interleave |
 | `SPICA_ANALYSIS_WORKERS` | processes for one analysis job (default `2`); each needs ~0.5 GB |

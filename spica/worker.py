@@ -290,8 +290,11 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
     """
     from . import analysis
 
-    if not analysis.enabled():
+    if not config.ANALYSIS:
         return {"tracks": 0, "note": "audio analysis is off (set SPICA_ANALYSIS=1)"}
+    if not analysis.installed():
+        return {"tracks": 0,
+                "note": "this image was built without the analysis extra; use the -analysis image"}
     store = analysis.connect(create=True)
     analysis.ensure_models(config.ANALYSIS_MODELS_DIR, log=log)
 
@@ -368,7 +371,7 @@ def _analysis_due(conn) -> bool:
     """
     from . import analysis
 
-    if not analysis.enabled():
+    if not config.ANALYSIS or not analysis.installed():
         return False
     if conn.execute(
         "SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued','running')"

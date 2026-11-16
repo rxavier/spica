@@ -825,6 +825,10 @@ analysis = [
     { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "onnxruntime" },
 ]
+vectors = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -841,11 +845,12 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
     { name = "mutagen", specifier = ">=1.47" },
     { name = "numpy", marker = "extra == 'analysis'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'vectors'", specifier = ">=1.26" },
     { name = "onnxruntime", marker = "extra == 'analysis'", specifier = ">=1.20" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
-provides-extras = ["analysis"]
+provides-extras = ["vectors", "analysis"]
 
 [package.metadata.requires-dev]
 dev = [

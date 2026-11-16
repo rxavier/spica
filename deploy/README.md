@@ -74,6 +74,34 @@ In the admin:
 5. **Settings** → an OpenAI-compatible endpoint, if you want the DJ. Without one
    the stations still play, in order, with no picks and no reasons.
 
+## Audio analysis
+
+The default image is the picker's half: numpy, to read vectors, and nothing else.
+The worker can run it, but with `SPICA_ANALYSIS=1` it will answer that the analysis
+extra is not installed. Analysis runs from the `-analysis` image, which also carries
+onnxruntime and essentia:
+
+```sh
+# .env
+SPICA_TAG=0.13.0
+SPICA_ANALYSIS=1
+
+docker compose -f compose.yaml -f compose.analysis.yaml up -d
+```
+
+`compose.analysis.yaml` only swaps the worker's image to
+`ghcr.io/rxavier/spica:<tag>-analysis`. The picker, init, Icecast and Liquidsoap keep
+the lean image. On first use the worker downloads the model weights into
+`state/models/` (~40 MB, CC BY-NC, not redistributable in an image) and starts the
+backfill; `/coverage` shows progress per station.
+
+If you build locally, build both:
+
+```sh
+docker build -t ghcr.io/rxavier/spica:dev .
+docker build --build-arg SPICA_EXTRAS=analysis -t ghcr.io/rxavier/spica:dev-analysis .
+```
+
 ## Building the image yourself
 
 `compose.yaml` runs `ghcr.io/rxavier/spica:0.12.0`. To build from source instead,

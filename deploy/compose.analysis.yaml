@@ -1,0 +1,9 @@
+# Overlay for audio analysis. The default worker image carries the picker's half
+# (numpy); this runs the worker on the image that also has onnxruntime and essentia.
+#
+#   docker compose -f compose.yaml -f compose.analysis.yaml up -d
+#
+# Set SPICA_ANALYSIS=1 in .env. The picker keeps the lean image and reads the vectors.
+services:
+  worker:
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.12.0}-analysis
