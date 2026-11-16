@@ -77,15 +77,18 @@ In the admin:
 ## Audio analysis
 
 The default image is the picker's half: numpy, to read vectors, and nothing else. It
-is built on Alpine (~200 MB); the analyser image must be Debian (glibc), because
-onnxruntime and essentia publish manylinux wheels only.
+is built on Alpine (~200 MB) for amd64 and arm64. The analyser image must be Debian
+(glibc), because onnxruntime and essentia publish manylinux wheels only, and it is
+amd64-only because essentia has no Linux arm64 wheel. On an arm64 host, add
+`platform: linux/amd64` under the worker in `compose.analysis.yaml` and enable amd64
+emulation; analysis will be slower. With analysis off, the lean image runs natively.
 The worker can run it, but with `SPICA_ANALYSIS=1` it reports that the image was built
 without the analysis extra. Analysis runs from the `-analysis` image, which also carries
 onnxruntime and essentia:
 
 ```sh
 # .env
-SPICA_TAG=0.13.0
+SPICA_TAG=0.13.1
 SPICA_ANALYSIS=1
 
 docker compose -f compose.yaml -f compose.analysis.yaml up -d
@@ -101,27 +104,28 @@ If you build locally, build both:
 
 ```sh
 docker build -t ghcr.io/rxavier/spica:dev .
-docker build --build-arg BASE=python:3.14-slim --build-arg SPICA_EXTRAS=analysis \
-  --build-arg SPICA_RUNTIME_DEPS=libatomic1 -t ghcr.io/rxavier/spica:dev-analysis .
+docker build --platform linux/amd64 --build-arg BASE=python:3.14-slim \
+  --build-arg SPICA_EXTRAS=analysis --build-arg SPICA_RUNTIME_DEPS=libatomic1 \
+  -t ghcr.io/rxavier/spica:dev-analysis .
 ```
 
 With a local clone, set `SPICA_TAG=dev` so `compose.analysis.yaml` picks `dev-analysis`.
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.13.0`. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.13.1`. To build from source instead,
 replace the `image:` line in `init` and `picker` (and in `worker`, when analysis is off)
 with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.13.0
+    build: https://github.com/rxavier/spica.git#v0.13.1
 ```
 
 or, with a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.13.0 .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.13.1 .
 ```
 
 For audio analysis, build the analyser variant too and use the overlay; the build

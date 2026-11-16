@@ -66,10 +66,12 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
 
+      # essentia has no Linux arm64 wheel, so only the lean image is multi-arch.
+      # The analyser stays amd64 until that changes.
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           build-args: |
             BASE=python:3.14-slim
