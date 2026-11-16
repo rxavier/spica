@@ -24,18 +24,45 @@ from collections import Counter
 from .. import analysis, mixer, navidrome, queue
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
-# still fit cheaply in one message (~3.5k characters, about 900 tokens).
-TARGETS = (("continue", 8), ("shift", 8), ("contrast", 8), ("land", 8))
+# still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
+# depends on the station's lean: a "hits" station gets a bigger familiar block, a
+# "deep" station a smaller one.
+TARGETS = (("continue", 7), ("shift", 6), ("contrast", 6), ("land", 6), ("known", 7))
 MIN_TABLE = 8
 PER_LABEL = 3  # one label cannot own the table
 ABSENCE = 40   # plays that count as "off the air"
+KNOWN = 0.66   # within-artist percentile that counts as "the one everyone knows"
+# Readiness for the full table, per station. Below this the table still runs, but with
+# an explicit "not measured yet" group so new music is not invisible.
+READY_TRACKS = 0.90
+READY_ARTISTS = 0.80
+UNMEASURED = 4
 
 LABELS = {
     "continue": ("Continue the flow", "closest to what is on air, same temperature"),
     "shift": ("Move one axis", "one thing changes — tempo, weight or colour — and the rest holds"),
     "contrast": ("Change it up", "a different family of sound; a deliberate turn"),
     "land": ("Land it", "calmer and slower than what is on air; a closer"),
+    "known": ("The one everyone knows", "the familiar song, not the deep cut"),
+    "unmeasured": ("Not measured yet", "no sonic data yet; offered so it is not invisible"),
 }
+
+
+def targets(station) -> tuple[tuple[str, int], ...]:
+    """The same thirty-two slots, weighted by how the station leans.
+
+    `popularity` on a station was only ever about the pool order; with the table it
+    decides how much of the offer is familiar. A hits station gets seven known
+    records, a deep one four, balanced six.
+    """
+    known = 7 if station.deep_bias < 0 else (4 if station.deep_bias > 0 else 6)
+    rest = 32 - known
+    base, extra = divmod(rest, 4)
+    names = ("continue", "shift", "contrast", "land")
+    return tuple(
+        [(name, base + (1 if i < extra else 0)) for i, name in enumerate(names)]
+        + [("known", known)]
+    )
 
 
 def build(lib, station) -> dict | None:
@@ -47,6 +74,16 @@ def build(lib, station) -> dict | None:
     features = lib._features()
     if not rows or not vectors or not features:
         return None
+
+    measured = [row for row in rows
+                if row["id"] in vectors and row["id"] in features]
+    coverage = len(measured) / len(rows) if rows else 0.0
+    all_artists = {navidrome.name_key(r["album_artist"] or r["artist"] or "")
+                   for r in rows}
+    known_artists = {navidrome.name_key(r["album_artist"] or r["artist"] or "")
+                     for r in measured}
+    artist_coverage = len(known_artists) / len(all_artists) if all_artists else 0.0
+    partial = coverage < READY_TRACKS or artist_coverage < READY_ARTISTS
 
     blocked = _blocked_artists(lib, station)
     played = queue.recent_ids(station, 40)
@@ -93,6 +130,7 @@ def build(lib, station) -> dict | None:
             "sound": feature.get("sound") or "",
             "family": feature.get("family") or "",
             "popularity": float(ranks.get(track_id, 0.5)),
+            "popularity_known": track_id in ranks,
             "absence": int(absence.get(key, ABSENCE * 6)),
             "vector": vector,
         })
@@ -100,17 +138,14 @@ def build(lib, station) -> dict | None:
         return None
 
     anchor = _anchor(lib, station, features, vectors)
-    if anchor is None:
-        anchor = {
-            "vector": _mean_vector([c["vector"] for c in candidates]),
-            "energy": _median([c["energy"] for c in candidates]),
-            "bpm": _median([c["bpm"] for c in candidates if c["bpm"]]),
-            "family": "",
-        }
+    if anchor is None or anchor.get("energy") is None:
+        # Without a real anchor the directions are guesses against the station median;
+        # the artist shelf is a better offer than that.
+        return None
     for candidate in candidates:
         candidate["sim"] = float(candidate["vector"] @ anchor["vector"])
 
-    groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0)
+    groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0, station)
     ids = [track["id"] for group in groups for track in group["tracks"]]
     if len(ids) < MIN_TABLE:
         return None
@@ -119,11 +154,26 @@ def build(lib, station) -> dict | None:
         for track in group["tracks"]:
             if track["artist"] not in artists:
                 artists.append(track["artist"])
+
+    if partial:
+        unknown = _unmeasured(rows, vectors, features, played, queued, on_air,
+                              blocked, set(navidrome.name_key(a) for a in artists),
+                              ranks, labels, UNMEASURED)
+        if unknown:
+            groups.append({"name": "unmeasured", "label": LABELS["unmeasured"][0],
+                           "note": LABELS["unmeasured"][1], "tracks": unknown})
+            ids += [track["id"] for track in unknown]
+            for track in unknown:
+                if track["artist"] not in artists:
+                    artists.append(track["artist"])
+
     return {
         "groups": groups,
         "ids": ids,
         "artists": artists,
         "anchor": {k: anchor.get(k) for k in ("energy", "bpm", "family")},
+        "coverage": round(coverage, 3),
+        "partial": partial,
     }
 
 
@@ -139,13 +189,19 @@ def render(table: dict) -> str:
         lines.append("")
         lines.append(f"{label} ({note}):")
         for track in group["tracks"]:
-            detail = " · ".join(part for part in (
-                str(track["year"] or ""),
-                track["sound"],
-                f"{round(track['bpm'])} bpm" if track["bpm"] else "",
-                track["key"],
-                f"energy {track['energy']:.2f}" if track["energy"] is not None else "",
-            ) if part)
+            if track.get("measured", True):
+                parts = (
+                    str(track["year"] or ""),
+                    track["sound"],
+                    analysis.tempo_label(track["bpm"], track["energy"]),
+                    track["key"],
+                    f"energy {track['energy']:.2f}" if track["energy"] is not None else "",
+                    _prominence(track["popularity"], track["popularity_known"]),
+                )
+            else:
+                parts = (str(track["year"] or ""), "not measured",
+                         _prominence(track["popularity"], track["popularity_known"]))
+            detail = " · ".join(part for part in parts if part)
             lines.append(
                 f"- {track['id']} · {track['artist']} — {track['title']}"
                 + (f" · {detail}" if detail else "")
@@ -155,7 +211,7 @@ def render(table: dict) -> str:
 
 # ------------------------------------------------------------------ the directions
 
-def _groups(candidates: list[dict], anchor: dict, seed: int) -> list[dict]:
+def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[dict]:
     used_ids: set[str] = set()
     used_artists: set[str] = set()
     label_counts: Counter = Counter()
@@ -201,32 +257,52 @@ def _groups(candidates: list[dict], anchor: dict, seed: int) -> list[dict]:
             return c["energy"] <= energy - 0.15
         return c["energy"] <= energy - 0.15 and c["bpm"] <= bpm + 5
 
-    by_sim = sorted(candidates, key=lambda c: (-c["sim"], -c["absence"]))
-    absent_first = sorted(candidates, key=lambda c: (-c["absence"], -c["sim"]))
+    # How strongly to favour the familiar end of the catalogue, from the station's
+    # own lean: +1 for hits, 0 balanced, -1 for deep.
+    lean = -station.deep_bias
+    by_sim = sorted(
+        candidates,
+        key=lambda c: (-(c["sim"] + 0.10 * lean * c["popularity"]), -c["absence"]),
+    )
 
     plans = {
+        # Continue may fall back to the nearest records: "closest to on air" is still
+        # true of them when nothing sits in the same energy band.
         "continue": [c for c in by_sim if same_band(c)] or by_sim,
-        "shift": [c for c in by_sim if one_axis(c)] or by_sim,
-        "contrast": [c for c in by_sim if turns(c)] or list(reversed(by_sim)),
+        "shift": [c for c in by_sim if one_axis(c)],
+        "contrast": [c for c in by_sim if turns(c)],
         "land": sorted(
             [c for c in candidates if lands(c)],
             key=lambda c: (c["energy"], -c["absence"]),
-        ) or by_sim,
+        ),
+        "known": sorted(
+            [c for c in candidates if c["popularity"] >= KNOWN],
+            key=lambda c: (-c["popularity"], -c["absence"]),
+        ),
     }
 
+    # One record per artist means the familiar block has to be drawn first or the
+    # directions before it can take every artist and leave it empty.
+    wanted = list(targets(station))
+    build_order = ([item for item in wanted if item[0] == "known"]
+                   + [item for item in wanted if item[0] != "known"])
     groups = []
-    for name, size in TARGETS:
+    for name, size in build_order:
+        if not plans[name]:
+            # Nothing honest to offer in this direction: drop it rather than hand over
+            # a block whose label is a lie. "Land it" on a track already at the floor
+            # of the station's energy is the case that made this necessary.
+            continue
         picked = take(plans[name], size)
-        groups.append({"name": name, "label": LABELS[name][0], "note": LABELS[name][1],
-                       "tracks": picked})
+        if picked:
+            groups.append({"name": name, "label": LABELS[name][0], "note": LABELS[name][1],
+                           "tracks": picked})
 
-    # A thin direction is topped up from whoever has been off the air longest, so the
-    # rotation memory survives a station where one corner dominates the vectors.
-    for group in groups:
-        if len(group["tracks"]) < 2:
-            group["tracks"] += take(absent_first, 3 - len(group["tracks"]))
+    _spread_decades(groups, plans, used_ids, used_artists, seed)
 
-    _spread_decades(groups, candidates, used_ids, used_artists, label_counts, seed)
+    # Display order is the narrative one: directions first, the familiar option last.
+    order = {name: i for i, (name, _size) in enumerate(wanted)}
+    groups.sort(key=lambda group: order.get(group["name"], 99))
 
     out = []
     for group in groups:
@@ -242,28 +318,86 @@ def _groups(candidates: list[dict], anchor: dict, seed: int) -> list[dict]:
     return out
 
 
-def _spread_decades(groups, candidates, used_ids, used_artists, label_counts, seed) -> None:
-    """Two decades on the table when the station can pay for it."""
+def _spread_decades(groups, plans, used_ids, used_artists, seed) -> None:
+    """Two decades on the table when the station can pay for it.
+
+    The replacement comes from the *same direction's* candidates, so the swap keeps
+    the label true: a different decade is not a reason to smuggle a dance record into
+    "continue the flow".
+    """
     decades = {c["decade"] for g in groups for c in g["tracks"] if c["decade"]}
     if len(decades) >= 2:
         return
-    for candidate in sorted(candidates, key=lambda c: _seed_key(seed, c["id"])):
-        if candidate["id"] in used_ids or not candidate["decade"] or candidate["decade"] in decades:
+    for group in sorted(groups, key=lambda g: -len(g["tracks"])):
+        for candidate in sorted(plans[group["name"]], key=lambda c: _seed_key(seed, c["id"])):
+            if (candidate["id"] in used_ids or candidate["artist_key"] in used_artists
+                    or not candidate["decade"] or candidate["decade"] in decades):
+                continue
+            if not group["tracks"]:
+                continue
+            dropped = group["tracks"][-1]
+            group["tracks"][-1] = candidate
+            used_ids.discard(dropped["id"])
+            used_ids.add(candidate["id"])
+            used_artists.discard(dropped["artist_key"])
+            used_artists.add(candidate["artist_key"])
+            return
+
+
+def _prominence(popularity: float, known: bool = True) -> str:
+    """How known the track is within its artist's catalogue — always, explicitly.
+
+    An empty tag was ambiguous: the model could read it as mid-catalogue, unknown, or
+    "not applicable", and it had no legend either way. Every row now says which of the
+    four it is.
+    """
+    if not known:
+        return "unknown"
+    if popularity >= KNOWN:
+        return "known"
+    if popularity <= 0.33:
+        return "deep cut"
+    return "mid"
+
+
+def _unmeasured(rows, vectors, features, played, queued, on_air, blocked,
+                used_artists, ranks, labels, limit) -> list[dict]:
+    """A few unanalysed records so a new import is not invisible until the worker runs.
+
+    They carry what metadata exists and no sonic numbers: the group's label says why.
+    """
+    out = []
+    seen = set(used_artists)
+    ordered = sorted(rows, key=lambda r: (-(int(r["fetched_at"] or 0)), r["id"]))
+    for row in ordered:
+        track_id = row["id"]
+        if track_id in played or track_id in queued or track_id == on_air:
             continue
-        # Swap it in for the last pick of the longest group, so no direction empties.
-        target = max(groups, key=lambda g: len(g["tracks"]))
-        if not target["tracks"]:
+        if track_id in vectors and track_id in features:
             continue
-        dropped = target["tracks"][-1]
-        target["tracks"][-1] = candidate
-        used_ids.discard(dropped["id"])
-        used_ids.add(candidate["id"])
-        return
+        artist = (row["album_artist"] or row["artist"] or "").strip()
+        key = navidrome.name_key(artist)
+        if not key or key in blocked or key in seen:
+            continue
+        seen.add(key)
+        year = int(row["year"] or 0)
+        out.append({
+            "id": track_id, "artist": artist, "title": row["title"] or "",
+            "album": row["album"] or "", "year": year or None,
+            "duration": row["duration"], "sound": "", "bpm": None, "key": "",
+            "energy": None, "measured": False,
+            "popularity": float(ranks.get(track_id, 0.5)),
+            "popularity_known": track_id in ranks,
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _public(candidate: dict) -> dict:
     return {
         "id": candidate["id"],
+        "measured": True,
         "artist": candidate["artist"],
         "title": candidate["title"],
         "album": candidate["album"],
@@ -274,6 +408,7 @@ def _public(candidate: dict) -> dict:
         "key": candidate["key"],
         "energy": candidate["energy"],
         "popularity": round(candidate["popularity"], 2),
+        "popularity_known": candidate["popularity_known"],
     }
 
 

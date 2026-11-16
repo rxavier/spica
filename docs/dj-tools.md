@@ -95,19 +95,32 @@ The unit of the offer is the **record**, not the artist: analysis is what makes 
 tracks by one act distinguishable, and the shelf used artists precisely because nothing
 here could do that.
 
-One call returns about thirty-two records in four directions, each row carrying its id,
-year, style, tempo, key and energy:
+One call returns about thirty-two records in five directions, each row carrying its id,
+year, style, tempo, key, energy and how well its artist's audience knows it (`known`,
+`mid`, `deep cut`, or `unknown` when no provider has a count — always one of the four,
+never blank):
 
 - **Continue the flow** — closest to the on-air track's vector, same temperature.
 - **Move one axis** — one of tempo or energy moves, the rest holds.
 - **Change it up** — a different Discogs family, or the far end of the station.
 - **Land it** — calmer and slower than what is on air; a closer.
+- **The one everyone knows** — the top third of the artist's own catalogue; station
+  `popularity` decides how much of the table it gets (seven slots on `hits`, four on
+  `deep`).
 
 Constraints, so the table stays a smaller version of the station rather than a random
 draw: one record per artist across the whole table, at most three per label, two decades
-when the station can pay for it, and the longest-absent artists get a place. Excluded
-before drawing: the last five plays and their artists, what is queued and on air, and
-every artist offered on the previous table — rotation memory, as the shelf had.
+when the station can pay for it, and the longest-absent artists get a place. A direction
+with nothing honest to offer is dropped, not relabelled — "land it" on a track already
+at the floor of the station's energy simply does not appear. Excluded before drawing:
+the last five plays and their artists, what is queued and on air, and every artist
+offered on the previous table — rotation memory, as the shelf had.
+
+The on-air line in the brief carries that track's own numbers (`117 bpm · E min ·
+energy 0.13 · style`), so the row numbers beside each direction are comparable and the
+DJ can see how far a record actually moves. A calm track over 100 bpm shows both
+readings (`117 bpm (59 half-time)`): the tracker measures the subdivision, and the
+energy heads are what know the record is a ballad.
 
 The ids are in front of each row, so the reply costs one model call and no lookups.
 `parse_set` then enforces the table: ids outside it are dropped, no artist appears
@@ -115,8 +128,22 @@ twice, and the station rules were already applied when the rows were drawn. A li
 request never takes this path — it still goes through the tools, where a name can be
 searched.
 
-A table that cannot be drawn — too few analysed tracks, or analysis off — returns None
-and the picker falls back to the artist shelf, unchanged.
+A table that cannot be drawn — too few analysed tracks, no usable anchor for the
+on-air track, or analysis off — returns None and the picker falls back to the artist
+shelf, unchanged.
+
+**Partial analysis is a normal state**, not an error: a backfill is hours long, and a
+new import is unanalysed until the worker catches up. Readiness is judged per station
+(90% of its tracks and 80% of its artists). Below that, the table is drawn from the
+measured records and gains one more group, **Not measured yet** — up to four unanalysed
+records (recent arrivals first, one per artist, no sonic numbers, only the metadata and
+the known/deep-cut tag), so new music is not invisible until analysis reaches it. The
+anchor must be a real one: the on-air track's vector or its artist's centroid. Without
+it the shelf takes over rather than the table guessing against station medians. The
+analysis backlog is ordered one track per artist first (newest arrivals first within
+an artist), so a half-finished backfill already has every artist's sound instead of
+only the first letters of the alphabet. Every pick records which path it took and the
+coverage it saw (`state/history/<station>.picks.jsonl`: `path`, `coverage`).
 
 ## The shelf
 

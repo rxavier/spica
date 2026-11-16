@@ -482,21 +482,43 @@ def save(conn: sqlite3.Connection, track_id: str, artist_key: str, data: dict) -
 
 def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
          limit: int) -> list[sqlite3.Row]:
-    """Tracks with a stream URL and no current analysis row."""
+    """Unanalysed tracks, spread across artists, newest arrivals first within each.
+
+    Walking the album order leaves a half-finished backfill clustered on the first
+    letters of the alphabet, and a table drawn from that is a different station. One
+    track per artist first means 20% coverage still covers every artist; within an
+    artist, a fresh import is measured before the rest of the catalogue.
+    """
     done = {
         row["track_id"] for row in store.execute(
             "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
         )
     }
-    out = []
+    by_artist: dict[str, list] = {}
     for row in index_conn.execute(
-        "SELECT id, artist, album_artist, uri FROM tracks WHERE uri != ''"
+        "SELECT id, artist, album_artist, uri, fetched_at FROM tracks WHERE uri != ''"
     ):
-        if row["id"] not in done:
-            out.append(row)
-            if len(out) >= limit:
-                break
-    return out
+        if row["id"] in done:
+            continue
+        key = navidrome.name_key(row["album_artist"] or row["artist"] or "")
+        by_artist.setdefault(key, []).append(row)
+    for items in by_artist.values():
+        items.sort(key=lambda r: (-(r["fetched_at"] or 0), r["id"]))
+
+    ordered: list = []
+    depth = 0
+    while len(ordered) < limit:
+        added = False
+        for items in by_artist.values():
+            if depth < len(items):
+                ordered.append(items[depth])
+                added = True
+                if len(ordered) >= limit:
+                    return ordered
+        if not added:
+            break
+        depth += 1
+    return ordered
 
 
 def backlog(index_conn: sqlite3.Connection, store: sqlite3.Connection | None) -> int:
@@ -521,6 +543,29 @@ def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
     }
 
 
+def station_coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
+    """Per station, how much of what it can play has been analysed.
+
+    Readiness is decided per station, not per library: a narrow prog station can be
+    fully analysed while the rest of the collection is not.
+    """
+    known = {
+        row["track_id"] for row in store.execute(
+            "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
+        )
+    }
+    out = {}
+    for station in config.load_stations():
+        rows = navidrome.rows_for_station(index_conn, station)
+        total = len(rows)
+        got = sum(1 for row in rows if row["id"] in known)
+        out[station.id] = {
+            "known": got, "total": total,
+            "percent": round(got * 100.0 / total, 1) if total else 0.0,
+        }
+    return out
+
+
 def coverage_for(index_conn: sqlite3.Connection) -> dict | None:
     """Analysis coverage for the library page, or None when the feature is off."""
     if not enabled():
@@ -529,7 +574,9 @@ def coverage_for(index_conn: sqlite3.Connection) -> dict | None:
     if store is None:
         return None
     try:
-        return coverage(index_conn, store)
+        out = coverage(index_conn, store)
+        out["stations"] = station_coverage(index_conn, store)
+        return out
     finally:
         store.close()
 
@@ -662,6 +709,21 @@ def vector_map(store: sqlite3.Connection | None) -> dict:
         if norm:
             out[row["track_id"]] = vector / norm
     return out
+
+
+def tempo_label(bpm, energy) -> str:
+    """Tempo as a hint, with the half-time reading when the feel says it is one.
+
+    A calm track at "117 bpm" is usually a ~58-feel ballad the tracker locked onto
+    at the subdivision. The energy heads know it is calm; saying both keeps the
+    number from arguing with the record.
+    """
+    if not bpm:
+        return ""
+    text = f"{round(float(bpm))} bpm"
+    if float(bpm) > 100 and energy is not None and float(energy) < 0.35:
+        text += f" ({round(float(bpm) / 2)} half-time)"
+    return text
 
 
 def key_label(key: str | None, scale: str | None) -> str:

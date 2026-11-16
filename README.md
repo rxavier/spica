@@ -162,7 +162,10 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   model call and no lookups. Listener requests still go through the tools, where a name
   can be searched. `similar` answers from the vectors first, and the fallback artist
   shelf's "sounds too like what is playing" rule stops depending on whether Last.fm
-  happens to name an artist you own. ONNX on the CPU, about 4 s of CPU per track
+  happens to name an artist you own. Readiness is per station: while a backfill is
+  partial the table is drawn from what has been measured and gains a *not measured
+  yet* group (recent arrivals, no sonic numbers), and with no usable anchor it falls
+  back to the artist shelf. ONNX on the CPU, about 4 s of CPU per track
   (four-minute cap, extra DSP off) — roughly 2–3 h for a 5,000-track library on four
   cores — models downloaded once. Off, nothing below changes.
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,

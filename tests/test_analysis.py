@@ -94,6 +94,13 @@ def test_store_roundtrip_and_todo(station, tmp_path):
     assert analysis.coverage(index, store)["total"] == 4
 
 
+def test_tempo_shows_the_half_time_reading_when_the_feel_is_calm():
+    assert analysis.tempo_label(117.4, 0.13) == "117 bpm (59 half-time)"
+    assert analysis.tempo_label(117.4, 0.72) == "117 bpm"
+    assert analysis.tempo_label(58.2, 0.13) == "58 bpm"
+    assert analysis.tempo_label(None, 0.2) == ""
+
+
 def test_labels_survive_odd_values():
     assert analysis.key_label("A", "minor") == "A min"
     assert analysis.key_label("F#", "major") == "F# maj"
@@ -148,6 +155,27 @@ def test_shelf_sound_line(station, tmp_path):
         assert "Unknown Band" not in line
     finally:
         monkeypatch.undo()
+
+
+def test_todo_spreads_across_artists_and_prefers_new_arrivals(station, tmp_path):
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        conn.executemany(
+            "INSERT INTO tracks (id, uri, title, artist, album_artist,"
+            " album_artist_key, fetched_at) VALUES (?,?,?,?,?,?,?)",
+            [
+                ("a1", "http://x/a1", "old A", "A", "Artist A", "artist a", 100),
+                ("a2", "http://x/a2", "new A", "A", "Artist A", "artist a", 300),
+                ("b1", "http://x/b1", "B", "B", "Artist B", "artist b", 200),
+                ("c1", "http://x/c1", "C", "C", "Artist C", "artist c", 50),
+            ],
+        )
+    store = analysis.connect(path=tmp_path / "analysis.db", create=True)
+    first = analysis.todo(conn, store, 3)
+    assert [row["id"] for row in first] == ["a2", "b1", "c1"]
+    more = analysis.todo(conn, store, 4)
+    assert [row["id"] for row in more][:3] == ["a2", "b1", "c1"]
+    assert more[3]["id"] == "a1"  # second round, only one left
 
 
 # ---------------------------------------------------------------- row payloads

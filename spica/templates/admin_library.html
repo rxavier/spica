@@ -27,6 +27,9 @@
   <div class="track">{{ coverage.analysis.percent }}%</div>
   <div class="bar"><span style="width: {{ coverage.analysis.percent }}%"></span></div>
   <div class="sub">{{ coverage.analysis.known }} of {{ coverage.analysis.total }} tracks · {{ coverage.analysis.remaining }} missing</div>
+  {% if coverage.analysis.stations %}
+  <div class="sub">per station: {% for id, c in coverage.analysis.stations.items() %}{{ id }} {{ c.percent }}%{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  {% endif %}
 </div>
 {% endif %}
 

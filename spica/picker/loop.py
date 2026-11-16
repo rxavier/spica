@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import secrets
 
-from .. import config, icecast, mixer, navidrome, plan, queue
+from .. import analysis, config, icecast, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
 from . import shelf as shelf_module
 from . import table as table_module
@@ -26,6 +26,30 @@ MAX_TOOL_ROUNDS = 4
 # enough to keep a thread going and to avoid the same opening twice in a night; more
 # would spend tokens on lines the listener has long forgotten.
 RECENT_PLAYS = 5
+
+
+def _sound_suffix(lib, track_id: str) -> str:
+    """The on-air track's numbers, so the table's directions are comparable.
+
+    Without them the model sees "continue the flow" as a label it has to trust; with
+    them it can see how far a row actually moved (and how far its own set did).
+    """
+    if not track_id:
+        return ""
+    try:
+        feature = lib._features().get(track_id) or {}
+    except Exception:
+        return ""
+    bits = []
+    if feature.get("bpm"):
+        bits.append(analysis.tempo_label(feature["bpm"], feature.get("energy")))
+    if feature.get("key"):
+        bits.append(feature["key"])
+    if feature.get("energy") is not None:
+        bits.append(f"energy {feature['energy']:.2f}")
+    if feature.get("sound"):
+        bits.append(feature["sound"])
+    return (" · " + " · ".join(bits)) if bits else ""
 
 
 def _count(result) -> int:
@@ -154,20 +178,25 @@ def plan_pick(
         (e for e in recent if f"{e.get('title')} — {e.get('artist')}" == on_air), {}
     )
 
+    # What the anchor sounds like, once, so the table's numbers can be read against
+    # something. Raw `on_air` stays for the comparisons below.
+    on_air_id = str(live_entry.get("id") or (recent[0].get("id") if recent else "") or "")
+    display = on_air + _sound_suffix(lib, on_air_id)
+
     lines = []
     if on_air:
         # The song on air is part of the same record as the ones before it: if the DJ
         # chose it, its reason belongs here too, and if the station played it while the
         # DJ was offline, that is the fact worth stating.
         if live_entry.get("source") == "dj" and live_entry.get("why"):
-            lines.append(f"On air right now: {on_air}: {live_entry['why']}")
+            lines.append(f"On air right now: {display}: {live_entry['why']}")
         elif live_entry and live_entry.get("source") != "dj":
             lines.append(
-                f"On air right now: {on_air} (standby — the station started this while "
+                f"On air right now: {display} (standby — the station started this while "
                 "you were offline)."
             )
         else:
-            lines.append(f"On air right now: {on_air}.")
+            lines.append(f"On air right now: {display}.")
     else:
         lines.append("Nothing has played yet.")
 
@@ -272,6 +301,9 @@ def plan_pick(
         if track is None or not track.uri:
             return None
         pick = Pick(track=track, why=theme, theme=theme)
+        pick.path = ("shelf" if table is None
+                     else ("table-partial" if table.get("partial") else "table"))
+        pick.coverage = table.get("coverage") if table else None
         pick.brief, pick.tools = brief, tuple(called)
         pick.reply = (content or "")[:500]
         pick.shelf = tuple(shelf_names)

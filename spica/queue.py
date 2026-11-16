@@ -250,6 +250,10 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
             entry["tools"] = list(detail["tools"])[:8]
         if detail.get("shelf"):
             entry["shelf"] = list(detail["shelf"])[:16]
+        if detail.get("path"):
+            entry["path"] = str(detail["path"])[:24]
+        if detail.get("coverage") is not None:
+            entry["coverage"] = detail["coverage"]
         if detail.get("reply"):
             entry["reply"] = str(detail["reply"])[:500]
     path = _picks_path(station)
