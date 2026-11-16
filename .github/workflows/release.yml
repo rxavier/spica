@@ -72,8 +72,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            BASE=python:3.12-slim
+            BASE=python:3.14-slim
             SPICA_EXTRAS=analysis
+            SPICA_RUNTIME_DEPS=libatomic1
           tags: ${{ steps.meta-analysis.outputs.tags }}
           labels: ${{ steps.meta-analysis.outputs.labels }}
           cache-from: type=gha

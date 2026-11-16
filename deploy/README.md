@@ -102,7 +102,7 @@ If you build locally, build both:
 ```sh
 docker build -t ghcr.io/rxavier/spica:dev .
 docker build --build-arg BASE=python:3.14-slim --build-arg SPICA_EXTRAS=analysis \
-  -t ghcr.io/rxavier/spica:dev-analysis .
+  --build-arg SPICA_RUNTIME_DEPS=libatomic1 -t ghcr.io/rxavier/spica:dev-analysis .
 ```
 
 ## Building the image yourself

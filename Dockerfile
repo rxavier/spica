@@ -19,6 +19,15 @@ RUN uv sync --frozen --no-dev --no-install-project --extra "$SPICA_EXTRAS"
 # The runtime image keeps the venv and the code, not uv or its wheel cache.
 FROM ${BASE}
 
+# The analyser's essentia wheel links libatomic; the Debian slim base does not ship it.
+# The picker (Alpine) passes nothing here.
+ARG SPICA_RUNTIME_DEPS=""
+RUN if [ -n "$SPICA_RUNTIME_DEPS" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends $SPICA_RUNTIME_DEPS && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
