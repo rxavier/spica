@@ -167,6 +167,15 @@ def test_the_familiar_block_follows_the_station_lean(rig):
         known(config.Station(id="d", name="D", popularity="deep"))
 
 
+def test_familiar_records_stay_in_the_on_air_family(rig):
+    lib, store, rows = rig
+    built = table.build(lib, config.Station(id="t", name="T"))
+    features = analysis.feature_map(store)
+    group = next(g for g in built["groups"] if g["name"] == "known")
+    families = {features[t["id"]]["family"] for t in group["tracks"]}
+    assert families == {"Rock"}  # the fixture's anchor is Rock; the Electronic half stays out
+
+
 def test_continue_needs_tempo_and_key_not_just_energy():
     anchor_bpm, anchor_key = 138.0, table._camelot("C maj")
     same = {"energy": 0.41, "bpm": 130.0, "key": "G maj"}

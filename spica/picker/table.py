@@ -72,7 +72,8 @@ LABELS = {
     "shift": ("Move one axis", "one thing changes — tempo, weight or colour — and the rest holds"),
     "contrast": ("Change it up", "a different family of sound; a deliberate turn"),
     "land": ("Land it", "calmer and slower than what is on air; a closer"),
-    "known": ("The one everyone knows", "the familiar song, not the deep cut"),
+    "known": ("The one everyone knows",
+              "the familiar song, in the same family as what is on air"),
     "unmeasured": ("Not measured yet", "no sonic data yet; offered so it is not invisible"),
 }
 
@@ -306,7 +307,8 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[di
             key=lambda c: (c["energy"], -c["absence"]),
         ),
         "known": sorted(
-            [c for c in candidates if c["popularity"] >= KNOWN],
+            [c for c in candidates
+             if c["popularity"] >= KNOWN and (not family or c["family"] == family)],
             key=lambda c: (-c["popularity"], -c["absence"]),
         ),
     }

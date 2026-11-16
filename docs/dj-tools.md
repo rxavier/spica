@@ -106,9 +106,10 @@ never blank):
 - **Move one axis** — one of tempo or energy moves, the rest holds.
 - **Change it up** — a different Discogs family, or the far end of the station.
 - **Land it** — calmer and slower than what is on air; a closer.
-- **The one everyone knows** — the top third of the artist's own catalogue; station
-  `popularity` decides how much of the table it gets (seven slots on `hits`, four on
-  `deep`).
+- **The one everyone knows** — the top third of the artist's own catalogue, **within
+  the on-air record's Discogs family** (a nu-metal hit is not a familiar option in a
+  synth-pop set); station `popularity` decides how much of the table it gets (seven
+  slots on `hits`, four on `deep`).
 
 Constraints, so the table stays a smaller version of the station rather than a random
 draw: one record per artist across the whole table, at most three per label, two decades
