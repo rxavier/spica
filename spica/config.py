@@ -65,8 +65,11 @@ ANALYSIS_MAX_SECONDS = int(os.environ.get("SPICA_ANALYSIS_MAX_SECONDS", "240"))
 # danceability, dynamic complexity). Together they cost a quarter of the pass, so
 # they are opt-in; the models' own energy/mood heads are what the DJ uses.
 ANALYSIS_DEEP = os.environ.get("SPICA_ANALYSIS_DEEP", "").strip().lower() in ("1", "true", "yes", "on")
-# The analyser streams a low-bitrate transcode rather than the original file: at
-# 16 kHz mono the features are unaffected and Navidrome sends ~40x fewer bytes.
+# Read the original file by default. On a host where Navidrome runs next to the
+# analyser, transcoding to 96k MP3 moves the work onto Navidrome's ffmpeg and starves
+# the analysis: same cores, a serialised download, and a 10x slower backfill. A
+# transcode is there for links where bandwidth matters more than CPU.
+ANALYSIS_TRANSCODE = os.environ.get("SPICA_ANALYSIS_TRANSCODE", "").strip().lower() in ("1", "true", "yes", "on")
 ANALYSIS_BITRATE = int(os.environ.get("SPICA_ANALYSIS_BITRATE", "96"))
 
 # --- web UI ---------------------------------------------------------------

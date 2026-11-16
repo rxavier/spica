@@ -265,11 +265,18 @@ def _analysis_init(models_dir: str, threads: int) -> None:
     _ANALYZER = Analyzer(Path(models_dir), threads=threads)
 
 
+def _fetch_audio(track_id: str, target: Path) -> Path:
+    """The bytes to analyse: the original by default, a small transcode if asked."""
+    if config.ANALYSIS_TRANSCODE:
+        return subsonic.download_transcoded(track_id, target, bitrate=config.ANALYSIS_BITRATE)
+    return subsonic.download(track_id, target)
+
+
 def _analysis_task(track_id: str) -> tuple[str, dict]:
-    """One track in a worker process: fetch the transcode, analyse it, hand it back."""
+    """One track in a worker process: fetch the audio, analyse it, hand it back."""
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "track.mp3"
-        subsonic.download_transcoded(track_id, path, bitrate=config.ANALYSIS_BITRATE)
+        path = Path(tmp) / "track"
+        _fetch_audio(track_id, path)
         return track_id, _ANALYZER.analyze(path)
 
 
@@ -307,8 +314,8 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
 
     def fetch_and_analyze(analyzer, track_id: str) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "track.mp3"
-            subsonic.download_transcoded(track_id, path, bitrate=config.ANALYSIS_BITRATE)
+            path = Path(tmp) / "track"
+            _fetch_audio(track_id, path)
             return analyzer.analyze(path)
 
     if workers > 1 and "fork" in multiprocessing.get_all_start_methods():

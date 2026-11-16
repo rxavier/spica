@@ -153,7 +153,7 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   time. The point is that a smaller version of the station is a better brief than a
   larger version of the model's taste: given a list, the DJ plays from the list.
 - **Audio analysis, optional and off by default.** With `SPICA_ANALYSIS=1` the worker
-  streams each track once through Navidrome at 96 kbit/s and stores what it sounds like:
+  reads each track once through Navidrome — the original file, not a transcode — and stores what it sounds like:
   a Discogs-EffNet embedding, the 400 Discogs style probabilities, ten mood/danceability/
   timbre/voice heads, tempo with confidence and key (plus EBU R128 loudness and dynamic
   range, opt-in). The offer to the DJ becomes **records, not artists**: about thirty-two
@@ -699,7 +699,8 @@ the keys, and that is the file to start from.
 | `SPICA_ANALYSIS_THREADS` | ONNX threads per analysis process (default `2`) |
 | `SPICA_ANALYSIS_MAX_SECONDS` | how much of each track to analyse (default `240`; `0` = all) |
 | `SPICA_ANALYSIS_DEEP` | also compute loudness, classic danceability, dynamic complexity (off by default; nothing reads them yet) |
-| `SPICA_ANALYSIS_BITRATE` | bitrate of the transcode analysis streams (default `96`) |
+| `SPICA_ANALYSIS_TRANSCODE` | `1` streams a transcode instead of the original (default off: CPU beats bandwidth when Navidrome is local) |
+| `SPICA_ANALYSIS_BITRATE` | bitrate of that transcode (default `96`) |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
