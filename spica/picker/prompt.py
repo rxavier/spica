@@ -117,9 +117,10 @@ def system_prompt(station: config.Station, roster: dict, table: bool = False) ->
         )
         bits.append(
             "The first track is the one that follows what is on air: open from Continue the "
-            "Flow, or from a record within about 0.15 energy of it. If you deliberately turn "
-            "instead, say so in the line. After the first, move one axis at a time; the other "
-            "groups are for later in the set, and the closer comes last."
+            "Flow. It is chosen to match the on-air record's temperature, tempo and key. If "
+            "nothing there fits, say so in the line and turn deliberately. After the first, "
+            "move one axis at a time; the other groups are for later in the set, and the "
+            "closer comes last."
         )
         bits.append(SET_MOVES)
         bits.append(

@@ -38,6 +38,35 @@ READY_TRACKS = 0.90
 READY_ARTISTS = 0.80
 UNMEASURED = 4
 
+_MAJOR = {"B": 1, "F#": 2, "Gb": 2, "Db": 3, "C#": 3, "Ab": 4, "G#": 4, "Eb": 5,
+          "D#": 5, "Bb": 6, "A#": 6, "F": 7, "C": 8, "G": 9, "D": 10, "A": 11, "E": 12}
+_MINOR = {"Ab": 1, "G#": 1, "Eb": 2, "D#": 2, "Bb": 3, "A#": 3, "F": 4, "C": 5,
+          "G": 6, "D": 7, "A": 8, "E": 9, "B": 10, "F#": 11, "Gb": 11, "Db": 12, "C#": 12}
+
+
+def _camelot(label: str):
+    parts = (label or "").split()
+    if len(parts) != 2:
+        return None
+    return (_MAJOR if parts[1] == "maj" else _MINOR).get(parts[0])
+
+
+def _same_temperature(candidate: dict, energy: float, bpm: float, key) -> bool:
+    """Energy is not enough: tempo and key are what stop a raw grunge song reading as
+    a continuation of an anthemic indie one at the same loudness."""
+    if abs(candidate["energy"] - energy) > 0.2:
+        return False
+    if bpm and candidate["bpm"] and abs(candidate["bpm"] - bpm) > 20:
+        return False
+    if key is not None:
+        other = _camelot(candidate["key"])
+        if other is not None:
+            distance = abs(key - other)
+            if min(distance, 12 - distance) > 2:
+                return False
+    return True
+
+
 LABELS = {
     "continue": ("Continue the flow", "closest to what is on air, same temperature"),
     "shift": ("Move one axis", "one thing changes — tempo, weight or colour — and the rest holds"),
@@ -171,7 +200,7 @@ def build(lib, station) -> dict | None:
         "groups": groups,
         "ids": ids,
         "artists": artists,
-        "anchor": {k: anchor.get(k) for k in ("energy", "bpm", "family")},
+        "anchor": {k: anchor.get(k) for k in ("energy", "bpm", "key", "family")},
         "coverage": round(coverage, 3),
         "partial": partial,
     }
@@ -235,10 +264,11 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[di
 
     energy = anchor.get("energy") or 0.5
     bpm = anchor.get("bpm") or 0.0
+    key = _camelot(anchor.get("key") or "")
     family = anchor.get("family") or ""
 
     def same_band(c):
-        return abs(c["energy"] - energy) <= 0.2
+        return _same_temperature(c, energy, bpm, key)
 
     def one_axis(c):
         if not c["bpm"] or not bpm:
@@ -474,6 +504,7 @@ def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:
         "vector": vector,
         "energy": float(feature["energy"]) if feature.get("energy") is not None else None,
         "bpm": float(feature["bpm"]) if feature.get("bpm") else None,
+        "key": feature.get("key") or "",
         "family": feature.get("family") or "",
     }
 

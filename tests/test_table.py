@@ -167,6 +167,14 @@ def test_the_familiar_block_follows_the_station_lean(rig):
         known(config.Station(id="d", name="D", popularity="deep"))
 
 
+def test_continue_needs_tempo_and_key_not_just_energy():
+    anchor_bpm, anchor_key = 138.0, table._camelot("C maj")
+    same = {"energy": 0.41, "bpm": 130.0, "key": "G maj"}
+    jump = {"energy": 0.40, "bpm": 112.0, "key": "Eb min"}
+    assert table._same_temperature(same, 0.41, anchor_bpm, anchor_key)
+    assert not table._same_temperature(jump, 0.41, anchor_bpm, anchor_key)
+
+
 def test_prominence_is_always_spelled_out(rig):
     assert table._prominence(0.9) == "known"
     assert table._prominence(0.5) == "mid"

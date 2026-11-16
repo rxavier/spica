@@ -100,7 +100,9 @@ year, style, tempo, key, energy and how well its artist's audience knows it (`kn
 `mid`, `deep cut`, or `unknown` when no provider has a count — always one of the four,
 never blank):
 
-- **Continue the flow** — closest to the on-air track's vector, same temperature.
+- **Continue the flow** — closest to the on-air track's vector, within 0.2 energy, 20 bpm
+  and two Camelot steps. Energy alone is not temperature: an anthemic indie record and a
+  raw grunge one can sit at the same loudness and be a jarring transition.
 - **Move one axis** — one of tempo or energy moves, the rest holds.
 - **Change it up** — a different Discogs family, or the far end of the station.
 - **Land it** — calmer and slower than what is on air; a closer.
