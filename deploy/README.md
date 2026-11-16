@@ -79,8 +79,8 @@ In the admin:
 The default image is the picker's half: numpy, to read vectors, and nothing else. It
 is built on Alpine (~200 MB); the analyser image must be Debian (glibc), because
 onnxruntime and essentia publish manylinux wheels only.
-The worker can run it, but with `SPICA_ANALYSIS=1` it will answer that the analysis
-extra is not installed. Analysis runs from the `-analysis` image, which also carries
+The worker can run it, but with `SPICA_ANALYSIS=1` it reports that the image was built
+without the analysis extra. Analysis runs from the `-analysis` image, which also carries
 onnxruntime and essentia:
 
 ```sh
@@ -105,10 +105,13 @@ docker build --build-arg BASE=python:3.14-slim --build-arg SPICA_EXTRAS=analysis
   --build-arg SPICA_RUNTIME_DEPS=libatomic1 -t ghcr.io/rxavier/spica:dev-analysis .
 ```
 
+With a local clone, set `SPICA_TAG=dev` so `compose.analysis.yaml` picks `dev-analysis`.
+
 ## Building the image yourself
 
 `compose.yaml` runs `ghcr.io/rxavier/spica:0.12.0`. To build from source instead,
-replace the `image:` line in each of `init`, `picker` and `worker` with:
+replace the `image:` line in `init` and `picker` (and in `worker`, when analysis is off)
+with:
 
 ```yaml
     build: https://github.com/rxavier/spica.git#v0.12.0
@@ -120,6 +123,11 @@ or, with a local clone:
 git clone https://github.com/rxavier/spica.git
 cd spica && docker build -t ghcr.io/rxavier/spica:0.12.0 .
 ```
+
+For audio analysis, build the analyser variant too and use the overlay; the build
+commands are in [Audio analysis](#audio-analysis) above. Set `SPICA_TAG=dev` with a
+local clone so the overlay picks `dev-analysis`; leave the worker on the overlay's image
+rather than a `build:` stanza. The other services keep the lean image.
 
 ## Behind a reverse proxy
 

@@ -150,8 +150,10 @@ coverage it saw (`state/history/<station>.picks.jsonl`: `path`, `coverage`).
 
 ## The shelf
 
-A set is drawn from a named list of about a dozen artists, and the reply is checked
-against it. `spica/picker/shelf.py`, one call per set.
+This is the analysis-off path, and the fallback for a station with no usable anchor
+when analysis is on; a normal set with analysis uses the table above. A set is drawn
+from a named list of about a dozen artists, and the reply is checked against it.
+`spica/picker/shelf.py`, one call per set.
 
 **What is excluded, before any drawing.** The artists of the last five plays, the five
 queued tracks, what is on air, every artist on the previous set's shelf, and the three

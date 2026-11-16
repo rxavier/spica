@@ -23,11 +23,13 @@ a station never goes silent because somebody chose another one.
 
 The second is a **deliberately trimmed feature set**, to spend almost nothing on
 resources. SUB/WAVE is a complete station product — DJ voice, shows, jingles, ducking,
-audio analysis, moods, embeddings — and pays for it in a broadcast container, an
-analyser, a TTS service and about a gigabyte of RAM. Spica drops all of that and keeps
-the picking: rules, pools, an LLM that reads a brief, and a ledger. What remains runs
-continuously in roughly 190 MB and about 4% of one core with two stations on air,
-because a station nobody is listening to costs a decode, not an encode.
+an always-on analyser, CLAP embeddings — and pays for it in a broadcast container, an
+analyser, a TTS service and about a gigabyte of RAM. Spica drops the always-on stack
+and keeps the picking: rules, pools, an LLM that reads a brief, and a ledger. Audio
+analysis is here too, but as one optional worker job on the leanest stack that still
+helps — numpy, onnxruntime and essentia, no torch, off by default. With analysis off,
+what runs continuously is roughly 190 MB and about 4% of one core with two stations on
+air, because a station nobody is listening to costs a decode, not an encode.
 
 It is the same idea, at a different point on the cost curve.
 
@@ -128,20 +130,22 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   station ended up circling the same corner; asking for a set costs one decision per
   stretch of night instead of one per record. A listener request throws the rest of the
   set away, because it was chosen for the mood they asked to leave.
-- **LLM picks with real tools.** Six of them: `history` (what the station just played,
-  with how many songs ago), `flip` (three more records from the racks, never the ones
-  already dealt), `search` (word-wise, and a name that plays nowhere here answers with
-  the artists that sound like it), `filter` (a draw from the station, narrowed by genre and
-  years, with totals and paging), `catalogue` (an artist's holdings or one album in
-  running order), and `similar`. The station's genre weights and its size are in the
-  system prompt; the artists are not — the shelf names the only ones that can play, and a
-  second list of names beside it is one the model can name from. Every
-  result is filtered
-  through the station's rules, so a narrow station cannot return something outside its
-  palette. Track ids exist only inside tool results, so a pick is always grounded in a
-  lookup rather than a remembered name. The toolbox and its contract are in
-  [`docs/dj-tools.md`](docs/dj-tools.md).
-- **The shelf: about a dozen artists, enforced.** Each set is drawn from a named shelf of
+- **LLM picks with real tools, when a set needs them.** Six of them: `history` (what
+  the station just played, with how many songs ago), `flip` (three more records from the
+  racks, never the ones already dealt), `search` (word-wise, and a name that plays
+  nowhere here answers with the artists that sound like it), `filter` (a draw from the
+  station, narrowed by genre and years, with totals and paging), `catalogue` (an
+  artist's holdings or one album in running order), and `similar`. The station's genre
+  weights and its size are in the system prompt; the artists are not — in the tool path
+  the shelf names the only ones that can play, and a second list of names beside it is
+  one the model can name from. Every result is filtered through the station's rules, so
+  a narrow station cannot return something outside its palette. In the tool path track
+  ids exist only inside tool results, so a pick is always grounded in a lookup rather
+  than a remembered name; a table set carries its ids in the brief instead, already
+  checked against the table. The toolbox and its contract are in
+  [`docs/dj-tools.md`](docs/dj-tools.md). With analysis on, a normal set is one call and
+  no tools; the tools are for listener requests and the analysis-off path.
+- **The shelf, and the table.** With analysis off, each set is drawn from a named shelf of
   about twelve artists, and the reply is checked against it — an artist that is not on the
   shelf is dropped like a track that is not on the station, and no artist appears twice
   in a set. The shelf leaves out what played in the last five tracks, what is queued,
@@ -151,21 +155,27 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   Two more slots go to whoever has been off the air longest, so a record that has not
   had its turn in hours is not excluded by a stratification that never thinks about
   time. The point is that a smaller version of the station is a better brief than a
-  larger version of the model's taste: given a list, the DJ plays from the list.
+  larger version of the model's taste: given a list, the DJ plays from the list. With
+  analysis on, a normal set is drawn from the record table instead (see below); the
+  shelf remains the analysis-off path and the fallback for a station with no usable
+  anchor.
 - **Audio analysis, optional and off by default.** With `SPICA_ANALYSIS=1` the worker
   reads each track once through Navidrome — the original file, not a transcode — and stores what it sounds like:
   a Discogs-EffNet embedding, the 400 Discogs style probabilities, ten mood/danceability/
   timbre/voice heads, tempo with confidence and key (plus EBU R128 loudness and dynamic
   range, opt-in). The offer to the DJ becomes **records, not artists**: about thirty-two
-  tracks in four directions — continue the flow, move one axis, change it up, land it —
-  each with style, tempo, key and energy, and the ids written in front, so a set is one
-  model call and no lookups. Listener requests still go through the tools, where a name
-  can be searched. `similar` answers from the vectors first, and the fallback artist
-  shelf's "sounds too like what is playing" rule stops depending on whether Last.fm
-  happens to name an artist you own. Readiness is per station: while a backfill is
-  partial the table is drawn from what has been measured and gains a *not measured
-  yet* group (recent arrivals, no sonic numbers), and with no usable anchor it falls
-  back to the artist shelf. ONNX on the CPU, about 4 s of CPU per track
+  tracks in five directions — continue the flow, move one axis, change it up, land it,
+  and the one everyone knows — each with style, tempo, key, energy and how well known it
+  is, and the ids written in front, so a set is one model call and no lookups. The
+  familiar option is the top third of the on-air artist's catalogue within their family;
+  the station's own popularity lean decides how much of the table it gets. Listener
+  requests still go through the tools, where a name can be searched. `similar` answers
+  from the vectors first, and the fallback shelf's "sounds too like what is playing"
+  rule stops depending on whether Last.fm happens to name an artist you own. Readiness
+  is per station: while a backfill is partial the table is drawn from what has been
+  measured and gains a *not measured yet* group (recent arrivals, no sonic numbers), and
+  with no usable anchor it falls back to the artist shelf. ONNX on the CPU, about 4 s of
+  CPU per track
   (four-minute cap, extra DSP off) — roughly 2–3 h for a 5,000-track library on four
   cores — models downloaded once. Off, nothing below changes.
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
@@ -248,13 +258,14 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
   4% of one core and 190 MB of RAM. The DJ itself is invisible: the picker idles at
   0.2%.
 
-**Audio analysis is off by default and lives in a separate image layer.** The picker
-runs the lean image (numpy, to read vectors); only the worker's `-analysis` image
-carries onnxruntime and essentia (~400 MB). Turned on, each analysis process uses about
-0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap, `SPICA_ANALYSIS_DEEP`
-off), so a 5,000-track backfill is a couple of hours once — after that only new tracks
-are analysed. Decoding scales with track length even under the cap, so a 20-minute
-track costs more than five four-minute ones. The DJ itself stays invisible.
+**Audio analysis is off by default and lives in its own image.** The picker runs the
+lean Alpine image (~200 MB; numpy, to read vectors); the worker's `-analysis` image
+(~480 MB, Debian for glibc) carries onnxruntime and essentia. Turned on, each analysis
+process uses about 0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap,
+`SPICA_ANALYSIS_DEEP` off), so a 5,000-track backfill is a couple of hours once — after
+that only new tracks are analysed. Decoding scales with track length even under the cap,
+so a 20-minute track costs more than five four-minute ones. Idle, the analyser process
+is a few tens of MB; the DJ itself stays invisible.
 
 For scale: the generated `icecast.xml` allows 25 concurrent clients and 40 sources. Both
 are in the file, not compiled in.
@@ -266,8 +277,8 @@ this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
                          dj-persona.md, llm.json, artist-mbids.json
-state/                   index.db, pools/, plans/, queue/, history/, now/, requests/,
-                         art/, genre-aliases.json, logs/
+state/                   index.db, analysis.db, models/, pools/, plans/, queue/,
+                         history/, now/, requests/, art/, genre-aliases.json, logs/
 ```
 
 `config/` is the part worth backing up: it is your stations and your DJ. Everything in
@@ -530,8 +541,8 @@ one thing picking needs and which not every "OpenAI-compatible" server does.
 The global prompt is the DJ's character — the voice it speaks in, which is also the line
 listeners read under each song. It is prepended to every pick on every station; each
 station's brief is added on top, and the mechanics of picking (sets rather than single
-tracks, tools only, the JSON reply, and the shelf the answer has to come from) stay in
-the code so an edit cannot break them. It lives in
+tracks, tools only, the JSON reply, and the shelf or table the answer has to come from)
+stay in the code so an edit cannot break them. It lives in
 `config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
 voice* deletes it.
 
@@ -760,19 +771,21 @@ a rebuild also re-canonicalises every genre.
 - `index.db`: SQLite projection of the library. Disposable, rebuilt from Navidrome.
 - `analysis.db` and `models/`: the optional audio analysis — per-track vectors, styles,
   tempo, key and loudness, one vector per artist, and the ONNX weights that produced
-  them. Its own file because the index is disposable and this is an hour of CPU:
+  them. Its own file because the index is disposable and this is hours of CPU:
   deleting it only costs a re-analysis.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
-- `plans/<station>.json`: the set being played out — its line, its ids, and the shelf it
-  was chosen from.
+- `plans/<station>.json`: the set being played out — its line, its ids, and the shelf or
+  table artists it was chosen from.
 - `queue/<station>.txt`: the single-file hand-off between picker and mixer.
 - `now/<station>.txt` and `.offset`: the mixer's own record of each track it starts, and
   how far the picker has read. This is what keeps the ledger honest when no mount is open.
 - `history/<station>.jsonl`: append-only play log, written by this project only.
 - `history/<station>.picks.jsonl`: the DJ's choices with their reasons, the presence
-  that justified them, the shelf it was offered, and — for picks recorded from here on —
-  the brief it read, the tools it called and the reply it gave. The last 500 are kept.
+  that justified them, the shelf or table artists it was offered, the path it took
+  (`table`, `table-partial` or `shelf`) with the analysis coverage it saw, and — for
+  picks recorded from here on — the brief it read, the tools it called and the reply it
+  gave. The last 500 are kept.
 - `requests/<station>.jsonl`: live listener requests.
 - `art/<albumId>`: cached cover art, one file per album.
 - `mb-genres.json`: MusicBrainz's own genre vocabulary — the list a provider tag has to
@@ -782,7 +795,7 @@ a rebuild also re-canonicalises every genre.
 - `logs/`: worker and job output.
 
 Rebuilding the index wipes `index.db` content, not the other files, so history and
-requests survive it.
+requests and the analysis survive it.
 
 ## Contributing
 
