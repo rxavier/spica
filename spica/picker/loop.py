@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
+from datetime import datetime, timezone
 
 from .. import analysis, config, icecast, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
@@ -21,6 +23,12 @@ from .schemas import TOOLS, Pick
 
 
 MAX_TOOL_ROUNDS = 4
+
+# How much of the on-air track must be left before a new set is planned. The brief
+# anchors the set to what is on air; if the track ends while the model is thinking, the
+# set starts after the standby pool's next draw instead, chosen for a record nobody
+# heard. One model call is usually under a minute.
+MIN_LEAD_S = 60
 
 # How many of its own picks the brief repeats, with the reason it gave. Three is
 # enough to keep a thread going and to avoid the same opening twice in a night; more
@@ -50,6 +58,25 @@ def _sound_suffix(lib, track_id: str) -> str:
     if feature.get("sound"):
         bits.append(feature["sound"])
     return (" · " + " · ".join(bits)) if bits else ""
+
+
+def _enough_runway(lib, station) -> bool:
+    """Whether the on-air record has enough left to plan a set against it."""
+    plays = queue.recent(station, 1)
+    if not plays:
+        return True
+    entry = plays[-1]
+    track = lib.by_id(str(entry.get("id") or ""))
+    stamp = str(entry.get("t") or "")
+    duration = int(getattr(track, "duration", 0) or 0)
+    if track is None or not duration or not stamp:
+        return True
+    try:
+        started = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return True
+    return duration - (time.time() - started) >= MIN_LEAD_S
 
 
 def _count(result) -> int:
@@ -131,6 +158,11 @@ def plan_pick(
     avoid: set[str],
 ) -> Pick | None:
     """Ask the model for the next set, store it, and hand back its first track."""
+    # A request is answered now; a set can wait for the next record to settle. Planning
+    # against a track that ends mid-call is how a set ends up starting after the pool's
+    # next draw, anchored to a record the listener never heard.
+    if request_text is None and not _enough_runway(lib, station):
+        return None
     # One seed per set: `filter`'s order must hold still while the DJ is choosing, or
     # `offset` would page a different list every call. The next set reshuffles.
     lib.draw_seed = secrets.randbits(32)
