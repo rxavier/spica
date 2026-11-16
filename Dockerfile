@@ -1,7 +1,7 @@
 # The picker runs on Alpine (numpy and the pure-Python stack have musl wheels); the
 # analyser needs glibc, because onnxruntime and essentia publish manylinux wheels only.
-# Build the analyser with BASE=python:3.12-slim SPICA_EXTRAS=analysis.
-ARG BASE=python:3.12-alpine
+# Build the analyser with BASE=python:3.14-slim SPICA_EXTRAS=analysis.
+ARG BASE=python:3.14-alpine
 FROM ${BASE} AS builder
 
 # The picker's half is numpy (to read vectors); the analyser's half adds

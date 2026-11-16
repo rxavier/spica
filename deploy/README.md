@@ -101,7 +101,7 @@ If you build locally, build both:
 
 ```sh
 docker build -t ghcr.io/rxavier/spica:dev .
-docker build --build-arg BASE=python:3.12-slim --build-arg SPICA_EXTRAS=analysis \
+docker build --build-arg BASE=python:3.14-slim --build-arg SPICA_EXTRAS=analysis \
   -t ghcr.io/rxavier/spica:dev-analysis .
 ```
 
