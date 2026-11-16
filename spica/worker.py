@@ -308,6 +308,7 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
     tasks = [(row["id"], row["album_artist"] or row["artist"] or "") for row in rows]
     workers = max(1, config.ANALYSIS_WORKERS)
     done = failed = 0
+    errors: list[str] = []
     started = time.time()
 
     def take(track_id: str, artist: str, features: dict) -> None:
@@ -338,6 +339,7 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
                     take(track_id, artist, features)
                 except Exception as exc:
                     failed += 1
+                    errors.append(str(exc))
                     log(f"analysis: {artist or track_id}: {exc}")
                 jobs.progress(conn, job_id, i, total)
     else:
@@ -349,15 +351,17 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
                 take(track_id, artist, fetch_and_analyze(analyzer, track_id))
             except Exception as exc:
                 failed += 1
+                errors.append(str(exc))
                 log(f"analysis: {artist or track_id}: {exc}")
             jobs.progress(conn, job_id, i, total)
 
     if done:
         analysis.refresh_artists(conn, store)
     if total and not done:
-        raise RuntimeError(
-            f"no track could be analyzed ({failed} failed) — is Navidrome reachable?"
-        )
+        # The per-track errors are in the log; the first one in the summary is what
+        # makes "the whole slice failed" diagnosable from the admin page.
+        detail = errors[0] if errors else "no track could be analyzed"
+        raise RuntimeError(f"no track could be analyzed ({failed} failed): {detail}")
     return {"tracks": done, "failed": failed, "remaining": analysis.backlog(conn, store),
             "seconds": int(time.time() - started)}
 
