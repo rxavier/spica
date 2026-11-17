@@ -67,6 +67,27 @@ heartbeat every 20 s while it plays. A player on the relay counts while it is ta
 bytes. A connection straight to a mount counts if it did not come from the relay. A tab
 left in the background, or a stream that died holding its socket open, does not.
 
+## DJ modes
+
+The DJ is one global mode, set in the admin under *Settings*, and it is independent of
+whether a model is configured:
+
+- **Off** — no model is called. Every station walks its own rotation, the ledger fills,
+  and there are no reasons under the songs. This is a real choice, not what happens when
+  a key is missing.
+- **Artist-led** — the DJ is given a short list of artists (the *artist shelf*) and
+  searches their catalogues for tracks. No audio analysis is needed. The set is the
+  DJ's own, with little guidance beyond the list.
+- **Track-led** — the DJ is given a table of tracks grouped by how they relate to the
+  current song (continue the flow, move one axis, change it up, land, the one everyone
+  knows). This needs the optional audio analysis and generally makes for more fluid
+  sets. A station the analyser has not measured enough falls back to the artist shelf.
+
+With Artist-led or Track-led selected but no model endpoint saved, the stations play
+their own rotation and the admin says so. The two path instructions are editable on the
+*DJ Persona* page; the JSON reply contract and the legality checks stay in the code, so
+an edit cannot let an illegal track air.
+
 ## Quick start
 
 ```sh
@@ -601,12 +622,12 @@ The global prompt is the DJ's character — the voice it speaks in, which is als
 listeners read under each song. It is prepended to every pick on every station; each
 station's brief is added on top, and the mechanics of picking (sets rather than single
 tracks, tools only, the JSON reply, and the shelf or table the answer has to come from)
-stay in the code so an edit cannot break them. It lives in
-`config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
-voice* deletes it. The *DJ Persona* page shows that voice beside the complete system
-prompt for a chosen station — persona, the station's reach, the mechanics and the set
-contract — so what the model is actually told is visible, even though only the voice is
-editable.
+the JSON contract and the legality checks stay in the code so an edit cannot let an
+illegal track air. The voice lives in `config/dj-persona.md`, and the two path
+instructions in `config/dj-shelf.md` and `config/dj-table.md`; with no file the built-in
+text is used, and each *restore* button deletes the override. The *DJ Persona* page
+shows all three editable blocks beside the complete system prompt for a chosen station,
+so what the model is actually told is visible.
 
 The genres pane is the operator's whole tool for taxonomy: tick any number of genres and
 merge them into one name (rows move, a rule is recorded, pools follow); or open
@@ -756,6 +777,7 @@ the keys, and that is the file to start from.
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
 | `ICECAST_ADMIN_PASSWORD` | Icecast's own `/admin` pages |
 | `SPICA_ADMIN_PASSWORD` | admin login for the web UI; empty disables admin writes |
+| `SPICA_DJ_MODE` | default DJ mode when `config/dj.json` has not chosen one: `off`, `artist` or `track` (default `track`) |
 | `SPICA_HOSTNAME` | the host Icecast puts in its stream URLs |
 | `SPICA_LOCATION`, `SPICA_ADMIN_EMAIL` | the `<location>` and `<admin>` Icecast advertises |
 | `ICECAST_PORT`, `SPICA_PORT` | the two published ports (default `8000` audio, `8030` web) |

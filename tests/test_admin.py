@@ -259,7 +259,7 @@ def test_the_queue_has_station_tabs_a_date_and_the_whole_brief(console):
     assert "?station=all" in page and "?station=alt" in page
     assert "2026-11-17" in page
     assert "end-of-the-brief" in page
-    assert "table" in page
+    assert "Tracks" in page
 
 
 def test_a_long_brief_survives_the_pick_log(station):
@@ -321,3 +321,30 @@ def test_enrich_reads_the_saved_lastfm_key(tmp_path, monkeypatch):
     monkeypatch.setattr(enrich, "_throttle", lambda *args, **kwargs: None)
     enrich.lfm_similar_scored("Artist")
     assert "api_key=saved-key" in seen["url"]
+
+
+def test_the_dj_mode_is_saved_and_cleared_plans(console):
+    client, _, state = console
+    login(client)
+    response = client.post("/admin/settings/dj", data={"mode": "artist"})
+    assert response.status_code == 200
+    assert config.dj_mode() == "artist"
+    assert "Artist-led" in client.get("/admin/settings").text
+
+    response = client.post("/admin/settings/dj", data={"mode": "nonsense"})
+    assert response.status_code == 400
+
+
+def test_the_path_instructions_are_editable(console):
+    client, cfg, _ = console
+    login(client)
+    response = client.post("/admin/prompt/path",
+                           data={"kind": "shelf", "text": "Custom shelf instruction."})
+    assert response.status_code == 200
+    assert "Custom shelf instruction." in (cfg / "dj-shelf.md").read_text(encoding="utf-8")
+    page = client.get("/admin/prompt").text
+    assert "Custom shelf instruction." in page
+
+    client.post("/admin/prompt/path",
+                data={"kind": "shelf", "text": "ignored", "reset": "1"})
+    assert not (cfg / "dj-shelf.md").exists()

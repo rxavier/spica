@@ -20,7 +20,7 @@
           </td>
           <td class="num sub">
             {%- if j.finished_iso -%}
-              <time data-t="{{ j.finished_iso }}">{{ j.finished_iso[11:16] }}</time>
+              <time data-t="{{ j.finished_iso }}">{{ j.finished_iso[:16].replace('T', ' ') }}</time>
             {%- else -%}—{%- endif -%}
           </td>
           <td class="num sub">{{ j.took or "—" }}</td>

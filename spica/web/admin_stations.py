@@ -146,7 +146,7 @@ async def admin_station_save(
         # A new or changed stream is a new Liquidsoap output, so the mixer has to
         # come back with a regenerated script.
         note += " " + _apply_station_script()
-    message = f"Saved. Pool: {counts.get(station_id, 0)} tracks.{note}"
+    message = f"Saved. Rotation: {counts.get(station_id, 0)} tracks.{note}"
     response = templates.TemplateResponse(
         request, "_saved.html", {"message": message, "station_id": station_id}
     )

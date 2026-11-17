@@ -104,6 +104,11 @@ ADMIN_PASSWORD = os.environ.get("SPICA_ADMIN_PASSWORD", "")
 SESSION_SECRET_FILE = STATE_DIR / ".session-secret"
 # Global DJ house rules, editable from the admin UI, injected into every pick.
 DJ_PERSONA_FILE = CONFIG_DIR / "dj-persona.md"
+# The two path instructions are editable too; the JSON contract and the legality
+# checks stay in the code.
+DJ_MODES = ("off", "artist", "track")
+DJ_MODE_LABELS = {"off": "Off", "artist": "Artist-led", "track": "Track-led"}
+DJ_MODE_DEFAULT = "track"
 # Liquidsoap's control server, used to restart the mixer after a station change.
 LIQ_TELNET = os.environ.get("LIQ_TELNET", "mixer:1234")
 SESSION_HOURS = 12
@@ -342,3 +347,44 @@ def save_provider_settings(lastfm_key: str, mb_user_agent: str) -> None:
         Path(_providers_file()).chmod(0o600)
     except OSError:
         pass
+
+
+# ------------------------------------------------------------------ DJ mode
+
+def _dj_file() -> Path:
+    return CONFIG_DIR / "dj.json"
+
+
+def dj_mode() -> str:
+    """off, artist or track. The file wins; the environment is the default."""
+    mode = os.environ.get("SPICA_DJ_MODE", DJ_MODE_DEFAULT).strip().lower()
+    try:
+        raw = json.loads(_dj_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raw = {}
+    if isinstance(raw, dict):
+        value = str(raw.get("mode") or "").strip().lower()
+        if value in DJ_MODES:
+            mode = value
+    return mode if mode in DJ_MODES else DJ_MODE_DEFAULT
+
+
+def save_dj_mode(mode: str) -> str:
+    mode = str(mode or "").strip().lower()
+    if mode not in DJ_MODES:
+        raise ValueError(f"unknown DJ mode {mode!r}; expected one of {DJ_MODES}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    Path(_dj_file()).write_text(json.dumps({"mode": mode}, indent=2) + "\n", encoding="utf-8")
+    try:
+        Path(_dj_file()).chmod(0o600)
+    except OSError:
+        pass
+    return mode
+
+
+def dj_shelf_file() -> Path:
+    return CONFIG_DIR / "dj-shelf.md"
+
+
+def dj_table_file() -> Path:
+    return CONFIG_DIR / "dj-table.md"

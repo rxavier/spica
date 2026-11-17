@@ -216,3 +216,37 @@ def test_the_pick_records_what_it_read(flow, station):
     assert pick is not None
     assert pick.brief and "Choose the next set" in pick.brief
     assert pick.reply.startswith("{")
+
+
+def test_off_mode_never_asks_the_model(flow, station, monkeypatch):
+    lib, sent, _ = flow
+    monkeypatch.setattr(config, "dj_mode", lambda: "off")
+    monkeypatch.setattr(loop, "chat", lambda *a, **k: pytest.fail("the model was asked"))
+
+    assert loop.pick_next(lib, station, None, set()) is None
+    assert sent == []
+
+
+def test_artist_mode_skips_the_table(flow, station, monkeypatch):
+    lib, sent, replies = flow
+    monkeypatch.setattr(config, "dj_mode", lambda: "artist")
+    called = []
+    monkeypatch.setattr(loop.table_module, "build",
+                        lambda lib, st: called.append(True) or None)
+    replies.append(a_set(T))
+
+    pick = loop.pick_next(lib, station, None, set())
+    assert pick is not None and pick.track.id == T
+    assert called == [], "artist mode must not draw a table"
+
+
+def test_track_mode_tries_the_table(flow, station, monkeypatch):
+    lib, sent, replies = flow
+    monkeypatch.setattr(config, "dj_mode", lambda: "track")
+    called = []
+    monkeypatch.setattr(loop.table_module, "build",
+                        lambda lib, st: called.append(True) or None)
+    replies.append(a_set(T))
+
+    loop.pick_next(lib, station, None, set())
+    assert called == [True]

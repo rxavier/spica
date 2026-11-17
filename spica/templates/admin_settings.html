@@ -3,8 +3,31 @@
 {% block main_class %}studio{% endblock %}
 {% block body %}
 <h1>Settings</h1>
-<p class="sub">The model that picks the songs. Any OpenAI-compatible endpoint works: a
-  hosted API, a local server, or a gateway in front of either.</p>
+<p class="sub">How the DJ works, the model it talks to, and the metadata providers behind it.</p>
+
+<h2 id="dj">DJ</h2>
+<form hx-post="/admin/settings/dj" hx-target="#dj-result" hx-swap="innerHTML">
+  <div class="field">
+    <label for="dj-mode">DJ mode</label>
+    <select id="dj-mode" name="mode">
+      <option value="off"{% if dj_mode == 'off' %} selected{% endif %}>Off — no model; each station plays its own rotation</option>
+      <option value="artist"{% if dj_mode == 'artist' %} selected{% endif %}>Artist-led — no audio analysis; the DJ works from a list of artists</option>
+      <option value="track"{% if dj_mode == 'track' %} selected{% endif %}>Track-led — needs audio analysis; the DJ works from a table of tracks</option>
+    </select>
+    <p class="sub">Off never calls a model, even with one configured. Track-led falls back to Artist-led on a station the analyser has not measured enough.</p>
+  </div>
+  {% if not has_model and dj_mode != 'off' %}
+    <p class="flash bad">No model endpoint is configured, so the DJ cannot pick yet. Stations play their own rotation until one is saved below.</p>
+  {% endif %}
+  <div class="merge-bar">
+    <button class="primary" type="submit">Save DJ mode</button>
+    <span class="sub">Changing it drops any set already waiting.</span>
+  </div>
+</form>
+<div id="dj-result"></div>
+
+<h2>The model</h2>
+<p class="sub">Any OpenAI-compatible endpoint works: a hosted API, a local server, or a gateway in front of either.</p>
 
 <form hx-post="/admin/settings" hx-target="#save-result" hx-swap="innerHTML">
   <div class="field">
@@ -78,7 +101,7 @@
 <div id="provider-result"></div>
 
 <h2>No model?</h2>
-<p class="sub">With no endpoint saved, every station still plays: the mixer walks its
-  pool in order. What is missing is the DJ — the pick, the reason under each song, and
-  requests.</p>
+<p class="sub">With DJ mode off, or no endpoint saved, every station still plays: it
+  walks its own rotation in order. What is missing is the pick, the reason under each
+  song, and requests.</p>
 {% endblock %}

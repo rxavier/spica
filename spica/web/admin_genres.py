@@ -41,7 +41,7 @@ async def admin_genres(request: Request, msg: str = "", merged: str = "", into: 
         request,
         "admin_genres.html",
         {
-            "msg": msg or (f"Merged {merged} label(s) into {into}; the pools were rebuilt."
+            "msg": msg or (f"Merged {merged} label(s) into {into}; the station rotations were rebuilt."
                            if merged and into else ""),
             "untagged": untagged,
             "counts": genre_counts(conn),
@@ -85,7 +85,7 @@ async def admin_genres_merge(
     verb = "relabelled and folded into" if relabel else "now answers"
     return _genres_page(
         f"{covered} label{'s' if covered > 1 else ''} {verb} {genre_lib.pretty(into)}; "
-        "the pools were rebuilt."
+        "the station rotations were rebuilt."
     )
 
 

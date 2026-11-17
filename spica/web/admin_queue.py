@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import auth
+from .. import config
 from .. import icecast
 from .. import mixer
 from .. import plan
@@ -66,6 +67,11 @@ def _stations_view() -> list[dict]:
                     "reply": entry.get("reply", ""),
                     "tools": entry.get("tools") or [],
                     "path": entry.get("path", ""),
+                    "path_label": {
+                        "table": "Tracks",
+                        "table-partial": "Tracks (partial)",
+                        "shelf": "Artists",
+                    }.get(entry.get("path", ""), ""),
                     "coverage": entry.get("coverage"),
                     "shelf": entry.get("shelf") or [],
                 }
@@ -98,8 +104,14 @@ def admin_queue(request: Request):
     views = _stations_view()
     wanted = (request.query_params.get("station") or "").strip()
     selected = next((v for v in views if v["station"].id == wanted), views[0] if views else None)
+    mode = config.dj_mode()
     return templates.TemplateResponse(
         request,
         "admin_queue.html",
-        {"views": views, "view": selected, "rows": ROWS},
+        {
+            "views": views,
+            "view": selected,
+            "rows": ROWS,
+            "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
+        },
     )

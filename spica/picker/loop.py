@@ -120,6 +120,11 @@ def pick_next(
     they just asked to leave, so it is dropped and the next set is picked with the
     request in the brief.
     """
+    mode = config.dj_mode()
+    if mode == "off":
+        # No model is called. The station keeps its own rotation and the ledger
+        # still records what aired.
+        return None
     # Nothing that is already airing or queued can air again — that is the one rule
     # about repeats the code enforces. Artist and album spacing is the DJ's call.
     avoid = (avoid or set()) | already_airing(lib, station)
@@ -148,7 +153,7 @@ def pick_next(
     llm = config.llm_settings()
     if not llm["key"] or not llm["base"]:
         return None
-    return plan_pick(lib, station, request_text, avoid)
+    return plan_pick(lib, station, request_text, avoid, use_table=(mode == "track"))
 
 
 def plan_pick(
@@ -156,6 +161,7 @@ def plan_pick(
     station: config.Station,
     request_text: str | None,
     avoid: set[str],
+    use_table: bool = True,
 ) -> Pick | None:
     """Ask the model for the next set, store it, and hand back its first track."""
     # A request is answered now; a set can wait for the next record to settle. Planning
@@ -264,7 +270,7 @@ def plan_pick(
     # front, one call and no lookups. Without it, the artist shelf is unchanged.
     table = None
     shelf_names: list[str] = []
-    if not request_text:
+    if not request_text and use_table:
         table = table_module.build(lib, station)
     if table:
         lines.append(table_module.render(table))

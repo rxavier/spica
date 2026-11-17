@@ -4,7 +4,7 @@
 {% block body %}
 <h1>Genres</h1>
 {% if msg %}<p class="flash">{{ msg }}</p>{% endif %}
-<p class="sub">{{ counts|length }} labels · {{ total_tracks }} tracks · {{ untagged }} without any genre · {{ builtin_count }} built-in rules · {{ operator|length }} of yours</p>
+<p class="sub">{{ counts|length }} labels · {{ total_tracks }} tracks · {{ untagged }} without any genre · {{ operator|length }} admin merge/rename rules</p>
 
 <form id="genre-merge" method="post" action="/admin/genres/merge">
   <div class="merge-bar">
@@ -74,7 +74,7 @@
 </form>
 <div id="explorer"></div>
 
-<h2>Your rules ({{ operator|length }})</h2>
+<h2>Admin rules ({{ operator|length }})</h2>
 <p class="sub">What a merge leaves behind. Removing one does not undo a merge already made —
   it only stops the rule applying at the next rebuild.</p>
 <table>

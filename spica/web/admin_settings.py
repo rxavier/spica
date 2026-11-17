@@ -7,8 +7,10 @@ import httpx
 
 from .. import config
 from .. import picker
+from .. import plan
 from .. import auth
-from fastapi import APIRouter, Form, Request
+from ..picker import prompt as prompt_mod
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -43,6 +45,7 @@ async def admin_settings(request: Request):
         return RedirectResponse("/admin/login", status_code=303)
     llm = config.llm_settings()
     providers = config.provider_settings()
+    mode = config.dj_mode()
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -53,6 +56,9 @@ async def admin_settings(request: Request):
             "providers": providers,
             "lastfm_set": bool(providers["lastfm_key"]),
             "mb_default": config.MB_USER_AGENT,
+            "dj_mode": mode,
+            "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
+            "has_model": bool(llm["base"] and llm["key"]),
         },
     )
 
@@ -76,6 +82,26 @@ async def admin_settings_save(
         "_saved.html",
         {"message": "Saved. The next pick uses it — no restart.", "station_id": ""},
     )
+
+
+@router.post("/admin/settings/dj", response_class=HTMLResponse)
+async def admin_settings_dj(request: Request, mode: str = Form(...)):
+    auth.require_admin(request)
+    try:
+        chosen = config.save_dj_mode(mode)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    # A set already waiting was chosen under the old mode; drop it so the next
+    # pick reflects what the operator just chose.
+    for station in config.load_stations():
+        plan.clear(station, "DJ mode changed")
+    response = templates.TemplateResponse(
+        request,
+        "_saved.html",
+        {"message": f"DJ mode is now {config.DJ_MODE_LABELS.get(chosen, chosen)}.", "station_id": ""},
+    )
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.post("/admin/settings/providers", response_class=HTMLResponse)
@@ -212,6 +238,12 @@ async def admin_prompt(request: Request):
             "selected": selected,
             "table_prompt": table_prompt,
             "shelf_prompt": shelf_prompt,
+            "dj_mode": config.dj_mode(),
+            "mode_label": config.DJ_MODE_LABELS.get(config.dj_mode(), config.dj_mode()),
+            "shelf_text": prompt_mod.shelf_guidance(),
+            "table_text": prompt_mod.table_guidance(),
+            "shelf_custom": config.dj_shelf_file().exists(),
+            "table_custom": config.dj_table_file().exists(),
         },
     )
 
@@ -225,6 +257,35 @@ async def admin_prompt_save(request: Request, text: str = Form("")):
         request,
         "_saved.html",
         {"message": "Persona saved — the next pick uses it", "station_id": ""},
+    )
+    response.headers["HX-Refresh"] = "true"
+    return response
+
+
+@router.post("/admin/prompt/path", response_class=HTMLResponse)
+async def admin_prompt_path(
+    request: Request,
+    kind: str = Form(...),
+    text: str = Form(""),
+    reset: str = Form(""),
+):
+    auth.require_admin(request)
+    path = {"shelf": config.dj_shelf_file, "table": config.dj_table_file}.get(kind)
+    if path is None:
+        raise HTTPException(400, "unknown path")
+    target = path()
+    if reset:
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
+        message = f"{kind} path restored to the built-in text"
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text.strip() + "\n", encoding="utf-8")
+        message = f"{kind} path saved — the next pick uses it"
+    response = templates.TemplateResponse(
+        request, "_saved.html", {"message": message, "station_id": ""}
     )
     response.headers["HX-Refresh"] = "true"
     return response
