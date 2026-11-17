@@ -416,8 +416,9 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
         log(f"loudness: {track_id}: {exc}")
 
     if workers > 1:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(measure_one, track_id, url): track_id
+        # Not named `pool`: that is the module this function calls at the end.
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(measure_one, track_id, url): track_id
                        for track_id, url in tasks}
             for i, future in enumerate(as_completed(futures), 1):
                 track_id = futures[future]

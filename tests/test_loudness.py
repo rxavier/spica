@@ -235,10 +235,22 @@ def test_loudness_job_measures_untagged_tracks_and_marks_failures(tmp_path, monk
     jobs.ensure_schema(conn)
     job_id = jobs.create(conn, "loudness")
 
+    rewritten = []
+    monkeypatch.setattr(worker.config, "load_stations", lambda: [config.Station(id="test", name="Test")])
+    monkeypatch.setattr(
+        worker.pool, "write_pools",
+        lambda conn, stations, log=print: rewritten.append(True) or {"test": 1},
+    )
+    monkeypatch.setattr(
+        worker.pool, "resume_after_last_played",
+        lambda stations, last, log=print: None,
+    )
+
     result = worker.run_loudness(conn, job_id, log=lambda *args, **kwargs: None)
     assert result["tracks"] == 1
     assert result["failed"] == 1
     assert result["remaining"] == 0
+    assert rewritten == [True]
     assert loudness.measured("t2") == (-20.0, -3.0)
     assert loudness.measured("t3") is None
     store = loudness.connect()
