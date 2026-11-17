@@ -16,7 +16,7 @@ import secrets
 import sqlite3
 import time
 
-from . import config, navidrome, subsonic
+from . import config, loudness, navidrome, subsonic
 
 ARTIST_WINDOW = 12
 
@@ -202,11 +202,14 @@ def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=pr
         st.pool_file.parent.mkdir(parents=True, exist_ok=True)
         body_lines: list[str] = []
         seen: set[str] = set()
+        measured = loudness.all_measured()
         for r in ordered:
-            uri = r["uri"]
-            if uri in seen:  # the same track reached twice
+            # The gain rides on the line as Liquidsoap's liq_amplify annotation, so
+            # the fallback rotation is levelled exactly like a DJ pick.
+            uri = loudness.annotate(r["uri"], loudness.for_row(r, measured.get(r["id"])))
+            if r["id"] in seen:  # the same track reached twice
                 continue
-            seen.add(uri)
+            seen.add(r["id"])
             body_lines.append(uri)
         body = "\n".join(body_lines)
         tmp = st.pool_file.with_suffix(".tmp")

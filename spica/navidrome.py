@@ -95,7 +95,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
             artist_id TEXT DEFAULT '',
             album_artist TEXT DEFAULT '',
             album_artist_id TEXT DEFAULT '',
-            album_artist_key TEXT DEFAULT ''
+            album_artist_key TEXT DEFAULT '',
+            replaygain_gain REAL,
+            replaygain_peak REAL
         )
         """
     )
@@ -115,6 +117,13 @@ def connect(db_path: Path) -> sqlite3.Connection:
         conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_id TEXT DEFAULT ''")
     if "album_artist_key" not in columns:
         conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_key TEXT DEFAULT ''")
+    # ReplayGain arrives with the song on OpenSubsonic servers. Stored raw (the
+    # tag's dB offset and linear peak) so a target change needs no re-index; the
+    # gain itself is computed when a request is written.
+    if "replaygain_gain" not in columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN replaygain_gain REAL")
+    if "replaygain_peak" not in columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN replaygain_peak REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
@@ -261,6 +270,13 @@ def _inherited_labels(
     return out
 
 
+def _tag_number(value) -> float | None:
+    """A numeric ReplayGain field, or None for anything a tag parser would reject."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) -> int:
     """Page the whole library out of the API and rebuild the projection."""
     now = int(time.time())
@@ -271,6 +287,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
     native: dict[str, list[str]] = {}
     albums = 0
     failed = 0
+    replaygain = 0
 
     album_art: list[tuple[str, str]] = []
     for album in subsonic.iter_albums():
@@ -315,6 +332,11 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
                 for label in genre_lib.labels_of(raw, operator=False):
                     if label.casefold() not in {x.casefold() for x in canon}:
                         canon.append(label)
+            rg = song.get("replayGain")
+            rg = rg if isinstance(rg, dict) else {}
+            tag_gain = _tag_number(rg.get("trackGain"))
+            if tag_gain is not None:
+                replaygain += 1
             rows.append(
                 (
                     track_id,
@@ -334,6 +356,8 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
                     album_artist,
                     album_artist_id,
                     name_key(album_artist),
+                    tag_gain,
+                    _tag_number(rg.get("trackPeak")),
                 )
             )
             native[track_id] = canon
@@ -352,8 +376,8 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
             """INSERT INTO tracks
                  (id,uri,title,artist,album,album_id,track_no,year,genre,duration,fetched_at,
                   mbz_album,mbz_recording,artist_id,album_artist,album_artist_id,
-                  album_artist_key)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  album_artist_key,replaygain_gain,replaygain_peak)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
         labels.extend(_inherited_labels(meta, native))
@@ -381,6 +405,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
         + (f" ({failed} album(s) failed)" if failed else "")
         + f" — {len(labels)} genre labels "
         f"({', '.join(f'{k} {v}' for k, v in sorted(by_source.items()))})"
+        f" · {replaygain} with ReplayGain"
     )
     return len(rows)
 

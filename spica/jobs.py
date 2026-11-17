@@ -16,7 +16,7 @@ import math
 import sqlite3
 import time
 
-KINDS = ("genre_tags", "refresh", "popularity", "musicbrainz", "similarity", "analysis")
+KINDS = ("genre_tags", "refresh", "popularity", "musicbrainz", "similarity", "analysis", "loudness")
 
 # What the operator calls each job. The raw kind stays visible beside it, because
 # that is the string in the logs and in the URLs.
@@ -27,6 +27,7 @@ KIND_LABELS = {
     "musicbrainz": "MusicBrainz genres",
     "similarity": "Similar artists (scored)",
     "analysis": "Audio analysis",
+    "loudness": "Loudness",
 }
 
 

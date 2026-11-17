@@ -1,8 +1,9 @@
 """Generate the Liquidsoap config from stations.json.
 
 One request.queue per station (fed by the picker through a file), one playlist
-fallback (the heuristic rotation), a short crossfade, and one MP3 mount. That is
-the whole mixer — no jingles, no ducking, no per-track stamping.
+fallback (the heuristic rotation), a short crossfade, per-track gain from the
+request's annotation, and one output per codec. That is the whole mixer — no
+jingles, no ducking, no other processing.
 """
 
 from __future__ import annotations
@@ -85,6 +86,11 @@ def render(stations: list[config.Station], password: str) -> str:
             f"  q_{st.id},",
             f"  playlist(id=\"pool_{st.id}\", mode=\"normal\", reload_mode=\"watch\", \"{st.pool_file}\")",
             "]))",
+            # The picker writes each track's gain as an `annotate:` liq_amplify
+            # value, and this applies it before the cross so a record enters the
+            # fade at its own level. An unstamped track (no ReplayGain tag) plays
+            # at unity, exactly as it did before.
+            f's_{st.id} = amplify(override="liq_amplify", 1., s_{st.id})',
             # crossfade() rejects a fallible source and returns a fallible one, so
             # it sits between two mksafe calls (verified on 2.4.6).
             f"s_{st.id} = mksafe(crossfade(duration=3.0, s_{st.id}))",

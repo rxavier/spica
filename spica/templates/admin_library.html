@@ -33,11 +33,26 @@
 </div>
 {% endif %}
 
+{% if coverage.loudness %}
+<div class="notice">
+  <div class="muted">Levelled</div>
+  <div class="track">{{ coverage.loudness.percent }}%</div>
+  <div class="bar"><span style="width: {{ coverage.loudness.percent }}%"></span></div>
+  <div class="sub">{{ coverage.loudness.known }} of {{ coverage.loudness.total }} tracks · {{ coverage.loudness.tagged }} tagged · {{ coverage.loudness.measured }} measured{% if coverage.loudness.errors %} · {{ coverage.loudness.errors }} failed{% endif %} · {{ coverage.loudness.remaining }} missing</div>
+</div>
+{% endif %}
+
 <h2>Jobs</h2>
 <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="popularity">
   <button type="submit">Fetch popularity (ListenBrainz + Last.fm)</button>
 </form>
+{% if coverage.loudness %}
+<form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="loudness">
+  <button type="submit">Measure loudness for untagged tracks</button>
+</form>
+{% endif %}
 {% if analysis_enabled %}
 <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="analysis">

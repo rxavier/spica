@@ -454,14 +454,17 @@ async def aliases() -> dict:
 
 @app.get("/coverage")
 async def coverage() -> dict:
-    """What the DJ knows: genre coverage, plus audio analysis when it is on."""
-    from . import analysis, jobs
+    """What the DJ knows: genre coverage, plus analysis and loudness when on."""
+    from . import analysis, jobs, loudness
 
     def _run() -> dict:
         out = jobs.coverage(lib().conn)
         extra = analysis.coverage_for(lib().conn)
         if extra is not None:
             out["analysis"] = extra
+        levels = loudness.coverage(lib().conn)
+        if levels is not None:
+            out["loudness"] = levels
         return out
 
     return await asyncio.to_thread(_run)

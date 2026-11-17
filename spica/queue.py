@@ -123,9 +123,15 @@ def promote_requests(station: config.Station) -> int:
     pending = mixer.pending_uris(station)
     if pending is None:  # no control server: the loop's slot hand-over still works
         return 0
+    # Compare by track id: a request URI now carries a per-track gain annotation,
+    # and Liquidsoap's initial_uri may or may not echo the prefix.
+    pending_ids = [subsonic.song_id(uri) for uri in pending]
     # A request that has left the queue has aired; one that was never pushed is
     # still owed, and stays for the next attempt.
-    lines = [l for l in _request_lines(station) if not l.get("sent") or l["uri"] in pending]
+    lines = [
+        l for l in _request_lines(station)
+        if not l.get("sent") or subsonic.song_id(l["uri"]) in pending_ids
+    ]
     if not lines:
         _write_request_lines(station, [])
         return 0
@@ -135,7 +141,7 @@ def promote_requests(station: config.Station) -> int:
         _write_request_lines(station, lines)
         return 0
     want = [l["uri"] for l in lines]
-    if pending != want and not mixer.set_queue(station, want):
+    if pending_ids != [subsonic.song_id(uri) for uri in want] and not mixer.set_queue(station, want):
         _write_request_lines(station, lines)
         return 0
     # The DJ's set was chosen for the mood the listener has just changed, and the

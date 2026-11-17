@@ -72,6 +72,32 @@ ANALYSIS_DEEP = os.environ.get("SPICA_ANALYSIS_DEEP", "").strip().lower() in ("1
 ANALYSIS_TRANSCODE = os.environ.get("SPICA_ANALYSIS_TRANSCODE", "").strip().lower() in ("1", "true", "yes", "on")
 ANALYSIS_BITRATE = int(os.environ.get("SPICA_ANALYSIS_BITRATE", "96"))
 
+# --- per-track loudness ---------------------------------------------------
+# A library is a pile of masters at different levels, and a radio that plays them
+# as they are jumps from quiet to loud every third record. Each track's ReplayGain
+# tag (read from Navidrome) becomes one static gain, applied before the crossfade.
+# This is normalisation, not the loudness-as-intensity measure the README rejects;
+# nothing here is read by the DJ. On by default, and a no-op on a library whose
+# files carry no ReplayGain tags.
+LOUDNESS = os.environ.get("SPICA_LOUDNESS", "1").strip().lower() not in ("0", "false", "no", "off")
+# Where every record should sit. -14 LUFS is the streaming convention; the
+# ReplayGain reference itself is -18, so a tagged track is lifted 4 dB from its tag.
+LOUDNESS_TARGET_LUFS = float(os.environ.get("SPICA_LOUDNESS_TARGET", "-14"))
+# Gain is cut as far as the target asks (up to this), but lifted no further than
+# this, and never above the peak ceiling. A boost with no known peak is held at 0.
+LOUDNESS_MAX_BOOST_DB = float(os.environ.get("SPICA_LOUDNESS_MAX_BOOST", "6"))
+LOUDNESS_MAX_CUT_DB = float(os.environ.get("SPICA_LOUDNESS_MAX_CUT", "12"))
+LOUDNESS_PEAK_CEILING_DBFS = float(os.environ.get("SPICA_LOUDNESS_PEAK_CEILING", "-1"))
+# Where a file has no tag, measure it once with the worker's ffmpeg. One-time and
+# incremental, and a no-op once the store is full; can be switched off without
+# disabling the tagged gain.
+LOUDNESS_MEASURE = os.environ.get("SPICA_LOUDNESS_MEASURE", "1").strip().lower() not in ("0", "false", "no", "off")
+# Tracks measured per job slice, so popularity and the rest interleave with the
+# backfill. One ffmpeg per worker, one thread each.
+LOUDNESS_SLICE = int(os.environ.get("SPICA_LOUDNESS_SLICE", "200"))
+LOUDNESS_WORKERS = int(os.environ.get("SPICA_LOUDNESS_WORKERS", "0")) or min(2, os.cpu_count() or 1)
+LOUDNESS_TIMEOUT = int(os.environ.get("SPICA_LOUDNESS_TIMEOUT", "300"))
+
 # --- web UI ---------------------------------------------------------------
 # Admin side is one password; listener side is public by design.
 ADMIN_PASSWORD = os.environ.get("SPICA_ADMIN_PASSWORD", "")

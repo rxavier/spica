@@ -7,6 +7,7 @@ import os
 from .. import analysis
 from .. import config
 from .. import jobs
+from .. import loudness
 from .. import navidrome
 from .. import pool
 from .. import store
@@ -79,6 +80,9 @@ async def admin_library(request: Request):
     analysis_coverage = analysis.coverage_for(conn)
     if analysis_coverage is not None:
         coverage["analysis"] = analysis_coverage
+    loudness_coverage = loudness.coverage(conn)
+    if loudness_coverage is not None:
+        coverage["loudness"] = loudness_coverage
     return templates.TemplateResponse(
         request,
         "admin_library.html",

@@ -203,6 +203,10 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   Last.fm for whatever has no MusicBrainz id, ranked inside the artist's own catalogue, so
   "hits" and "deep cuts" mean which of their songs people know rather than how big the
   artist is. Nothing is read from your own listening.
+- **One level across the library.** Each track's ReplayGain tag becomes one static gain
+  toward −14 LUFS, applied before the crossfade, so a record mastered hot does not jump
+  out of the stream. It is normalisation, not a loudness-as-intensity measure, and a
+  track with no tag plays untouched. See [Loudness](#loudness).
 - **Coverage reporting and background jobs.** `GET /coverage` reports how much of the
   library the DJ actually knows. `POST /jobs` queues work for the worker.
 - **No storage coupling.** The library is read through the Subsonic API and played back
@@ -259,9 +263,11 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
   0.2%.
 
 **Audio analysis is off by default and lives in its own image.** The picker runs the
-lean Alpine image (~200 MB; numpy, to read vectors); the worker's `-analysis` image
-(~480 MB, Debian for glibc, amd64 only — essentia has no Linux arm64 wheel) carries
-onnxruntime and essentia. Turned on, each analysis
+lean Alpine image (~200 MB; numpy, to read vectors). The worker runs the `-worker`
+image (~330 MB, the same base plus ffmpeg, which is only used by the one-time loudness
+measurement). The optional `-analysis` image (~480 MB, Debian for glibc and amd64 only
+— essentia has no Linux arm64 wheel) also carries onnxruntime, essentia and ffmpeg.
+Turned on, each analysis
 process uses about 0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap,
 `SPICA_ANALYSIS_DEEP` off), so a 5,000-track backfill is a couple of hours once — after
 that only new tracks are analysed. Decoding scales with track length even under the cap,
@@ -278,12 +284,14 @@ this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
                          dj-persona.md, llm.json, artist-mbids.json
-state/                   index.db, analysis.db, models/, pools/, plans/, queue/,
-                         history/, now/, requests/, art/, genre-aliases.json, logs/
+state/                   index.db, analysis.db, loudness.db, models/, pools/, plans/,
+                         queue/, history/, now/, requests/, art/, genre-aliases.json,
+                         logs/
 ```
 
 `config/` is the part worth backing up: it is your stations and your DJ. Everything in
-`state/` can be rebuilt from Navidrome except the history and the request log. Both
+`state/` can be rebuilt from Navidrome except the history and the request log — and the
+analysis and loudness stores, which cost CPU to measure again. Both
 directories are bind mounts; the paths inside the containers are `/config` and `/state`
 and nothing about them is compiled into the code.
 
@@ -388,6 +396,45 @@ FLAC also costs the listener four times the bandwidth.
 
 **Changing streams** regenerates `spica.liq` and restarts the mixer, which is a few
 seconds of silence on every station, not just the one being edited.
+
+## Loudness
+
+A library is a pile of masters cut at different levels, and a station plays them back
+to back. Each track's ReplayGain tag — written by your tagger, read through Navidrome —
+becomes one static gain, put on the request as Liquidsoap's `liq_amplify` annotation so
+the mixer applies it before the crossfade. Nothing is compressed and the programme bus
+is untouched: the record's own dynamics are preserved.
+
+- **Target** −14 LUFS. ReplayGain's own reference is −18, so a tagged track is lifted
+  4 dB from its tag.
+- **A boost** is capped at +6 dB and needs a known peak. A tag with a gain but no peak
+  is left at 0 dB rather than pushed into the encoder's ceiling; a peak too close to
+  full scale leaves no room to lift either.
+- **A cut** stops at −12 dB, and no gain may leave a track above −1 dBFS sample peak.
+- **No tag, no measurement, no gain.** A track with neither plays exactly as it did.
+
+**When the file has no tag, the worker measures it once.** The `loudness` job reads
+the track through Navidrome and runs ffmpeg's EBU R128 filter, storing integrated
+loudness and the sample peak in `state/loudness.db`. That store is separate from the
+index on purpose: the index is disposable, and a measurement is CPU. The job is
+incremental and resumable, measures only tracks with no tag and no attempt, and does
+not retry a file that failed to decode. It runs from the `-worker` image, which is the
+lean image plus ffmpeg; the picker and init stay lean.
+
+On this project's library a full backfill of roughly 4,700 untagged tracks cost about
+**1.8 CPU-hours** (about 30 minutes on four concurrent workers, ~52 MB each). It is a
+one-time cost, not an always-on one. `SPICA_LOUDNESS_MEASURE=0` keeps it tag-only; the
+admin's *Library* page has a **Measure loudness for untagged tracks** button, and
+`POST /jobs {"kind": "loudness"}` does the same.
+
+The gain is computed when a pool or a pick writes its request, from the tags stored in
+the index and the measurements in `state/loudness.db`. A target change needs no
+re-analysis; new tags reach Spica after Navidrome next scans the files and the index is
+rebuilt, which the worker does when the library changes. `SPICA_LOUDNESS=0` turns the
+gain off, and the knobs are `SPICA_LOUDNESS_TARGET`, `SPICA_LOUDNESS_MAX_BOOST`,
+`SPICA_LOUDNESS_MAX_CUT` and `SPICA_LOUDNESS_PEAK_CEILING`. This is the normalisation
+use of loudness the [Non-features](#non-features) note leaves open — not the
+loudness-as-intensity signal the DJ rejected.
 
 ## Genres
 
@@ -663,7 +710,7 @@ page uses.
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
-| GET | `/coverage` | how much of the library has genres (and audio analysis, when it is on), and what is missing |
+| GET | `/coverage` | how much of the library has genres (and audio analysis or a loudness level, when on), and what is missing |
 | GET | `/genres` | genres with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
@@ -678,7 +725,7 @@ page uses.
 | GET | `/listen/<station>` | the default stream, relayed and opened on demand |
 | GET | `/listen/<station>/<codec>` | one stream: `mp3`, `opus` or `flac` |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
-| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh" \| "analysis"}` |
+| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh" \| "analysis" \| "loudness"}` |
 | GET | `/jobs` | recent jobs with progress |
 | DELETE | `/requests/<station>` | clear the station's live requests |
 
@@ -689,7 +736,7 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.13.1` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.14.0` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
@@ -715,6 +762,15 @@ the keys, and that is the file to start from.
 | `SPICA_ANALYSIS_DEEP` | also compute loudness, classic danceability, dynamic complexity (off by default; nothing reads them yet) |
 | `SPICA_ANALYSIS_TRANSCODE` | `1` streams a transcode instead of the original (default off: CPU beats bandwidth when Navidrome is local) |
 | `SPICA_ANALYSIS_BITRATE` | bitrate of that transcode (default `96`) |
+| `SPICA_LOUDNESS` | per-track ReplayGain normalisation; `0` turns it off (on by default) |
+| `SPICA_LOUDNESS_TARGET` | target integrated loudness for the gain (default `-14` LUFS) |
+| `SPICA_LOUDNESS_MAX_BOOST` | largest lift, and only with a known peak (default `6` dB) |
+| `SPICA_LOUDNESS_MAX_CUT` | largest cut (default `12` dB) |
+| `SPICA_LOUDNESS_PEAK_CEILING` | a lift may not push the sample peak past this (default `-1` dBFS) |
+| `SPICA_LOUDNESS_MEASURE` | measure tracks with no ReplayGain tag (default on; `0` = tag-only) |
+| `SPICA_LOUDNESS_SLICE` | tracks measured per job slice (default `200`) |
+| `SPICA_LOUDNESS_WORKERS` | concurrent ffmpeg workers (default `2`; `0` = min(2, cores)) |
+| `SPICA_LOUDNESS_TIMEOUT` | per-track ffmpeg timeout in seconds (default `300`) |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
@@ -774,6 +830,9 @@ a rebuild also re-canonicalises every genre.
   tempo, key and loudness, one vector per artist, and the ONNX weights that produced
   them. Its own file because the index is disposable and this is hours of CPU:
   deleting it only costs a re-analysis.
+- `loudness.db`: measured integrated loudness and sample peak for tracks whose files
+  carry no ReplayGain tag. Also separate from the index for the same reason; deleting
+  it only costs the measurement job again.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
 - `plans/<station>.json`: the set being played out — its line, its ids, and the shelf or
