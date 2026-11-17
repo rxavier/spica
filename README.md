@@ -73,8 +73,9 @@ The DJ is one global mode, set in the admin under *Settings*, and it is independ
 whether a model is configured:
 
 - **Off** — no model is called. Every station walks its own rotation, the ledger fills,
-  and there are no reasons under the songs. This is a real choice, not what happens when
-  a key is missing.
+  and there are no reasons under the songs. The rotation is rebuilt with the last 40
+  plays left out (when enough remain) and its first track avoids the artist and album
+  that just finished. This is a real choice, not what happens when a key is missing.
 - **Artist-led** — the DJ is given a short list of artists (the *artist shelf*) and
   searches their catalogues for tracks. No audio analysis is needed. The set is the
   DJ's own, with little guidance beyond the list.
@@ -143,8 +144,11 @@ deployment story: [`deploy/README.md`](deploy/README.md).
 - **Pools reshuffle on every rebuild.** Sequencing is a weighted random draw over the
   station's rules — the popularity lean decides which tracks come sooner — then two
   constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
-  tracks. Two rebuilds of the same library do not produce the same order, so the
-  playlist on disk is the record of what a station was playing.
+  tracks. The tracks from the last 40 plays are left out of the new list when the
+  station has enough left, and the first placement avoids the artist and album that just
+  finished, so a rebuild does not open on the last record. Two rebuilds of the same
+  library do not produce the same order, so the playlist on disk is the record of what a
+  station was playing.
 - **Sets, not picks.** The DJ is asked for three to ten tracks at once and one line
   that says what the set is, and the set is then played out one track at a time from
   `state/plans/<station>.json`. Asking "what follows this song" once per track has only
