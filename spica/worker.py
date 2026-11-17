@@ -442,7 +442,20 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
         # makes "the whole slice failed" diagnosable from the admin page.
         detail = errors[0] if errors else "no track could be measured"
         raise RuntimeError(f"no track could be measured ({failed} failed): {detail}")
-    return {"tracks": done, "failed": failed, "remaining": loudness.backlog(conn),
+    remaining = loudness.backlog(conn)
+    if done and not remaining:
+        # The pool is written once, at rebuild time. Now that the last untagged
+        # tracks have a level, rewrite it so the standby rotation is levelled too.
+        try:
+            stations = config.load_stations()
+            counts = pool.write_pools(conn, stations, log=log)
+            pool.resume_after_last_played(
+                stations, lambda st: (queue.recent(st, 1) or [{}])[-1], log=log
+            )
+            log(f"loudness: pools rewritten {counts}")
+        except Exception as exc:  # a pool rewrite must not fail the measurement
+            log(f"loudness: pools not rewritten: {exc}")
+    return {"tracks": done, "failed": failed, "remaining": remaining,
             "seconds": int(time.time() - started)}
 
 
