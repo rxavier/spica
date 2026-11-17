@@ -182,18 +182,38 @@ def recent(conn: sqlite3.Connection, limit: int = 10) -> list[dict]:
 
 
 def coverage(conn: sqlite3.Connection) -> dict:
-    """What the DJ actually knows — the numbers behind the "x% of your library" panel."""
+    """What the DJ actually knows — the numbers the library page acts on."""
     total = conn.execute("SELECT COUNT(*) c FROM tracks").fetchone()["c"]
     genre_known = conn.execute(
         "SELECT COUNT(DISTINCT track_id) c FROM track_genres"
     ).fetchone()["c"]
+    # Join back to the index: the enrichment tables outlive a rebuild, and a stale
+    # row is not a track this library can play.
+    popularity_known = conn.execute(
+        """SELECT COUNT(DISTINCT p.track_id) c FROM track_popularity p
+           JOIN tracks t ON t.id = p.track_id"""
+    ).fetchone()["c"]
+    artists_total = conn.execute(
+        "SELECT COUNT(DISTINCT album_artist) c FROM tracks WHERE album_artist != ''"
+    ).fetchone()["c"]
+    similarity_known = conn.execute(
+        """SELECT COUNT(*) c FROM (
+             SELECT DISTINCT s.name FROM artist_similarity s
+             WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.album_artist = s.name)
+           )"""
+    ).fetchone()["c"]
 
-    def pack(known: int) -> dict:
+    def pack(known: int, of: int = 0) -> dict:
+        of = of or total
         return {
             "known": known,
-            "total": total,
-            "remaining": max(0, total - known),
-            "percent": math.floor(known * 1000.0 / total) / 10 if total else 0.0,
+            "total": of,
+            "remaining": max(0, of - known),
+            "percent": math.floor(known * 1000.0 / of) / 10 if of else 0.0,
         }
 
-    return {"genres": pack(genre_known)}
+    return {
+        "genres": pack(genre_known),
+        "popularity": pack(popularity_known),
+        "similarity": pack(similarity_known, artists_total),
+    }

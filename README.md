@@ -101,8 +101,9 @@ so there is nothing else to create.
 - `LLM_BASE`, `LLM_KEY`, `LLM_MODEL`, `LLM_HEADERS` — defaults for the endpoint. The
   admin's *settings* page can override them, and what it saves to
   `config/llm.json` (mode 600) wins.
-- `LASTFM_KEY` — optional: name-based similarity and tag backfill.
-- `MB_USER_AGENT` — optional contact string for MusicBrainz.
+- `LASTFM_KEY` — optional: name-based similarity and tag backfill. The admin's
+  *settings* page can override it.
+- `MB_USER_AGENT` — optional contact string for MusicBrainz. The admin can override it.
 
 Running behind a reverse proxy, building the image yourself, and the full file-by-file
 deployment story: [`deploy/README.md`](deploy/README.md).
@@ -536,13 +537,13 @@ under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
 /                    lands on the first station
 /s/<station>         now playing, the ledger, and the request box
 /listen/<station>    the same stream as a plain URL, for players
-/admin               coverage, stations, recent jobs, rebuild and reload
-/admin/queue         what is on air and in hand, and what the DJ read when it chose
+/admin               redirects to the first tab, stations
 /admin/stations      the rack; add, rename, delete, and edit each station's rules
+/admin/queue         per-station tabs: on air, in hand, the set in play, and the pick log
+/admin/library       how the DJ is picking, what each job fills, and the job history
 /admin/genres        the vocabulary, merging, and a table to explore tracks by genre
-/admin/prompt        the global prompt: who the DJ is and how it talks
-/admin/settings      the model endpoint: base URL, model, key, extra headers, and a test
-/admin/library       coverage panel and the background jobs with their results
+/admin/prompt        DJ Persona: the editable voice and the full assembled system prompt
+/admin/settings      the model endpoint, and the Last.fm / MusicBrainz providers
 ```
 
 Templates and `htmx.min.js` live in `spica/templates` and `spica/static`, so the
@@ -586,13 +587,26 @@ endpoint* sends one small request with a tool attached and reports what came bac
 latency, the model that answered, and whether it actually called the tool, which is the
 one thing picking needs and which not every "OpenAI-compatible" server does.
 
+**Providers live beside it**, under the same *settings* page, and are saved to
+`config/providers.json` (mode 600): the Last.fm key used for similar artists and the tag
+backfill, and the MusicBrainz contact. The environment is only the default; the saved
+values win, and the worker reads them on its next job.
+
+**The library page answers "what kind of DJ is this?"** It shows which offer each station
+is using — the record table or the artist shelf — the last pick's path and measured
+coverage, and one row per input (genres, popularity, similarity, analysis, loudness) with
+the job that fills it. Rebuilds and mixer regeneration live there too.
+
 The global prompt is the DJ's character — the voice it speaks in, which is also the line
 listeners read under each song. It is prepended to every pick on every station; each
 station's brief is added on top, and the mechanics of picking (sets rather than single
 tracks, tools only, the JSON reply, and the shelf or table the answer has to come from)
 stay in the code so an edit cannot break them. It lives in
 `config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
-voice* deletes it.
+voice* deletes it. The *DJ Persona* page shows that voice beside the complete system
+prompt for a chosen station — persona, the station's reach, the mechanics and the set
+contract — so what the model is actually told is visible, even though only the voice is
+editable.
 
 The genres pane is the operator's whole tool for taxonomy: tick any number of genres and
 merge them into one name (rows move, a rule is recorded, pools follow); or open
@@ -710,7 +724,7 @@ page uses.
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
-| GET | `/coverage` | how much of the library has genres (and audio analysis or a loudness level, when on), and what is missing |
+| GET | `/coverage` | how much the DJ knows: genres, popularity and similarity, plus analysis and loudness when on |
 | GET | `/genres` | genres with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
@@ -750,8 +764,8 @@ the keys, and that is the file to start from.
 | `NAVIDROME_USER`, `NAVIDROME_PASS` | a Navidrome account for the radio |
 | `LLM_BASE`, `LLM_KEY`, `LLM_MODEL` | defaults for the endpoint; the admin's settings page wins |
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
-| `LASTFM_KEY` | optional: name-based similarity and tag backfill |
-| `MB_USER_AGENT` | optional: contact string for MusicBrainz |
+| `LASTFM_KEY` | optional: name-based similarity and tag backfill; the admin's settings page wins |
+| `MB_USER_AGENT` | optional: contact string for MusicBrainz; the admin's settings page wins |
 | `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker; the worker must run the `-analysis` image (see [deploy/README.md](deploy/README.md#audio-analysis)) |
 | `SPICA_ANALYSIS_TEMPO` | `degara` (fast, default) or `multifeature` (more accurate, ~3× CPU) |
 | `SPICA_ANALYSIS_SLICE` | tracks analysed per job (default `200`); other jobs interleave |

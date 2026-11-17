@@ -3,43 +3,87 @@
 {% block main_class %}studio{% endblock %}
 {% block body %}
 <h1>Queue</h1>
-<p class="sub">What is on air, what is in hand, and what the DJ was looking at when it chose — newest first. The pick log keeps the last {{ rows }}; the pane reads what is there.</p>
+<p class="sub">What is on air, what is in hand, and what the DJ was looking at when it chose — newest first. The pick log keeps the last {{ rows }}.</p>
 
-{% for v in views %}
-<h2>{{ v.station.name }} <span class="sub">· {{ v.station.id }}</span></h2>
+{% if views|length > 1 %}
+<nav class="presets" aria-label="stations">
+  {% for v in views %}
+    <a class="key{% if view and v.station.id == view.station.id %} is-on{% endif %}"
+       href="?station={{ v.station.id }}"><span class="label">{{ v.station.name }}</span></a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+{% if not view %}
+  <p class="sub">No stations yet.</p>
+{% else %}
+<h2>{{ view.station.name }} <span class="sub">· {{ view.station.id }}</span></h2>
 
 <div class="grid2">
   <div class="notice">
     <div class="muted">On air</div>
-    <div class="track">{{ v.now.artist }}{% if v.now.artist and (v.now.song or v.now.title) %} — {% endif %}{{ v.now.song or v.now.title or "off air" }}</div>
-    {% if v.now.album %}<div class="sub">{{ v.now.album }}</div>{% endif %}
-    {% if v.now.why %}<p class="why">“{{ v.now.why }}”</p>{% endif %}
-    <div class="sub">{{ v.listeners }} listener{{ "" if v.listeners == 1 else "s" }} · {{ v.present_reason }}</div>
+    {% if view.now.artist or view.now.song or view.now.title %}
+      <div class="track">{{ view.now.artist }}{% if view.now.artist and (view.now.song or view.now.title) %} — {% endif %}{{ view.now.song or view.now.title }}</div>
+      {% if view.now.album %}<div class="sub">{{ view.now.album }}</div>{% endif %}
+      {% if view.now.why %}<p class="why">“{{ view.now.why }}”</p>{% endif %}
+    {% else %}
+      <div class="track empty">Off air</div>
+      <div class="sub">The station's clock is running, but nothing has been stamped yet.</div>
+    {% endif %}
+    <div class="sub">{{ view.listeners }} listener{{ "" if view.listeners == 1 else "s" }} · {{ view.present_reason }}</div>
   </div>
 
   <div class="notice">
     <div class="muted">In hand</div>
-    <div class="track">{{ v.slot or "nothing in the slot" }}</div>
-    <div class="sub">
-      mixer queue: {% if v.ahead is none %}unreachable{% else %}{{ v.ahead }}{% endif %}
-      {%- if v.requests %} · {{ v.requests|length }} request{{ "" if v.requests|length == 1 else "s" }} remembered{% endif %}
-    </div>
-    {% for r in v.requests %}
-      <div class="sub">“{{ r.text }}” — asked {{ r.songs_ago }} song{{ "" if r.songs_ago == 1 else "s" }} ago{% if r.track and r.track.title %} · gave {{ r.track.artist }} — {{ r.track.title }}{% endif %}</div>
-    {% endfor %}
+    {% if view.slot %}
+      <div class="track">{{ view.slot }}</div>
+      <div class="sub">waiting for the mixer{% if view.ahead %} · {{ view.ahead }} in the queue{% endif %}</div>
+    {% else %}
+      <div class="track empty">Nothing waiting</div>
+      <div class="sub">
+        {% if view.ahead is none %}The mixer's control port did not answer, so the slot cannot be read.
+        {% elif view.ahead %}The mixer holds {{ view.ahead }} request{{ "" if view.ahead == 1 else "s" }}, but the picker's slot is empty.
+        {% else %}The pool keeps the station on air until the DJ fills the slot.{% endif %}
+      </div>
+    {% endif %}
+    {% if view.requests %}
+      <div class="sub">{{ view.requests|length }} request{{ "" if view.requests|length == 1 else "s" }} remembered:</div>
+      {% for r in view.requests %}
+        <div class="sub">“{{ r.text }}” — asked {{ r.songs_ago }} song{{ "" if r.songs_ago == 1 else "s" }} ago{% if r.track and r.track.title %} · gave {{ r.track.artist }} — {{ r.track.title }}{% endif %}</div>
+      {% endfor %}
+    {% endif %}
   </div>
 </div>
 
+{% if view.set_remaining or view.set_theme %}
+<div class="notice">
+  <div class="muted">The set in play</div>
+  {% if view.set_remaining %}<div class="track">{{ view.set_remaining }} track{{ "" if view.set_remaining == 1 else "s" }} left after this one</div>{% endif %}
+  {% if view.set_theme %}<p class="why">“{{ view.set_theme }}”</p>{% endif %}
+  <div class="sub">A listener request drops the rest of the set; a track that leaves the library is skipped and the set continues.</div>
+</div>
+{% endif %}
+
 <div class="picklog">
-  {% for p in v.picks %}
+  {% for p in view.picks %}
     <details>
       <summary>
         <span class="mono">{{ p.at }}</span>
-        <span class="who">{{ p.artist }}{% if p.artist and p.title %} — {% endif %}{{ p.title }}</span>
+        <span class="who">{{ p.artist }}{% if p.artist and p.title %} — {% endif %}{{ p.title }}{% if p.path %} <span class="chip">{{ p.path }}</span>{% endif %}</span>
         <span class="said">{{ p.why }}</span>
       </summary>
       <div class="body">
+        {% if p.path or p.coverage is not none %}
+          <div class="sub">
+            {% if p.path %}Offer: <strong>{{ p.path }}</strong>{% endif %}
+            {% if p.coverage is not none %} · {{ (p.coverage * 100)|round(1) }}% of the station measured{% endif %}
+          </div>
+        {% endif %}
         {% if p.presence %}<div class="sub">{{ p.presence }}</div>{% endif %}
+        {% if p.shelf %}
+          <div class="muted">Offered for this set</div>
+          <div class="sub">{{ p.shelf|join(", ") }}</div>
+        {% endif %}
         {% if p.brief %}
           <div class="muted">What the DJ was told</div>
           <pre>{{ p.brief }}</pre>
@@ -65,5 +109,5 @@
     <p class="sub">No picks yet on this station.</p>
   {% endfor %}
 </div>
-{% endfor %}
+{% endif %}
 {% endblock %}

@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spica import app as application
-from spica import auth, config, icecast, mixer, pool, store
+from spica import auth, config, icecast, mixer, pool, queue, store
 
 PASSWORD = "let-me-in"
 
@@ -48,6 +48,7 @@ def console(monkeypatch, tmp_path):
     # nothing in here may talk to the stack
     monkeypatch.setattr(mixer, "close", lambda: None)
     monkeypatch.setattr(mixer, "queued_ids", lambda st: [])
+    monkeypatch.setattr(mixer, "pending", lambda st: 0)
     monkeypatch.setattr(mixer, "pending_uris", lambda st: [])
     monkeypatch.setattr(mixer, "set_queue", lambda st, uris: True)
     monkeypatch.setattr(mixer, "now_lines", lambda st: [])
@@ -229,3 +230,94 @@ def test_a_listener_request_is_recorded(console):
     requests_file = state / "history" / "alt.requests.jsonl"
     if requests_file.exists():
         assert "something for the rain" in requests_file.read_text(encoding="utf-8")
+
+
+def _write_pick(state, station_id, **entry):
+    path = state / "history" / f"{station_id}.picks.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    base = {"t": "2026-11-17T19:25:10Z", "id": "t1", "title": "Title",
+            "artist": "Artist", "why": "Because."}
+    base.update(entry)
+    path.write_text(json.dumps(base) + "\n", encoding="utf-8")
+
+
+def test_admin_lands_on_stations(console):
+    client, _, _ = console
+    login(client)
+    response = client.get("/admin", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/stations"
+
+
+def test_the_queue_has_station_tabs_a_date_and_the_whole_brief(console):
+    client, _, state = console
+    login(client)
+    brief = "start-of-the-brief\n" + ("x" * 2500) + "\nend-of-the-brief"
+    _write_pick(state, "alt", brief=brief, path="table", coverage=1.0,
+                shelf=["A", "B"], tools=[])
+    page = client.get("/admin/queue?station=alt").text
+    assert "?station=all" in page and "?station=alt" in page
+    assert "2026-11-17" in page
+    assert "end-of-the-brief" in page
+    assert "table" in page
+
+
+def test_a_long_brief_survives_the_pick_log(station):
+    queue.record_pick(station, "t1", "T", "A", "why",
+                      detail={"brief": "x" * 3000 + "-END"})
+    assert queue.recent_picks(station, 1)[-1]["brief"].endswith("-END")
+
+
+def test_the_library_names_each_job_and_the_current_offer(console):
+    client, _, _ = console
+    login(client)
+    page = client.get("/admin/library").text
+    for phrase in ("How the DJ is picking", "What the DJ knows", "Fetch popularity",
+                   "Cache similar artists", "MusicBrainz", "Last.fm tags",
+                   "Audio analysis", "Measure loudness"):
+        assert phrase in page, phrase
+
+
+def test_the_persona_page_shows_the_assembled_prompt(console):
+    client, _, _ = console
+    login(client)
+    page = client.get("/admin/prompt").text
+    assert "DJ Persona" in page
+    assert "What the DJ is actually told" in page
+    assert "Choose a set, not a single record" in page
+
+
+def test_provider_settings_are_saved_and_cleared(console):
+    client, cfg, _ = console
+    login(client)
+    client.post("/admin/settings/providers",
+                data={"lastfm_key": "lfm-123", "mb_user_agent": "ops@example.com"})
+    settings = config.provider_settings()
+    assert settings["lastfm_key"] == "lfm-123"
+    assert settings["mb_user_agent"] == "ops@example.com"
+    saved = json.loads((cfg / "providers.json").read_text(encoding="utf-8"))
+    assert saved["lastfm_key"] == "lfm-123"
+    assert "a key is saved" in client.get("/admin/settings").text
+
+    client.post("/admin/settings/providers",
+                data={"lastfm_key": "", "mb_user_agent": "", "clear_lastfm": "1"})
+    settings = config.provider_settings()
+    assert settings["lastfm_key"] == ""
+    assert settings["mb_user_agent"] == config.MB_USER_AGENT
+
+
+def test_enrich_reads_the_saved_lastfm_key(tmp_path, monkeypatch):
+    from spica import enrich
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    config.save_provider_settings("saved-key", "")
+    seen = {}
+
+    def fake_get(url, headers=None, timeout=20.0):
+        seen["url"] = url
+        return {"similarartists": {"artist": []}}
+
+    monkeypatch.setattr(enrich, "_get_json", fake_get)
+    monkeypatch.setattr(enrich, "_throttle", lambda *args, **kwargs: None)
+    enrich.lfm_similar_scored("Artist")
+    assert "api_key=saved-key" in seen["url"]

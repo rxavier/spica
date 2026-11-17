@@ -42,6 +42,7 @@ async def admin_settings(request: Request):
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     llm = config.llm_settings()
+    providers = config.provider_settings()
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -49,7 +50,9 @@ async def admin_settings(request: Request):
             "llm": llm,
             "key_set": bool(llm["key"]),
             "headers_text": "\n".join(f"{k}={v}" for k, v in llm["headers"].items()),
-            "mb_user_agent": config.MB_USER_AGENT,
+            "providers": providers,
+            "lastfm_set": bool(providers["lastfm_key"]),
+            "mb_default": config.MB_USER_AGENT,
         },
     )
 
@@ -73,6 +76,26 @@ async def admin_settings_save(
         "_saved.html",
         {"message": "Saved. The next pick uses it — no restart.", "station_id": ""},
     )
+
+
+@router.post("/admin/settings/providers", response_class=HTMLResponse)
+async def admin_settings_providers(
+    request: Request,
+    lastfm_key: str = Form(""),
+    mb_user_agent: str = Form(""),
+    clear_lastfm: str = Form(""),
+):
+    auth.require_admin(request)
+    current = config.provider_settings()
+    new_key = "" if clear_lastfm else (lastfm_key.strip() or current["lastfm_key"])
+    config.save_provider_settings(new_key, mb_user_agent.strip())
+    response = templates.TemplateResponse(
+        request,
+        "_saved.html",
+        {"message": "Providers saved. The next job and pick use them — no restart.", "station_id": ""},
+    )
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.post("/admin/settings/test", response_class=HTMLResponse)
@@ -161,6 +184,23 @@ async def admin_prompt(request: Request):
         text = config.DJ_PERSONA_FILE.read_text(encoding="utf-8")
     except OSError:
         text = ""
+    try:
+        stations = config.load_stations()
+    except Exception:
+        stations = []
+    wanted = (request.query_params.get("station") or "").strip()
+    selected = next((st for st in stations if st.id == wanted), stations[0] if stations else None)
+    table_prompt = shelf_prompt = ""
+    if selected is not None:
+        try:
+            from .. import store
+            from ..picker import prompt as prompt_mod
+
+            roster = store.library().roster(selected)
+            table_prompt = prompt_mod.system_prompt(selected, roster, table=True)
+            shelf_prompt = prompt_mod.system_prompt(selected, roster, table=False)
+        except Exception:
+            pass
     return templates.TemplateResponse(
         request,
         "admin_prompt.html",
@@ -168,6 +208,10 @@ async def admin_prompt(request: Request):
             "text": text.strip() or picker.DEFAULT_PERSONA,
             "default": picker.DEFAULT_PERSONA,
             "custom": bool(text.strip()),
+            "stations": stations,
+            "selected": selected,
+            "table_prompt": table_prompt,
+            "shelf_prompt": shelf_prompt,
         },
     )
 
@@ -177,11 +221,13 @@ async def admin_prompt_save(request: Request, text: str = Form("")):
     auth.require_admin(request)
     config.DJ_PERSONA_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.DJ_PERSONA_FILE.write_text(text, encoding="utf-8")
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "_saved.html",
-        {"message": "global prompt saved — the next pick uses it", "station_id": ""},
+        {"message": "Persona saved — the next pick uses it", "station_id": ""},
     )
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.post("/admin/prompt/reset", response_class=HTMLResponse)

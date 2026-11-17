@@ -251,7 +251,9 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
              "title": title, "artist": artist, "why": why, "presence": presence}
     if detail:
         if detail.get("brief"):
-            entry["brief"] = str(detail["brief"])[:2000]
+            # The brief carries the table and the timeline; 2,000 characters cut it
+            # in the middle of the offer. Keep the whole thing the DJ read.
+            entry["brief"] = str(detail["brief"])[:12000]
         if detail.get("tools"):
             entry["tools"] = list(detail["tools"])[:8]
         if detail.get("shelf"):
@@ -261,12 +263,12 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
         if detail.get("coverage") is not None:
             entry["coverage"] = detail["coverage"]
         if detail.get("reply"):
-            entry["reply"] = str(detail["reply"])[:500]
+            entry["reply"] = str(detail["reply"])[:2000]
     path = _picks_path(station)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     try:
-        if path.stat().st_size > 2_000_000:
+        if path.stat().st_size > 8_000_000:
             keep = _tail_lines(path, PICKS_KEPT)
             path.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
     except OSError:

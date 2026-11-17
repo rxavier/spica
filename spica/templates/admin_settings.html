@@ -49,10 +49,33 @@
 <div id="save-result"></div>
 <div id="test-result"></div>
 
-<h2>MusicBrainz</h2>
-<p class="sub">Requests carry <code>{{ mb_user_agent }}</code>. That is what MusicBrainz
-  asks for — a name and somewhere to complain — and it needs no account or key. Set
-  <code>MB_USER_AGENT</code> in the environment to put your own address there.</p>
+<h2>Metadata providers</h2>
+<p class="sub">Optional enrichment. Saved here, these override the environment for the next job and pick — no restart.</p>
+
+<form hx-post="/admin/settings/providers" hx-target="#provider-result" hx-swap="innerHTML">
+  <div class="field">
+    <label for="lastfm">Last.fm API key</label>
+    <input type="password" id="lastfm" name="lastfm_key" autocomplete="off"
+           placeholder="{{ 'a key is saved — leave blank to keep it' if lastfm_set else 'paste the key' }}">
+    {% if lastfm_set %}
+      <label class="checkline"><input type="checkbox" name="clear_lastfm" value="1"> remove the saved key</label>
+    {% endif %}
+    <p class="sub">Similar artists for the shelf and the <code>similar</code> tool, and the tag backfill for artists MusicBrainz does not know. Without a key those steps simply do not run.</p>
+  </div>
+
+  <div class="field">
+    <label for="mb">MusicBrainz contact</label>
+    <input type="text" id="mb" name="mb_user_agent" value="{{ providers.mb_user_agent }}"
+           placeholder="{{ mb_default }}">
+    <p class="sub">A name and somewhere to complain. MusicBrainz asks for it; it needs no account or key.</p>
+  </div>
+
+  <div class="merge-bar">
+    <button class="primary" type="submit">Save providers</button>
+    <span class="sub">saved to <code>config/providers.json</code></span>
+  </div>
+</form>
+<div id="provider-result"></div>
 
 <h2>No model?</h2>
 <p class="sub">With no endpoint saved, every station still plays: the mixer walks its

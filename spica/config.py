@@ -303,3 +303,42 @@ def save_llm_settings(base: str, key: str, model: str, headers: dict | None = No
         Path(LLM_FILE).chmod(0o600)
     except OSError:
         pass
+
+
+# ------------------------------------------------------------- metadata providers
+#
+# Last.fm and MusicBrainz have their own keys/contacts, and an operator should not
+# have to edit a container's environment to add one. The environment is the
+# default; config/providers.json wins, including an empty Last.fm key (a deliberate
+# "off" that an env default must not undo).
+def _providers_file() -> Path:
+    return CONFIG_DIR / "providers.json"
+
+
+def provider_settings() -> dict:
+    out = {"lastfm_key": LASTFM_KEY, "mb_user_agent": MB_USER_AGENT}
+    try:
+        raw = json.loads(_providers_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    if not isinstance(raw, dict):
+        return out
+    if "lastfm_key" in raw:
+        out["lastfm_key"] = str(raw.get("lastfm_key") or "").strip()
+    agent = str(raw.get("mb_user_agent") or "").strip()
+    if agent:
+        out["mb_user_agent"] = agent
+    return out
+
+
+def save_provider_settings(lastfm_key: str, mb_user_agent: str) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "lastfm_key": str(lastfm_key or "").strip(),
+        "mb_user_agent": str(mb_user_agent or "").strip(),
+    }
+    Path(_providers_file()).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    try:
+        Path(_providers_file()).chmod(0o600)
+    except OSError:
+        pass

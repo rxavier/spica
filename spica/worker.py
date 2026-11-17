@@ -513,7 +513,7 @@ def _loudness_due(conn) -> bool:
 def missing_similarity(conn) -> int:
     """Artists with nothing scored yet. Zero without a Last.fm key — there is nothing
     to ask, and a job queued for it would retry forever."""
-    if not config.LASTFM_KEY:
+    if not config.provider_settings()["lastfm_key"]:
         return 0
     row = conn.execute(
         """SELECT count(*) FROM (

@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from .. import auth
 from .. import icecast
 from .. import mixer
+from .. import plan
 from .. import presence
 from .. import queue
 from .. import store
@@ -41,7 +42,7 @@ def _local(iso: str) -> str:
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(
             LOCAL_TZ
-        ).strftime("%H:%M:%S")
+        ).strftime("%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError):
         return iso or ""
 
@@ -64,8 +65,12 @@ def _stations_view() -> list[dict]:
                     "brief": entry.get("brief", ""),
                     "reply": entry.get("reply", ""),
                     "tools": entry.get("tools") or [],
+                    "path": entry.get("path", ""),
+                    "coverage": entry.get("coverage"),
+                    "shelf": entry.get("shelf") or [],
                 }
             )
+        held = plan.load(st) or {}
         out.append(
             {
                 "station": st,
@@ -76,6 +81,8 @@ def _stations_view() -> list[dict]:
                 "slot": queue.queued(st),
                 "ahead": mixer.pending(st),
                 "requests": requests_mod.active(st),
+                "set_theme": str(held.get("theme") or ""),
+                "set_remaining": len(held.get("ids") or []),
                 "picks": picks,
             }
         )
@@ -88,8 +95,11 @@ def admin_queue(request: Request):
     # pane — titles, reasons, briefs — was readable by anyone who asked for it.
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
+    views = _stations_view()
+    wanted = (request.query_params.get("station") or "").strip()
+    selected = next((v for v in views if v["station"].id == wanted), views[0] if views else None)
     return templates.TemplateResponse(
         request,
         "admin_queue.html",
-        {"views": _stations_view(), "rows": ROWS},
+        {"views": views, "view": selected, "rows": ROWS},
     )

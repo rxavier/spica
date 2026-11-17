@@ -141,6 +141,7 @@ a { color: var(--leather-deep); }
 }
 .key:hover { color: var(--ink); }
 .key.is-on { color: var(--ink); }
+a.key { text-decoration: none; }
 .key.is-on::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--red);
 }
@@ -401,6 +402,7 @@ textarea { width: 100%; min-height: 8rem; }
 .notice { margin: .8rem 0; }
 .notice .sub, .notice .muted, .paper .sub, .paper .muted, .panel .sub { color: var(--soft); }
 .track { font: 600 1.9rem/1.05 var(--serif); color: var(--ink); letter-spacing: -.01em; margin: .3rem 0 .5rem; }
+.track.empty { font-size: 1.15rem; font-style: italic; font-weight: 500; color: var(--soft); }
 .hint { font: .84rem/1.5 var(--sans); color: var(--soft); }
 .muted { color: var(--soft); }
 .sub { font-size: .88rem; color: var(--soft); }
@@ -467,6 +469,19 @@ table.data th:nth-child(2), table.data td:nth-child(2) { width: 9rem; }
 table.data td:nth-child(3) { max-width: 30rem; }
 table.data th.act, table.data td.act { width: 5.5rem; }
 table.data td.act a { margin-left: auto; }
+
+table.data.dj-status th:nth-child(1) { width: 10rem; }
+table.data.dj-status th:nth-child(2) { width: 15rem; }
+table.data.dj-status th:nth-child(3) { width: 10rem; }
+table.data.dj-status th:nth-child(4) { width: 11rem; }
+
+table.data.signals th:nth-child(1) { width: 9rem; }
+table.data.signals th:nth-child(2) { width: 12rem; }
+table.data.signals th:nth-child(3) { width: 22rem; }
+table.data.signals th:nth-child(4) { width: 20rem; }
+table.data.signals th.act, table.data.signals td.act { width: 12rem; }
+table.data.signals td.act .inline { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+table.data.signals td.act button { font-size: .72rem; padding: .4rem .55rem; }
 
 form.inline { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; align-items: center; }
 .inline { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; border: 0; padding: 0; margin: 0; }
@@ -665,7 +680,7 @@ button.danger:hover { background: rgba(179, 42, 27, .08); border-color: var(--re
 .picklog details { border-bottom: 1px solid var(--line-soft); }
 .picklog summary {
   cursor: pointer; list-style: none; display: grid; gap: .1rem .8rem;
-  grid-template-columns: 5.2rem minmax(12rem, 20rem) 1fr; align-items: baseline;
+  grid-template-columns: 11.5rem minmax(12rem, 20rem) 1fr; align-items: baseline;
   padding: .45rem .2rem;
 }
 .picklog summary::-webkit-details-marker { display: none; }
@@ -685,7 +700,7 @@ button.danger:hover { background: rgba(179, 42, 27, .08); border-color: var(--re
 .picklog ul.tools { margin: .2rem 0 .7rem 1rem; padding: 0; }
 .picklog ul.tools li { margin: .1rem 0; }
 @media (max-width: 48rem) {
-  .picklog summary { grid-template-columns: 4.2rem 1fr; }
+  .picklog summary { grid-template-columns: 9.5rem 1fr; }
   .picklog summary .said { grid-column: 2; }
   .picklog .body { padding-left: .4rem; }
 }

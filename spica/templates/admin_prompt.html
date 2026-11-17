@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}prompt{% endblock %}
+{% block title %}DJ persona{% endblock %}
 {% block main_class %}studio{% endblock %}
 {% block body %}
-<h1>Global prompt</h1>
-<p class="sub">Who the DJ is and how it talks. Sent with every pick, on every station. Each station adds its own brief on top, and the mechanics of picking are not yours to edit.</p>
+<h1>DJ Persona</h1>
+<p class="sub">Who the DJ is and how it talks. This is the first block of the system prompt on every station; the station's description, its reach and the mechanics of picking are added below it and are not editable here.</p>
 
 <form hx-post="/admin/prompt" hx-target="#prompt-result" hx-swap="innerHTML">
   <textarea name="text" rows="14" placeholder="leave empty to use the built-in voice">{{ text }}</textarea>
@@ -14,7 +14,34 @@
 </form>
 <div id="prompt-result"></div>
 
-{% if not custom %}<p class="sub">No custom prompt saved — the built-in voice below is what the DJ is using.</p>{% endif %}
+{% if not custom %}<p class="sub">No custom persona saved — the built-in voice below is what the DJ is using.</p>{% endif %}
+
+<h2>What the DJ is actually told</h2>
+<p class="sub">The full system prompt for a station, exactly as the picker assembles it. The table path is used when audio analysis has heard the station and there is an anchor to move from; otherwise the shelf path is used.</p>
+
+{% if stations %}
+<nav class="presets" aria-label="stations">
+  {% for st in stations %}
+    <a class="key{% if selected and st.id == selected.id %} is-on{% endif %}"
+       href="?station={{ st.id }}"><span class="label">{{ st.name }}</span></a>
+  {% endfor %}
+</nav>
+
+{% if table_prompt %}
+<details>
+  <summary class="sub">the table path</summary>
+  <pre class="prompt-view">{{ table_prompt }}</pre>
+</details>
+{% endif %}
+{% if shelf_prompt %}
+<details>
+  <summary class="sub">the shelf path</summary>
+  <pre class="prompt-view">{{ shelf_prompt }}</pre>
+</details>
+{% endif %}
+{% else %}
+<p class="sub">No stations to build a prompt for yet.</p>
+{% endif %}
 
 <details>
   <summary class="sub">built-in voice</summary>
