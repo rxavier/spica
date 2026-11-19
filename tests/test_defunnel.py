@@ -15,14 +15,15 @@ import json
 
 import pytest
 
-from spica import config, enrich, genres, mixer, navidrome, queue
+from spica import config, enrich, genres, mixer, navidrome, queue, worker
 from spica.picker import library as picker_library
 
 ALIAS = {"aliases": [{"from": "nu disco", "to": "Electronic"}]}
 
 
 def track(track_id: str, artist: str, *, album: str = "Record", album_id: str = "al1",
-          track_no: int = 1, year: int = 2000) -> tuple:
+          track_no: int = 1, year: int = 2000, album_artist: str | None = None) -> tuple:
+    record_artist = album_artist or artist
     return (
         track_id,
         f"http://navidrome/{track_id}.flac",
@@ -34,8 +35,8 @@ def track(track_id: str, artist: str, *, album: str = "Record", album_id: str = 
         year,
         "",
         200,
-        artist,
-        navidrome.name_key(artist),
+        record_artist,
+        navidrome.name_key(record_artist),
     )
 
 
@@ -288,3 +289,57 @@ def test_a_station_genre_written_as_the_shelf_name_survives_a_save(db, station, 
     monkeypatch.setattr(shared, "_conn", lambda: db)
     assert shared.known_labels(["Electronic"]) == ["Electronic"]
     assert shared.known_labels(["Nonsense Genre"]) == []
+
+
+# --- 8. the record's artist, not the guest credit ----------------------------
+
+def test_similar_matches_the_album_artist_not_the_guest_credit(db, station, monkeypatch):
+    seed(db, [track("1" * 22, "Band & Guest", album_artist="Band")],
+         [label("1" * 22, "Rock")])
+    monkeypatch.setattr(
+        enrich, "similar_artists",
+        lambda conn, name, limit=20: (["Band"], "cache"),
+    )
+    lib = picker_library.Library(db)
+    res = lib.similar("Somebody", station=station)
+    assert res["source"] == "cache"
+    assert [r["artist"] for r in res["tracks"]] == ["Band"]
+
+
+def test_label_albums_group_by_album_artist(db):
+    seed(db, [track("1" * 22, "Band & Guest", album_artist="Band"),
+              track("2" * 22, "Band", album_artist="Band")],
+         [label("1" * 22, "Rock"), label("2" * 22, "Rock")])
+    rows = navidrome.label_albums(db, "Rock")
+    assert len(rows) == 1
+    assert rows[0]["artist"] == "Band"
+    assert rows[0]["tracks"] == 2
+
+
+def test_musicbrainz_precedence_matches_the_album_artist(db):
+    seed(db, [track("1" * 22, "Band & Guest", album_artist="Band")], [])
+    with db:
+        db.execute(
+            "INSERT OR REPLACE INTO mb_artist_genres"
+            " (artist_key, mbid, genres, fetched_at) VALUES (?,?,?,?)",
+            ("band", "mbid", '[{"name": "Progressive Rock", "votes": 10}]', 0),
+        )
+    navidrome.apply_genre_precedence(db)
+    labels = {
+        row["label"] for row in db.execute(
+            "SELECT label FROM track_genres WHERE track_id = ?", ("1" * 22,)
+        )
+    }
+    assert "Progressive Rock" in labels
+
+
+def test_missing_musicbrainz_counts_album_artists(db):
+    seed(db, [track("1" * 22, "Band & Guest", album_artist="Band")], [])
+    assert worker.missing_musicbrainz(db) == 1
+    with db:
+        db.execute(
+            "INSERT INTO mb_artist_genres (artist_key, mbid, genres, fetched_at)"
+            " VALUES (?,?,?,?)",
+            ("band", "mbid", "[]", 0),
+        )
+    assert worker.missing_musicbrainz(db) == 0

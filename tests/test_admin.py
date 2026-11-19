@@ -406,3 +406,6 @@ def test_the_station_artist_list_groups_by_album_artist(console):
     page = client.get("/admin/stations/alt/artists").text
     assert "Artist 001" in page
     assert "Guest Credit" not in page
+
+    form = client.get("/admin/stations/alt").text
+    assert "Guest Credit" not in form

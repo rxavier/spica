@@ -59,12 +59,13 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
     # purposes, and Last.fm has no entry for the combination.
     by_artist: dict[str, list[str]] = {}
     for row in conn.execute(
-        """SELECT id, artist FROM tracks
-           WHERE artist != '' AND NOT EXISTS
+        """SELECT id, COALESCE(NULLIF(album_artist, ''), artist) AS artist
+           FROM tracks
+           WHERE COALESCE(NULLIF(album_artist, ''), artist) != '' AND NOT EXISTS
                  (SELECT 1 FROM track_genres g
                    WHERE g.track_id = tracks.id AND g.source = 'external')"""
     ):
-        by_artist.setdefault(navidrome.primary_artist(row["artist"]), []).append(row["id"])
+        by_artist.setdefault(row["artist"], []).append(row["id"])
     # Only names MusicBrainz itself calls genres survive; a provider tag that is not
     # in that vocabulary is somebody's mood, nationality or file-manager debris.
     vocabulary = enrich.mb_genre_vocabulary()
@@ -118,7 +119,9 @@ def run_refresh(conn, job_id: int, log=print) -> dict:
 def run_popularity(conn, job_id: int, log=print) -> dict:
     """Fill the popularity table: ListenBrainz in batches, Last.fm for the rest."""
     todo = conn.execute(
-        """SELECT t.id, t.artist, t.title, t.mbz_recording FROM tracks t
+        """SELECT t.id, COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                  t.title, t.mbz_recording
+           FROM tracks t
            WHERE NOT EXISTS (SELECT 1 FROM track_popularity p WHERE p.track_id = t.id)"""
     ).fetchall()
     total = len(todo)
@@ -176,7 +179,10 @@ def missing_musicbrainz(conn) -> int:
     cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
     artists = {
         row["artist"]
-        for row in conn.execute("SELECT DISTINCT artist FROM tracks WHERE artist != ''")
+        for row in conn.execute(
+            "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist"
+            " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+        )
     }
     return sum(1 for artist in artists if genre_lib.fold(artist) not in cached)
 
@@ -193,12 +199,17 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     """Cache MusicBrainz genres for every artist that does not have them yet."""
     cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
     rows = conn.execute(
-        "SELECT artist, COUNT(*) c FROM tracks WHERE artist != '' GROUP BY artist ORDER BY c DESC"
+        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS artist, COUNT(*) c"
+        " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+        " GROUP BY artist ORDER BY c DESC"
     ).fetchall()
     todo = [row for row in rows if genre_lib.fold(row["artist"]) not in cached]
     # Album titles are how a shared name gets settled: the right artist owns them.
     albums: dict[str, list[str]] = {}
-    for row in conn.execute("SELECT DISTINCT artist, album FROM tracks WHERE album != ''"):
+    for row in conn.execute(
+        "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist, album"
+        " FROM tracks WHERE album != ''"
+    ):
         albums.setdefault(row["artist"], []).append(row["album"])
     total = len(todo)
     jobs.progress(conn, job_id, 0, total)

@@ -394,10 +394,15 @@ async def enrich_ids(limit: int = 0) -> dict:
     def _run() -> dict:
         conn = lib().conn
         outstanding = conn.execute(
-            """SELECT t.artist AS artist, MIN(t.artist_id) AS artist_id
-               FROM tracks t LEFT JOIN artist_mbids a ON a.name = t.artist
-               WHERE a.name IS NULL AND t.artist != '' AND t.artist_id != ''
-               GROUP BY t.artist"""
+            """SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                      MIN(COALESCE(NULLIF(t.album_artist_id, ''), t.artist_id)) AS artist_id
+               FROM tracks t
+               LEFT JOIN artist_mbids a
+                 ON a.name = COALESCE(NULLIF(t.album_artist, ''), t.artist)
+               WHERE a.name IS NULL
+                 AND COALESCE(NULLIF(t.album_artist, ''), t.artist) != ''
+                 AND COALESCE(NULLIF(t.album_artist_id, ''), t.artist_id) != ''
+               GROUP BY artist"""
         ).fetchall()
         if limit:
             outstanding = outstanding[:limit]
@@ -410,10 +415,15 @@ async def enrich_ids(limit: int = 0) -> dict:
                 en.remember_mbid(conn, row["artist"], mbid, "navidrome")
                 resolved += 1
         todo = conn.execute(
-            """SELECT t.artist AS artist, MAX(t.mbz_album) AS album
-               FROM tracks t LEFT JOIN artist_mbids a ON a.name = t.artist
-               WHERE a.name IS NULL AND t.artist != '' AND t.mbz_album != ''
-               GROUP BY t.artist"""
+            """SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                      MAX(t.mbz_album) AS album
+               FROM tracks t
+               LEFT JOIN artist_mbids a
+                 ON a.name = COALESCE(NULLIF(t.album_artist, ''), t.artist)
+               WHERE a.name IS NULL
+                 AND COALESCE(NULLIF(t.album_artist, ''), t.artist) != ''
+                 AND t.mbz_album != ''
+               GROUP BY artist"""
         ).fetchall()
         if limit:
             todo = todo[:limit]

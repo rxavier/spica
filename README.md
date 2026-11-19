@@ -532,7 +532,8 @@ album — 486 calls, about eight seconds.
 Every track keeps two names: `artist`, the credit on the recording, and
 `album_artist`, the artist of the record it sits on. The second is the identity
 everything groups by — counts, `catalogue`, station artist rules, the pool's
-"don't repeat an artist for twelve tracks" — because a guest turns one artist into two
+"don't repeat an artist for twelve tracks", genre and MusicBrainz lookups, similarity,
+and the admin's artist lists — because a guest turns one artist into two
 ("L’Impératrice & Fabiana Martone" is L’Impératrice), and because names are typed,
 not copied: lookups compare a folded key, so `L'Impératrice` with an ASCII apostrophe
 finds the typographic one.

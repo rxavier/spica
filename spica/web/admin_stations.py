@@ -103,14 +103,20 @@ async def admin_station_form(request: Request, station_id: str):
             "SELECT label, COUNT(*) n FROM track_genres GROUP BY label ORDER BY n DESC, label"
         )
     ]
-    # The two dropdowns list the artist credits, most recorded first.
+    # The two dropdowns list the record's artists, most recorded first. Any name
+    # already selected is kept even if the index no longer has it under that
+    # spelling, so saving the form does not silently drop a rule.
     artists = [
-        row["artist"]
+        row["name"]
         for row in _conn().execute(
-            "SELECT artist, COUNT(*) n FROM tracks GROUP BY artist ORDER BY n DESC, artist"
+            "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS name, COUNT(*) n"
+            " FROM tracks GROUP BY name ORDER BY n DESC, name"
         )
-        if row["artist"]
+        if row["name"]
     ]
+    chosen = set(item.get("include_artists") or ()) | set(item.get("exclude_artists") or ())
+    have = set(artists)
+    artists.extend(sorted(chosen - have, key=str.casefold))
     station = station_or_404(station_id)
     return templates.TemplateResponse(
         request,

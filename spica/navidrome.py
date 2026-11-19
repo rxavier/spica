@@ -11,7 +11,6 @@ so a schema or API change breaks a rebuild, not the data.
 
 from __future__ import annotations
 
-import re
 import sqlite3
 import unicodedata
 import time
@@ -206,16 +205,6 @@ def connect(db_path: Path) -> sqlite3.Connection:
 # album (preferred) or the artist, and at most three labels are taken. These live
 # in `track_genres` with source='album' or 'artist', so a real tag always wins and
 # a later cleanup simply stops using the inherited ones.
-# "Future Islands feat. Debbie Harry" is a credit, not an artist: genre votes and
-# fallback lookups have to group under the primary name or those tracks are
-# treated as an unknown artist and stay unlabelled.
-_FEAT = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+", re.IGNORECASE)
-
-
-def primary_artist(name: str) -> str:
-    return _FEAT.split(name.strip(), maxsplit=1)[0].strip()
-
-
 GENRE_FILL_MIN_SHARE = 0.5
 GENRE_FILL_MAX = 3
 # ...and only when the level itself is meaningfully tagged: at least this share
@@ -365,7 +354,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
                 (
                     track_id,
                     str(song.get("albumId") or album.get("id") or ""),
-                    primary_artist(song.get("artist") or album.get("artist") or ""),
+                    album_artist,
                 )
             )
             labels.extend((track_id, label, "tag") for label in canon)
@@ -482,7 +471,9 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     }
     mb = {key: names for key, names in mb.items() if names}
 
-    rows = conn.execute("SELECT id, artist FROM tracks").fetchall()
+    rows = conn.execute(
+        "SELECT id, COALESCE(NULLIF(album_artist, ''), artist) AS artist FROM tracks"
+    ).fetchall()
     tagged = 0
     informed = 0
     # No transaction of its own: the rebuild already has one open, and opening a
@@ -730,11 +721,12 @@ def genre_counts(conn: sqlite3.Connection) -> list[dict]:
 def label_albums(conn: sqlite3.Connection, label: str) -> list[sqlite3.Row]:
     marks = ", ".join("?" * max(1, len(_member_labels(conn, label))))
     return conn.execute(
-        f"""SELECT t.artist AS artist, t.album AS album, COUNT(*) AS tracks,
-                  MIN(t.year) AS year
+        f"""SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                  t.album AS album, COUNT(*) AS tracks, MIN(t.year) AS year
            FROM track_genres g JOIN tracks t ON t.id = g.track_id
            WHERE g.label IN ({marks})
-           GROUP BY t.artist, t.album ORDER BY t.artist, t.album""",
+           GROUP BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album
+           ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album""",
         _member_labels(conn, label) or [label],
     ).fetchall()
 
@@ -742,9 +734,12 @@ def label_albums(conn: sqlite3.Connection, label: str) -> list[sqlite3.Row]:
 def label_tracks(conn: sqlite3.Connection, label: str, limit: int = 300) -> list[sqlite3.Row]:
     marks = ", ".join("?" * max(1, len(_member_labels(conn, label))))
     return conn.execute(
-        f"""SELECT t.artist AS artist, t.album AS album, t.title AS title, t.year AS year
+        f"""SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                  t.album AS album, t.title AS title, t.year AS year
            FROM track_genres g JOIN tracks t ON t.id = g.track_id
-           WHERE g.label IN ({marks}) ORDER BY t.artist, t.album, t.track_no LIMIT ?""",
+           WHERE g.label IN ({marks})
+           ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album, t.track_no
+           LIMIT ?""",
         (_member_labels(conn, label) or [label]) + [limit],
     ).fetchall()
 
@@ -783,11 +778,12 @@ def label_explorer(conn: sqlite3.Connection, labels: list[str], limit: int = 500
         labels,
     ).fetchone()["c"]
     rows = conn.execute(
-        f"""SELECT t.id AS id, t.artist AS artist, t.album AS album, t.title AS title,
-                   t.year AS year
+        f"""SELECT t.id AS id, COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                   t.album AS album, t.title AS title, t.year AS year
             FROM tracks t
             WHERE t.id IN (SELECT track_id FROM track_genres WHERE label IN ({marks}))
-            ORDER BY t.artist, t.album, t.track_no LIMIT ?""",
+            ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album, t.track_no
+            LIMIT ?""",
         labels + [limit],
     ).fetchall()
 
