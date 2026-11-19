@@ -481,7 +481,7 @@ table.data.signals th:nth-child(3) { width: 22rem; }
 table.data.signals th:nth-child(4) { width: 20rem; }
 table.data.signals th.act, table.data.signals td.act { width: 12rem; }
 table.data.signals td.act .inline { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
-table.data.signals td.act button { font-size: .72rem; padding: .4rem .55rem; }
+.job-action { font-size: .72rem; padding: .4rem .55rem; }
 
 /* the station rack reads as a list, not a wide table */
 .station-list { display: flex; flex-direction: column; gap: .6rem; }

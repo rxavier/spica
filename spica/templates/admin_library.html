@@ -63,11 +63,11 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="musicbrainz">
-            <button type="submit">MusicBrainz</button>
+            <button class="job-action" type="submit">MusicBrainz</button>
           </form>
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="genre_tags">
-            <button type="submit">Last.fm tags</button>
+            <button class="job-action" type="submit">Last.fm tags</button>
           </form>
         </td>
       </tr>
@@ -83,7 +83,7 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="popularity">
-            <button type="submit">Fetch popularity</button>
+            <button class="job-action" type="submit">Fetch popularity</button>
           </form>
         </td>
       </tr>
@@ -99,7 +99,7 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="similarity">
-            <button type="submit"{% if not providers.lastfm_key %} disabled title="Set a Last.fm key in Settings"{% endif %}>Cache similar artists</button>
+            <button class="job-action" type="submit"{% if not providers.lastfm_key %} disabled title="Set a Last.fm key in Settings"{% endif %}>Cache similar artists</button>
           </form>
         </td>
       </tr>
@@ -116,7 +116,7 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="analysis">
-            <button type="submit">Analyze the sound</button>
+            <button class="job-action" type="submit">Analyze the sound</button>
           </form>
         </td>
       </tr>
@@ -129,7 +129,7 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="analysis">
-            <button type="submit">Analyze the sound</button>
+            <button class="job-action" type="submit">Analyze the sound</button>
           </form>
         </td>
       </tr>
@@ -155,7 +155,7 @@
         <td class="act">
           <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
             <input type="hidden" name="kind" value="loudness">
-            <button type="submit">Measure loudness</button>
+            <button class="job-action" type="submit">Measure loudness</button>
           </form>
         </td>
       </tr>
@@ -174,7 +174,7 @@
   <div class="merge-bar">
     <form class="inline" hx-post="/admin/jobs" hx-target="#jobs" hx-swap="innerHTML">
       <input type="hidden" name="kind" value="refresh">
-      <button type="submit">Recheck the library now</button>
+      <button class="primary" type="submit">Recheck the library now</button>
     </form>
     <span class="sub">Re-reads your library from Navidrome. The station keeps playing.</span>
   </div>
@@ -183,10 +183,10 @@
 <h2>Maintenance</h2>
 <div class="merge-bar">
   <form class="inline" hx-post="/admin/rebuild" hx-target="#action-result" hx-swap="innerHTML">
-    <button type="submit">Rebuild the library index</button>
+    <button class="primary" type="submit">Rebuild the library index</button>
   </form>
   <form class="inline" hx-post="/admin/reload" hx-target="#action-result" hx-swap="innerHTML">
-    <button type="submit">Regenerate spica.liq and restart the mixer</button>
+    <button class="link" type="submit">Regenerate spica.liq and restart the mixer</button>
   </form>
   <span class="sub">Rebuilds the index and each station's rotation. The station keeps playing.</span>
 </div>
