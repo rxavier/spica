@@ -222,8 +222,11 @@ def pool_preview(st, top: int = 15) -> dict:
     """What the station's rules actually select, so the admin can see the result."""
     conn = _conn()
     rows = navidrome.rows_for_station(conn, st)
-    artists = Counter((r["artist"] or "?") for r in rows)
-    albums = Counter((r["artist"] or "?") + " — " + (r["album"] or "?") for r in rows)
+    artists = Counter((r["album_artist"] or r["artist"] or "?") for r in rows)
+    albums = Counter(
+        (r["album_artist"] or r["artist"] or "?") + " — " + (r["album"] or "?")
+        for r in rows
+    )
     return {
         "tracks": len(rows),
         "artists": len(artists),

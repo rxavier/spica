@@ -40,7 +40,7 @@ def _station_artist_page(conn, station, q: str = "", page: int = 1) -> dict:
     """One page of every artist the station's saved rules can play."""
     q = (q or "").strip()[:80]
     rows = navidrome.rows_for_station(conn, station)
-    counts = Counter((row["artist"] or "?") for row in rows)
+    counts = Counter((row["album_artist"] or row["artist"] or "?") for row in rows)
     if q:
         folded = navidrome.name_key(q)
         counts = Counter({

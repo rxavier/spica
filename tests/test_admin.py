@@ -387,3 +387,22 @@ def test_the_station_page_keeps_the_artist_dropdowns_and_shows_the_full_list(con
     assert "data-multiselect" in page, "the include/exclude dropdowns stay"
     assert "station-artist-results" in page
     assert "Artist 001" in page and "Artist 002" in page
+
+
+def test_the_station_artist_list_groups_by_album_artist(console):
+    client, _, _ = console
+    login(client)
+    conn = store.conn()
+    _seed_artists(conn, 2)
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO tracks"
+            " (id, uri, title, artist, album, album_id, album_artist)"
+            " VALUES (?,?,?,?,?,?,?)",
+            ("guest", "http://navidrome/guest", "Guest Track", "Guest Credit",
+             "Artist 001", "al001", "Artist 001"),
+        )
+
+    page = client.get("/admin/stations/alt/artists").text
+    assert "Artist 001" in page
+    assert "Guest Credit" not in page
