@@ -3,6 +3,7 @@
     <div class="artist-row">
       <span class="artist-name">{{ a.name }}</span>
       <span class="sub">{{ a.tracks }}</span>
+      <button type="button" class="link" data-exclude-artist="{{ a.name }}">exclude</button>
     </div>
   {% else %}
     {% if q %}<p class="sub">No artist matches “{{ q }}”.</p>

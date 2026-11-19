@@ -189,16 +189,8 @@
   </div>
 </div>
 
-<h2>Albums</h2>
-<table>
-  <tr><th>album</th><th>tracks</th></tr>
-  {% for name, n in preview.top_albums %}
-    <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
-  {% else %}
-    <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
-  {% endfor %}
-</table>
-<p class="sub">Counts describe the rules as saved, not unsaved edits. The artist list is every artist the saved rules can play; the album list is the top 15.</p>
+<p class="sub">Counts describe the rules as saved, not unsaved edits. The artist list is every artist the saved rules can play.</p>
 
 <script src="/static/multiselect.js"></script>
+<script src="/static/station-artists.js"></script>
 {% endblock %}

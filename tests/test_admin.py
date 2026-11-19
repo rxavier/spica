@@ -387,6 +387,7 @@ def test_the_station_page_keeps_the_artist_dropdowns_and_shows_the_full_list(con
     assert "data-multiselect" in page, "the include/exclude dropdowns stay"
     assert "station-artist-results" in page
     assert "Artist 001" in page and "Artist 002" in page
+    assert 'data-exclude-artist="Artist 001"' in page
 
 
 def test_the_station_artist_list_groups_by_album_artist(console):
