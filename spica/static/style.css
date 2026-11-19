@@ -496,19 +496,17 @@ table.data.signals td.act button { font-size: .72rem; padding: .4rem .55rem; }
 .station-brief { margin: .35rem 0 0; color: var(--soft); font-size: .88rem; line-height: 1.45; overflow-wrap: anywhere; }
 .station-edit { flex: none; align-self: flex-start; text-decoration: none; }
 
-/* the artist picker inside a station: search, page, add; selected chips stay in the form */
-.artist-pick { border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); padding: .8rem; }
-.artist-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .2rem 0 .6rem; }
-.artist-chip { display: inline-flex; align-items: center; gap: .3rem; }
-.artist-remove { background: none; border: 0; padding: 0; cursor: pointer; color: var(--leather-deep); font: inherit; line-height: 1; }
+/* the full artist list under a station */
 .artist-search { width: 100%; margin-bottom: .5rem; }
-.artist-results { max-height: 18rem; overflow-y: auto; border-top: 1px solid var(--line-soft); padding-top: .35rem; }
+.artist-results { border-top: 1px solid var(--line-soft); padding-top: .35rem; }
+.station-artist-results { max-height: none; overflow: visible; }
 .artist-row { display: flex; align-items: center; gap: .6rem; padding: .28rem 0; border-bottom: 1px solid var(--line-soft); }
 .artist-row:last-child { border-bottom: 0; }
 .artist-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .artist-row .sub { flex: none; }
 .artist-row button { flex: none; }
 .artist-pager { display: flex; align-items: center; gap: .7rem; padding-top: .5rem; }
+.station-artists { margin-bottom: .4rem; }
 .artist-pager .sub { margin: 0; }
 
 form.inline { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; align-items: center; }

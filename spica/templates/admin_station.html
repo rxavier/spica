@@ -71,46 +71,36 @@
     </div>
     <div class="field">
       <label>plus these artists — they play even outside the genres</label>
-      <p class="hint">The full list, searchable and paged. An artist here plays even if no genre matches.</p>
-      <div class="artist-pick" data-artist-pick data-field="include_artists">
-        <div class="artist-chips" data-artist-selected>
-          <span class="sub" data-artist-empty{% if item.include_artists %} hidden{% endif %}>none — everyone is allowed</span>
-          {% for artist in item.include_artists %}
-            <span class="chip artist-chip" data-name="{{ artist }}">{{ artist }}
-              <button type="button" class="artist-remove" data-artist-remove aria-label="remove {{ artist }}">×</button></span>
-            <input type="hidden" name="include_artists" value="{{ artist }}">
-          {% endfor %}
-        </div>
-        <input type="search" class="artist-search" name="q" placeholder="search all artists" autocomplete="off"
-               hx-get="/admin/artists" hx-trigger="input changed delay:250ms, search"
-               hx-target="#include-artist-results" hx-swap="innerHTML">
-        <div class="artist-results results" id="include-artist-results">
-          {% with items=artists_page['items'], page=artists_page['page'], pages=artists_page['pages'], q='' %}
-            {% include "_artist_results.html" %}
-          {% endwith %}
-        </div>
+      <div class="ms" data-multiselect data-empty="anyone">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter artists" autocomplete="off">
+            {% for artist in all_artists %}
+              <label><input type="checkbox" name="include_artists" value="{{ artist }}"
+                            {% if artist in item.include_artists %}checked{% endif %}>
+                {{ artist }}</label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
       </div>
     </div>
     <div class="field">
       <label>never play these artists</label>
-      <p class="hint">The full list, searchable and paged. An artist here never plays.</p>
-      <div class="artist-pick" data-artist-pick data-field="exclude_artists">
-        <div class="artist-chips" data-artist-selected>
-          <span class="sub" data-artist-empty{% if item.exclude_artists %} hidden{% endif %}>nobody excluded</span>
-          {% for artist in item.exclude_artists %}
-            <span class="chip artist-chip" data-name="{{ artist }}">{{ artist }}
-              <button type="button" class="artist-remove" data-artist-remove aria-label="remove {{ artist }}">×</button></span>
-            <input type="hidden" name="exclude_artists" value="{{ artist }}">
-          {% endfor %}
-        </div>
-        <input type="search" class="artist-search" name="q" placeholder="search all artists" autocomplete="off"
-               hx-get="/admin/artists" hx-trigger="input changed delay:250ms, search"
-               hx-target="#exclude-artist-results" hx-swap="innerHTML">
-        <div class="artist-results results" id="exclude-artist-results">
-          {% with items=artists_page['items'], page=artists_page['page'], pages=artists_page['pages'], q='' %}
-            {% include "_artist_results.html" %}
-          {% endwith %}
-        </div>
+      <div class="ms" data-multiselect data-empty="nobody excluded">
+        <details>
+          <summary><span class="ms-count"></span></summary>
+          <div class="ms-panel">
+            <input type="text" class="ms-filter" placeholder="filter artists" autocomplete="off">
+            {% for artist in all_artists %}
+              <label><input type="checkbox" name="exclude_artists" value="{{ artist }}"
+                            {% if artist in item.exclude_artists %}checked{% endif %}>
+                {{ artist }}</label>
+            {% endfor %}
+            <button class="link ms-clear" type="button">Clear</button>
+          </div>
+        </details>
       </div>
     </div>
     <div class="field">
@@ -186,32 +176,29 @@
   <div class="sub">{{ preview.artists }} artists · {{ preview.albums }} albums{% if preview.years[0] %} · {{ preview.years[0] }}–{{ preview.years[1] }}{% endif %}</div>
 </div>
 
-<div class="grid2">
-  <div>
-    <h2>Artists</h2>
-    <table>
-      <tr><th>artist</th><th>tracks</th></tr>
-      {% for name, n in preview.top_artists %}
-        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
-      {% else %}
-        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  <div>
-    <h2>Albums</h2>
-    <table>
-      <tr><th>album</th><th>tracks</th></tr>
-      {% for name, n in preview.top_albums %}
-        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
-      {% else %}
-        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
-      {% endfor %}
-    </table>
+<h2>Artists</h2>
+<div class="station-artists">
+  <input type="search" class="artist-search" name="q" placeholder="search artists in this station"
+         autocomplete="off" hx-get="/admin/stations/{{ item.id }}/artists"
+         hx-trigger="input changed delay:250ms, search"
+         hx-target="#station-artist-results" hx-swap="innerHTML">
+  <div class="artist-results station-artist-results results" id="station-artist-results">
+    {% with items=station_artists_page['items'], page=station_artists_page['page'], pages=station_artists_page['pages'], q='', station_id=item.id %}
+      {% include "_station_artists.html" %}
+    {% endwith %}
   </div>
 </div>
-<p class="sub">Counts describe the rules as saved, not unsaved edits.</p>
+
+<h2>Albums</h2>
+<table>
+  <tr><th>album</th><th>tracks</th></tr>
+  {% for name, n in preview.top_albums %}
+    <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
+  {% else %}
+    <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
+  {% endfor %}
+</table>
+<p class="sub">Counts describe the rules as saved, not unsaved edits. The artist list is every artist the saved rules can play; the album list is the top 15.</p>
 
 <script src="/static/multiselect.js"></script>
-<script src="/static/artist-pick.js"></script>
 {% endblock %}

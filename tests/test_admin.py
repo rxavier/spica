@@ -363,30 +363,27 @@ def _seed_artists(conn, count):
         )
 
 
-def test_the_artist_picker_searches_and_pages(console):
+def test_the_station_artist_list_searches_and_pages(console):
     client, _, _ = console
     login(client)
     _seed_artists(store.conn(), 35)
 
-    match = client.get("/admin/artists?q=artist%20035").text
+    match = client.get("/admin/stations/alt/artists?q=artist%20035").text
     assert "Artist 035" in match
     assert "Artist 034" not in match
 
-    second = client.get("/admin/artists?page=2").text
+    second = client.get("/admin/stations/alt/artists?page=2").text
     assert "page 2 of 2" in second
     assert "Artist 031" in second
     assert "Artist 001" not in second
 
 
-def test_the_station_page_carries_the_artist_picker_and_selection(console):
-    client, cfg, _ = console
+def test_the_station_page_keeps_the_artist_dropdowns_and_shows_the_full_list(console):
+    client, _, _ = console
     login(client)
     _seed_artists(store.conn(), 2)
-    data = json.loads((cfg / "stations.json").read_text(encoding="utf-8"))
-    data["stations"][0]["include_artists"] = ["Artist 001"]
-    (cfg / "stations.json").write_text(json.dumps(data), encoding="utf-8")
 
     page = client.get("/admin/stations/alt").text
-    assert "artist-pick" in page
-    assert "Artist 001" in page
-    assert 'name="include_artists" value="Artist 001"' in page
+    assert "data-multiselect" in page, "the include/exclude dropdowns stay"
+    assert "station-artist-results" in page
+    assert "Artist 001" in page and "Artist 002" in page

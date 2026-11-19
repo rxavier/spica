@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from urllib.parse import quote
 
 from .. import config
@@ -32,50 +33,48 @@ from .shared import (
 
 router = APIRouter()
 
-ARTISTS_PER_PAGE = 30
+STATION_ARTISTS_PER_PAGE = 30
 
 
-def _artist_page(conn, q: str = "", page: int = 1) -> dict:
-    """One page of the full artist list, most recorded first."""
+def _station_artist_page(conn, station, q: str = "", page: int = 1) -> dict:
+    """One page of every artist the station's saved rules can play."""
     q = (q or "").strip()[:80]
-    # The record's artist, the identity the station rules and the DJ group by. A
-    # guest credit ("L’Impératrice & Fabiana Martone") is not a second artist.
-    # `album_artist_key` is the folded name, so search finds Wálters from "wal".
-    source = (
-        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS name,"
-        " COALESCE(NULLIF(album_artist_key, ''),"
-        "          COALESCE(NULLIF(album_artist, ''), artist)) AS key"
-        " FROM tracks"
-    )
-    where = "name != ''"
-    args: list = []
+    rows = navidrome.rows_for_station(conn, station)
+    counts = Counter((row["artist"] or "?") for row in rows)
     if q:
-        where += " AND (key LIKE ? OR name LIKE ?)"
-        args.extend([f"%{navidrome.name_key(q)}%", f"%{q}%"])
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM (SELECT DISTINCT key FROM ({source}) WHERE {where})", args
-    ).fetchone()[0]
-    pages = max(1, (int(total) + ARTISTS_PER_PAGE - 1) // ARTISTS_PER_PAGE)
+        folded = navidrome.name_key(q)
+        counts = Counter({
+            name: n for name, n in counts.items()
+            if folded in navidrome.name_key(name)
+        })
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
+    total = len(ordered)
+    pages = max(1, (total + STATION_ARTISTS_PER_PAGE - 1) // STATION_ARTISTS_PER_PAGE)
     page = max(1, min(int(page or 1), pages))
-    rows = conn.execute(
-        f"SELECT key, MIN(name) AS name, COUNT(*) AS tracks FROM ({source}) WHERE {where}"
-        " GROUP BY key ORDER BY tracks DESC, name COLLATE NOCASE LIMIT ? OFFSET ?",
-        (*args, ARTISTS_PER_PAGE, (page - 1) * ARTISTS_PER_PAGE),
-    ).fetchall()
+    start = (page - 1) * STATION_ARTISTS_PER_PAGE
+    items = [
+        {"name": name, "tracks": n}
+        for name, n in ordered[start:start + STATION_ARTISTS_PER_PAGE]
+    ]
     return {
-        "items": [{"name": r["name"], "tracks": r["tracks"]} for r in rows],
+        "station_id": station.id,
+        "items": items,
         "page": page,
         "pages": pages,
         "q": q,
+        "total": total,
     }
 
 
-@router.get("/admin/artists", response_class=HTMLResponse)
-async def admin_artists(request: Request, q: str = "", page: int = 1):
+@router.get("/admin/stations/{station_id}/artists", response_class=HTMLResponse)
+async def admin_station_artists(request: Request, station_id: str, q: str = "", page: int = 1):
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
+    station = station_or_404(station_id)
     return templates.TemplateResponse(
-        request, "_artist_results.html", _artist_page(_conn(), q, page)
+        request,
+        "_station_artists.html",
+        _station_artist_page(_conn(), station, q, page),
     )
 
 
@@ -104,15 +103,25 @@ async def admin_station_form(request: Request, station_id: str):
             "SELECT label, COUNT(*) n FROM track_genres GROUP BY label ORDER BY n DESC, label"
         )
     ]
+    # The two dropdowns list the artist credits, most recorded first.
+    artists = [
+        row["artist"]
+        for row in _conn().execute(
+            "SELECT artist, COUNT(*) n FROM tracks GROUP BY artist ORDER BY n DESC, artist"
+        )
+        if row["artist"]
+    ]
+    station = station_or_404(station_id)
     return templates.TemplateResponse(
         request,
         "admin_station.html",
         {
             "item": item,
-            "station": station_or_404(station_id),
-            "preview": pool_preview(station_or_404(station_id)),
+            "station": station,
+            "preview": pool_preview(station),
             "all_labels": labels,
-            "artists_page": _artist_page(_conn()),
+            "all_artists": artists,
+            "station_artists_page": _station_artist_page(_conn(), station),
             "codecs": config.CODECS,
             "labels": config.CODEC_LABEL,
             "extensions": config.CODEC_EXT,
