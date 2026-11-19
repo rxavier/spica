@@ -504,7 +504,18 @@ table.data.signals td.act button { font-size: .72rem; padding: .4rem .55rem; }
 .artist-row:last-child { border-bottom: 0; }
 .artist-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .artist-row .sub { flex: none; }
-.artist-row button { flex: none; }
+.artist-exclude {
+  flex: none; cursor: pointer;
+  font: 700 .58rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--leather-deep); background: none;
+  border: 1px solid rgba(111, 58, 34, .35); border-radius: 6px;
+  padding: .32rem .5rem; box-shadow: none;
+}
+.artist-exclude:hover { background: var(--leather-deep); color: #fdf4e6; border-color: var(--leather-deep); }
+.artist-exclude:disabled {
+  color: var(--faint); background: transparent; border-color: var(--line);
+  cursor: default; box-shadow: none;
+}
 .artist-pager { display: flex; align-items: center; gap: .7rem; padding-top: .5rem; }
 .station-artists { margin-bottom: .4rem; }
 .artist-pager .sub { margin: 0; }
