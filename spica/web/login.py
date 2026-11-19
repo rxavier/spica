@@ -29,7 +29,7 @@ async def login(request: Request, password: str = Form(...)):
         return templates.TemplateResponse(
             request, "login.html", {"error": "Contraseña incorrecta"}, status_code=401
         )
-    response = RedirectResponse("/admin", status_code=303)
+    response = RedirectResponse("/admin/stations", status_code=303)
     response.set_cookie(
         auth.COOKIE, auth.issue(), httponly=True, samesite="lax", max_age=config.SESSION_HOURS * 3600
     )

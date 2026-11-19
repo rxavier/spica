@@ -1,20 +1,71 @@
 {% extends "base.html" %}
-{% block title %}prompt{% endblock %}
+{% block title %}DJ Persona{% endblock %}
 {% block main_class %}studio{% endblock %}
 {% block body %}
-<h1>Global prompt</h1>
-<p class="sub">Who the DJ is and how it talks. Sent with every pick, on every station. Each station adds its own brief on top, and the mechanics of picking are not yours to edit.</p>
+<h1>DJ Persona</h1>
+<p class="sub">The voice is the first block of the system prompt on every station. The two path instructions are the next block; the JSON reply contract and the legality checks stay in the code.</p>
+<p class="sub">Current DJ mode: <strong>{{ mode_label }}</strong> · <a href="/admin/settings#dj">change</a></p>
 
+<h2>The voice</h2>
 <form hx-post="/admin/prompt" hx-target="#prompt-result" hx-swap="innerHTML">
-  <textarea name="text" rows="14" placeholder="leave empty to use the built-in voice">{{ text }}</textarea>
+  <textarea name="text" rows="12" placeholder="leave empty to use the built-in voice">{{ text }}</textarea>
   <div class="inline">
-    <button class="primary" type="submit">Save</button>
+    <button class="primary" type="submit">Save voice</button>
     <button type="button" class="link" hx-post="/admin/prompt/reset" hx-target="#prompt-result">Restore the built-in voice</button>
   </div>
 </form>
 <div id="prompt-result"></div>
+{% if not custom %}<p class="sub">No custom voice saved — the built-in voice below is what the DJ is using.</p>{% endif %}
 
-{% if not custom %}<p class="sub">No custom prompt saved — the built-in voice below is what the DJ is using.</p>{% endif %}
+<h2>Artist-led path</h2>
+<p class="sub">Used when the DJ works without audio analysis, or on a station the analyser has not measured enough. The DJ is given a list of artists and searches their catalogues for tracks.{% if shelf_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
+<form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="shelf">
+  <textarea name="text" rows="18">{{ shelf_text }}</textarea>
+  <div class="inline">
+    <button class="primary" type="submit">Save artist-led path</button>
+    <button class="link" type="submit" name="reset" value="1">Restore the built-in path</button>
+  </div>
+</form>
+
+<h2>Track-led path</h2>
+<p class="sub">Used when the DJ works from audio analysis. The DJ is given a table of tracks grouped by how they relate to the current song; this is the more guided path and usually makes for more fluid sets.{% if table_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
+<form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
+  <input type="hidden" name="kind" value="table">
+  <textarea name="text" rows="18">{{ table_text }}</textarea>
+  <div class="inline">
+    <button class="primary" type="submit">Save track-led path</button>
+    <button class="link" type="submit" name="reset" value="1">Restore the built-in path</button>
+  </div>
+</form>
+<div id="path-result"></div>
+
+<h2>What the DJ is actually told</h2>
+<p class="sub">The full system prompt for a station, assembled from the blocks above. The table path is used only when analysis is ready and there is a record on air to anchor it; otherwise the artist path is used.</p>
+
+{% if stations %}
+<nav class="presets" aria-label="stations">
+  {% for st in stations %}
+    <a class="key{% if selected and st.id == selected.id %} is-on{% endif %}"
+       href="?station={{ st.id }}"><span class="label">{{ st.name }}</span></a>
+  {% endfor %}
+</nav>
+
+{% if table_prompt %}
+<details>
+  <summary class="sub">the track-led prompt</summary>
+  <pre class="prompt-view">{{ table_prompt }}</pre>
+</details>
+{% endif %}
+{% if shelf_prompt %}
+<details>
+  <summary class="sub">the artist-led prompt</summary>
+  <pre class="prompt-view">{{ shelf_prompt }}</pre>
+</details>
+{% endif %}
+{% else %}
+<p class="sub">No stations to build a prompt for yet.</p>
+{% endif %}
 
 <details>
   <summary class="sub">built-in voice</summary>

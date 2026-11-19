@@ -7,6 +7,7 @@ import os
 from .. import analysis
 from .. import config
 from .. import jobs
+from .. import loudness
 from .. import navidrome
 from .. import pool
 from .. import store
@@ -20,7 +21,6 @@ from fastapi.responses import (
 
 from .shared import (
     templates,
-    stations,
     _restart_mixer,
     _conn,
 )
@@ -30,13 +30,10 @@ router = APIRouter()
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_home(request: Request):
+    """The console has no dashboard: stations are the first thing you configure."""
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "admin.html",
-        {"coverage": jobs.coverage(_conn()), "stations": stations(), "jobs": jobs.recent(_conn(), 5)},
-    )
+    return RedirectResponse("/admin/stations", status_code=303)
 
 
 @router.get("/admin/jobs", response_class=HTMLResponse)
@@ -79,12 +76,40 @@ async def admin_library(request: Request):
     analysis_coverage = analysis.coverage_for(conn)
     if analysis_coverage is not None:
         coverage["analysis"] = analysis_coverage
+    loudness_coverage = loudness.coverage(conn)
+    if loudness_coverage is not None:
+        coverage["loudness"] = loudness_coverage
+    analysis_stations = (analysis_coverage or {}).get("stations") or {}
+    analysis_on = analysis.enabled()
+    mode = config.dj_mode()
+    llm = config.llm_settings()
+    has_model = bool(llm["base"] and llm["key"])
+    dj = []
+    for st in config.load_stations():
+        a = analysis_stations.get(st.id) or {}
+        pct = a.get("percent")
+        if mode == "off":
+            use, note = "Off", "station plays its own rotation"
+        elif not has_model:
+            use, note = "Off", "no model configured"
+        elif mode == "artist":
+            use, note = "Artists", "no audio analysis needed"
+        elif pct is not None and pct >= 90:
+            use, note = "Tracks", "analysis ready"
+        else:
+            use, note = "Artists", f"falls back while analysis is {pct or 0}%"
+        dj.append({"station": st, "use": use, "note": note, "analysis": a})
     return templates.TemplateResponse(
         request,
         "admin_library.html",
         {
             "coverage": coverage,
-            "analysis_enabled": analysis.enabled(),
+            "analysis_enabled": analysis_on,
+            "providers": config.provider_settings(),
+            "dj": dj,
+            "dj_mode": mode,
+            "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
+            "has_model": has_model,
             "jobs": jobs.recent(conn, 10),
             "index_tracks": conn.execute("SELECT count(*) FROM tracks").fetchone()[0],
             "library_tracks": library_tracks,
@@ -107,7 +132,7 @@ async def admin_rebuild(request: Request):
         request,
         "_saved.html",
         {
-            "message": f"Índice: {n} tracks. Pools: " + ", ".join(f"{k} {v}" for k, v in counts.items()),
+            "message": f"Index: {n} tracks. Station rotations: " + ", ".join(f"{k} {v}" for k, v in counts.items()),
             "station_id": "",
         },
     )

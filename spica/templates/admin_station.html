@@ -11,8 +11,8 @@
 {% endif %}
 <form hx-post="/admin/stations/{{ item.id }}" hx-target="#save-result" hx-swap="innerHTML">
   <div class="form-actions top">
-    <button class="primary" type="submit">Save and rebuild pool</button>
-    <span class="hint">saves the rules and rebuilds this station&rsquo;s pool</span>
+    <button class="primary" type="submit">Save and rebuild rotation</button>
+    <span class="hint">saves the rules and rebuilds this station&rsquo;s rotation</span>
   </div>
   <div class="grid2">
     <div class="field">
@@ -23,7 +23,7 @@
       <label for="new_id">id — the url and the file names</label>
       <input type="text" id="new_id" name="new_id" value="{{ item.id }}"
              pattern="[a-z0-9-]+" title="lowercase letters, digits and dashes">
-      <p class="hint">Changing this moves the station’s pool, history and queue with it.</p>
+      <p class="hint">Changing this moves the station’s rotation, history and queue with it.</p>
     </div>
   </div>
   <div class="field">
@@ -141,7 +141,7 @@
   </div>
 
   <div class="form-actions">
-    <button class="primary" type="submit">Save and rebuild pool</button>
+    <button class="primary" type="submit">Save and rebuild rotation</button>
   </div>
 </form>
 <script>
@@ -165,7 +165,7 @@
 
 <form method="post" action="/admin/stations/{{ item.id }}/delete" class="deletebar"
       onsubmit="return confirm('Delete the station “{{ item.name }}”? Its history stays on disk.')">
-  <span class="sub">Removing a station stops its stream and regenerates spica.liq.</span>
+  <span class="sub">Removing a station stops its stream and restarts the audio engine.</span>
   <button class="danger" type="submit">Delete this station</button>
 </form>
 <div id="save-result"></div>
@@ -176,31 +176,21 @@
   <div class="sub">{{ preview.artists }} artists · {{ preview.albums }} albums{% if preview.years[0] %} · {{ preview.years[0] }}–{{ preview.years[1] }}{% endif %}</div>
 </div>
 
-<div class="grid2">
-  <div>
-    <h2>Artists</h2>
-    <table>
-      <tr><th>artist</th><th>tracks</th></tr>
-      {% for name, n in preview.top_artists %}
-        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
-      {% else %}
-        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  <div>
-    <h2>Albums</h2>
-    <table>
-      <tr><th>album</th><th>tracks</th></tr>
-      {% for name, n in preview.top_albums %}
-        <tr><td>{{ name }}</td><td class="sub">{{ n }}</td></tr>
-      {% else %}
-        <tr><td colspan="2" class="muted">nothing matches these rules</td></tr>
-      {% endfor %}
-    </table>
+<h2>Artists</h2>
+<div class="station-artists">
+  <input type="search" class="artist-search" name="q" placeholder="search artists in this station"
+         autocomplete="off" hx-get="/admin/stations/{{ item.id }}/artists"
+         hx-trigger="input changed delay:250ms, search"
+         hx-target="#station-artist-results" hx-swap="innerHTML">
+  <div class="artist-results station-artist-results results" id="station-artist-results">
+    {% with items=station_artists_page['items'], page=station_artists_page['page'], pages=station_artists_page['pages'], q='', station_id=item.id %}
+      {% include "_station_artists.html" %}
+    {% endwith %}
   </div>
 </div>
-<p class="sub">Counts describe the rules as saved, not unsaved edits.</p>
+
+<p class="sub">Counts describe the rules as saved, not unsaved edits. The artist list is every artist the saved rules can play.</p>
 
 <script src="/static/multiselect.js"></script>
+<script src="/static/station-artists.js"></script>
 {% endblock %}

@@ -66,8 +66,35 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
 
-      # essentia has no Linux arm64 wheel, so only the lean image is multi-arch.
-      # The analyser stays amd64 until that changes.
+      - id: meta-worker
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/spica
+          flavor: |
+            suffix=-worker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      # The worker needs ffmpeg for the loudness job. It stays a separate image so
+      # the picker and the init step keep the lean one.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: worker
+          build-args: |
+            SPICA_EXTRAS=vectors
+          tags: ${{ steps.meta-worker.outputs.tags }}
+          labels: ${{ steps.meta-worker.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # essentia has no Linux arm64 wheel, so only the lean and worker images are
+      # multi-arch. The analyser stays amd64 until that changes.
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -76,7 +103,7 @@ jobs:
           build-args: |
             BASE=python:3.14-slim
             SPICA_EXTRAS=analysis
-            SPICA_RUNTIME_DEPS=libatomic1
+            SPICA_RUNTIME_DEPS=libatomic1 ffmpeg
           tags: ${{ steps.meta-analysis.outputs.tags }}
           labels: ${{ steps.meta-analysis.outputs.labels }}
           cache-from: type=gha

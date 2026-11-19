@@ -67,6 +67,28 @@ heartbeat every 20 s while it plays. A player on the relay counts while it is ta
 bytes. A connection straight to a mount counts if it did not come from the relay. A tab
 left in the background, or a stream that died holding its socket open, does not.
 
+## DJ modes
+
+The DJ is one global mode, set in the admin under *Settings*, and it is independent of
+whether a model is configured:
+
+- **Off** — no model is called. Every station walks its own rotation, the ledger fills,
+  and there are no reasons under the songs. The rotation is rebuilt with the last 40
+  plays left out (when enough remain) and its first track avoids the artist and album
+  that just finished. This is a real choice, not what happens when a key is missing.
+- **Artist-led** — the DJ is given a short list of artists (the *artist shelf*) and
+  searches their catalogues for tracks. No audio analysis is needed. The set is the
+  DJ's own, with little guidance beyond the list.
+- **Track-led** — the DJ is given a table of tracks grouped by how they relate to the
+  current song (continue the flow, move one axis, change it up, land, the one everyone
+  knows). This needs the optional audio analysis and generally makes for more fluid
+  sets. A station the analyser has not measured enough falls back to the artist shelf.
+
+With Artist-led or Track-led selected but no model endpoint saved, the stations play
+their own rotation and the admin says so. The two path instructions are editable on the
+*DJ Persona* page; the JSON reply contract and the legality checks stay in the code, so
+an edit cannot let an illegal track air.
+
 ## Quick start
 
 ```sh
@@ -101,8 +123,9 @@ so there is nothing else to create.
 - `LLM_BASE`, `LLM_KEY`, `LLM_MODEL`, `LLM_HEADERS` — defaults for the endpoint. The
   admin's *settings* page can override them, and what it saves to
   `config/llm.json` (mode 600) wins.
-- `LASTFM_KEY` — optional: name-based similarity and tag backfill.
-- `MB_USER_AGENT` — optional contact string for MusicBrainz.
+- `LASTFM_KEY` — optional: name-based similarity and tag backfill. The admin's
+  *settings* page can override it.
+- `MB_USER_AGENT` — optional contact string for MusicBrainz. The admin can override it.
 
 Running behind a reverse proxy, building the image yourself, and the full file-by-file
 deployment story: [`deploy/README.md`](deploy/README.md).
@@ -121,8 +144,11 @@ deployment story: [`deploy/README.md`](deploy/README.md).
 - **Pools reshuffle on every rebuild.** Sequencing is a weighted random draw over the
   station's rules — the popularity lean decides which tracks come sooner — then two
   constraints: no two tracks from one album adjacent, no artist repeat within 12 placed
-  tracks. Two rebuilds of the same library do not produce the same order, so the
-  playlist on disk is the record of what a station was playing.
+  tracks. The tracks from the last 40 plays are left out of the new list when the
+  station has enough left, and the first placement avoids the artist and album that just
+  finished, so a rebuild does not open on the last record. Two rebuilds of the same
+  library do not produce the same order, so the playlist on disk is the record of what a
+  station was playing.
 - **Sets, not picks.** The DJ is asked for three to ten tracks at once and one line
   that says what the set is, and the set is then played out one track at a time from
   `state/plans/<station>.json`. Asking "what follows this song" once per track has only
@@ -203,6 +229,10 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   Last.fm for whatever has no MusicBrainz id, ranked inside the artist's own catalogue, so
   "hits" and "deep cuts" mean which of their songs people know rather than how big the
   artist is. Nothing is read from your own listening.
+- **One level across the library.** Each track's ReplayGain tag becomes one static gain
+  toward −14 LUFS, applied before the crossfade, so a record mastered hot does not jump
+  out of the stream. It is normalisation, not a loudness-as-intensity measure, and a
+  track with no tag plays untouched. See [Loudness](#loudness).
 - **Coverage reporting and background jobs.** `GET /coverage` reports how much of the
   library the DJ actually knows. `POST /jobs` queues work for the worker.
 - **No storage coupling.** The library is read through the Subsonic API and played back
@@ -259,9 +289,11 @@ Measured on one host (8 cores), a 4,832-track library, two stations running:
   0.2%.
 
 **Audio analysis is off by default and lives in its own image.** The picker runs the
-lean Alpine image (~200 MB; numpy, to read vectors); the worker's `-analysis` image
-(~480 MB, Debian for glibc, amd64 only — essentia has no Linux arm64 wheel) carries
-onnxruntime and essentia. Turned on, each analysis
+lean Alpine image (~200 MB; numpy, to read vectors). The worker runs the `-worker`
+image (~330 MB, the same base plus ffmpeg, which is only used by the one-time loudness
+measurement). The optional `-analysis` image (~480 MB, Debian for glibc and amd64 only
+— essentia has no Linux arm64 wheel) also carries onnxruntime, essentia and ffmpeg.
+Turned on, each analysis
 process uses about 0.5–0.7 GB and a track costs roughly 4 s of CPU (four-minute cap,
 `SPICA_ANALYSIS_DEEP` off), so a 5,000-track backfill is a couple of hours once — after
 that only new tracks are analysed. Decoding scales with track length even under the cap,
@@ -278,12 +310,14 @@ this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
                          dj-persona.md, llm.json, artist-mbids.json
-state/                   index.db, analysis.db, models/, pools/, plans/, queue/,
-                         history/, now/, requests/, art/, genre-aliases.json, logs/
+state/                   index.db, analysis.db, loudness.db, models/, pools/, plans/,
+                         queue/, history/, now/, requests/, art/, genre-aliases.json,
+                         logs/
 ```
 
 `config/` is the part worth backing up: it is your stations and your DJ. Everything in
-`state/` can be rebuilt from Navidrome except the history and the request log. Both
+`state/` can be rebuilt from Navidrome except the history and the request log — and the
+analysis and loudness stores, which cost CPU to measure again. Both
 directories are bind mounts; the paths inside the containers are `/config` and `/state`
 and nothing about them is compiled into the code.
 
@@ -318,7 +352,10 @@ constraint.
   naming an artist also catches its tracks with guests. That is how a station
   reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
   Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
-  make a genre station.
+  make a genre station. The station editor keeps the include/exclude artist dropdowns;
+  below them, *What this station plays now* lists every artist the saved rules can play,
+  grouped by the record's artist, with search and paging. Each artist has an *exclude*
+  button that ticks the same never-play list in the form.
 - `exclude_genres` / `exclude_artists` are absolute: they win over either list, and names
   are compared case-insensitively.
 - `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order of the
@@ -389,6 +426,45 @@ FLAC also costs the listener four times the bandwidth.
 **Changing streams** regenerates `spica.liq` and restarts the mixer, which is a few
 seconds of silence on every station, not just the one being edited.
 
+## Loudness
+
+A library is a pile of masters cut at different levels, and a station plays them back
+to back. Each track's ReplayGain tag — written by your tagger, read through Navidrome —
+becomes one static gain, put on the request as Liquidsoap's `liq_amplify` annotation so
+the mixer applies it before the crossfade. Nothing is compressed and the programme bus
+is untouched: the record's own dynamics are preserved.
+
+- **Target** −14 LUFS. ReplayGain's own reference is −18, so a tagged track is lifted
+  4 dB from its tag.
+- **A boost** is capped at +6 dB and needs a known peak. A tag with a gain but no peak
+  is left at 0 dB rather than pushed into the encoder's ceiling; a peak too close to
+  full scale leaves no room to lift either.
+- **A cut** stops at −12 dB, and no gain may leave a track above −1 dBFS sample peak.
+- **No tag, no measurement, no gain.** A track with neither plays exactly as it did.
+
+**When the file has no tag, the worker measures it once.** The `loudness` job reads
+the track through Navidrome and runs ffmpeg's EBU R128 filter, storing integrated
+loudness and the sample peak in `state/loudness.db`. That store is separate from the
+index on purpose: the index is disposable, and a measurement is CPU. The job is
+incremental and resumable, measures only tracks with no tag and no attempt, and does
+not retry a file that failed to decode. It runs from the `-worker` image, which is the
+lean image plus ffmpeg; the picker and init stay lean.
+
+On this project's library a full backfill of roughly 4,700 untagged tracks cost about
+**1.8 CPU-hours** (about 30 minutes on four concurrent workers, ~52 MB each). It is a
+one-time cost, not an always-on one. `SPICA_LOUDNESS_MEASURE=0` keeps it tag-only; the
+admin's *Library* page has a **Measure loudness for untagged tracks** button, and
+`POST /jobs {"kind": "loudness"}` does the same.
+
+The gain is computed when a pool or a pick writes its request, from the tags stored in
+the index and the measurements in `state/loudness.db`. A target change needs no
+re-analysis; new tags reach Spica after Navidrome next scans the files and the index is
+rebuilt, which the worker does when the library changes. `SPICA_LOUDNESS=0` turns the
+gain off, and the knobs are `SPICA_LOUDNESS_TARGET`, `SPICA_LOUDNESS_MAX_BOOST`,
+`SPICA_LOUDNESS_MAX_CUT` and `SPICA_LOUDNESS_PEAK_CEILING`. This is the normalisation
+use of loudness the [Non-features](#non-features) note leaves open — not the
+loudness-as-intensity signal the DJ rejected.
+
 ## Genres
 
 Every genre carries where it came from. Two sources speak, and
@@ -457,7 +533,8 @@ album — 486 calls, about eight seconds.
 Every track keeps two names: `artist`, the credit on the recording, and
 `album_artist`, the artist of the record it sits on. The second is the identity
 everything groups by — counts, `catalogue`, station artist rules, the pool's
-"don't repeat an artist for twelve tracks" — because a guest turns one artist into two
+"don't repeat an artist for twelve tracks", genre and MusicBrainz lookups, similarity,
+and the admin's artist lists — because a guest turns one artist into two
 ("L’Impératrice & Fabiana Martone" is L’Impératrice), and because names are typed,
 not copied: lookups compare a folded key, so `L'Impératrice` with an ASCII apostrophe
 finds the typographic one.
@@ -489,13 +566,13 @@ under `/admin` and needs `SPICA_ADMIN_PASSWORD` from the environment.
 /                    lands on the first station
 /s/<station>         now playing, the ledger, and the request box
 /listen/<station>    the same stream as a plain URL, for players
-/admin               coverage, stations, recent jobs, rebuild and reload
-/admin/queue         what is on air and in hand, and what the DJ read when it chose
+/admin               redirects to the first tab, stations
 /admin/stations      the rack; add, rename, delete, and edit each station's rules
+/admin/queue         per-station tabs: on air, in hand, the set in play, and the pick log
+/admin/library       how the DJ is picking, what each job fills, and the job history
 /admin/genres        the vocabulary, merging, and a table to explore tracks by genre
-/admin/prompt        the global prompt: who the DJ is and how it talks
-/admin/settings      the model endpoint: base URL, model, key, extra headers, and a test
-/admin/library       coverage panel and the background jobs with their results
+/admin/prompt        DJ Persona: the editable voice and the full assembled system prompt
+/admin/settings      the model endpoint, and the Last.fm / MusicBrainz providers
 ```
 
 Templates and `htmx.min.js` live in `spica/templates` and `spica/static`, so the
@@ -539,13 +616,26 @@ endpoint* sends one small request with a tool attached and reports what came bac
 latency, the model that answered, and whether it actually called the tool, which is the
 one thing picking needs and which not every "OpenAI-compatible" server does.
 
+**Providers live beside it**, under the same *settings* page, and are saved to
+`config/providers.json` (mode 600): the Last.fm key used for similar artists and the tag
+backfill, and the MusicBrainz contact. The environment is only the default; the saved
+values win, and the worker reads them on its next job.
+
+**The library page answers "what kind of DJ is this?"** It shows which offer each station
+is using — the record table or the artist shelf — the last pick's path and measured
+coverage, and one row per input (genres, popularity, similarity, analysis, loudness) with
+the job that fills it. Rebuilds and mixer regeneration live there too.
+
 The global prompt is the DJ's character — the voice it speaks in, which is also the line
 listeners read under each song. It is prepended to every pick on every station; each
 station's brief is added on top, and the mechanics of picking (sets rather than single
 tracks, tools only, the JSON reply, and the shelf or table the answer has to come from)
-stay in the code so an edit cannot break them. It lives in
-`config/dj-persona.md`; with no file the built-in voice is used, and *restore the built-in
-voice* deletes it.
+the JSON contract and the legality checks stay in the code so an edit cannot let an
+illegal track air. The voice lives in `config/dj-persona.md`, and the two path
+instructions in `config/dj-shelf.md` and `config/dj-table.md`; with no file the built-in
+text is used, and each *restore* button deletes the override. The *DJ Persona* page
+shows all three editable blocks beside the complete system prompt for a chosen station,
+so what the model is actually told is visible.
 
 The genres pane is the operator's whole tool for taxonomy: tick any number of genres and
 merge them into one name (rows move, a rule is recorded, pools follow); or open
@@ -663,7 +753,7 @@ page uses.
 | GET | `/status` | per station: listeners, presence, on-air title, **artist / title / album**, an absolute `art` URL, queued track, pool size |
 | GET | `/logo/<station>.png` | the station's picture: the Spica mark, for every station |
 | GET | `/stations.m3u`, `/<station>.m3u` | M3U playlists with `tvg-logo`, for Kodi, TiviMate and friends |
-| GET | `/coverage` | how much of the library has genres (and audio analysis, when it is on), and what is missing |
+| GET | `/coverage` | how much the DJ knows: genres, popularity and similarity, plus analysis and loudness when on |
 | GET | `/genres` | genres with counts and sources, plus the raw tags behind them |
 | GET | `/aliases` | operator rules in force and the builtin table |
 | GET | `/similar?artist=X` | similarity chain result, says which level answered |
@@ -678,7 +768,7 @@ page uses.
 | GET | `/listen/<station>` | the default stream, relayed and opened on demand |
 | GET | `/listen/<station>/<codec>` | one stream: `mp3`, `opus` or `flac` |
 | POST | `/s/<station>/hear` | the web player saying it is still playing (204) |
-| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh" \| "analysis"}` |
+| POST | `/jobs` | `{"kind": "genre_tags" \| "popularity" \| "similarity" \| "musicbrainz" \| "refresh" \| "analysis" \| "loudness"}` |
 | GET | `/jobs` | recent jobs with progress |
 | DELETE | `/requests/<station>` | clear the station's live requests |
 
@@ -689,12 +779,13 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.13.1` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.14.0` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
 | `ICECAST_ADMIN_PASSWORD` | Icecast's own `/admin` pages |
 | `SPICA_ADMIN_PASSWORD` | admin login for the web UI; empty disables admin writes |
+| `SPICA_DJ_MODE` | default DJ mode when `config/dj.json` has not chosen one: `off`, `artist` or `track` (default `track`) |
 | `SPICA_HOSTNAME` | the host Icecast puts in its stream URLs |
 | `SPICA_LOCATION`, `SPICA_ADMIN_EMAIL` | the `<location>` and `<admin>` Icecast advertises |
 | `ICECAST_PORT`, `SPICA_PORT` | the two published ports (default `8000` audio, `8030` web) |
@@ -703,8 +794,8 @@ the keys, and that is the file to start from.
 | `NAVIDROME_USER`, `NAVIDROME_PASS` | a Navidrome account for the radio |
 | `LLM_BASE`, `LLM_KEY`, `LLM_MODEL` | defaults for the endpoint; the admin's settings page wins |
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
-| `LASTFM_KEY` | optional: name-based similarity and tag backfill |
-| `MB_USER_AGENT` | optional: contact string for MusicBrainz |
+| `LASTFM_KEY` | optional: name-based similarity and tag backfill; the admin's settings page wins |
+| `MB_USER_AGENT` | optional: contact string for MusicBrainz; the admin's settings page wins |
 | `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker; the worker must run the `-analysis` image (see [deploy/README.md](deploy/README.md#audio-analysis)) |
 | `SPICA_ANALYSIS_TEMPO` | `degara` (fast, default) or `multifeature` (more accurate, ~3× CPU) |
 | `SPICA_ANALYSIS_SLICE` | tracks analysed per job (default `200`); other jobs interleave |
@@ -715,6 +806,15 @@ the keys, and that is the file to start from.
 | `SPICA_ANALYSIS_DEEP` | also compute loudness, classic danceability, dynamic complexity (off by default; nothing reads them yet) |
 | `SPICA_ANALYSIS_TRANSCODE` | `1` streams a transcode instead of the original (default off: CPU beats bandwidth when Navidrome is local) |
 | `SPICA_ANALYSIS_BITRATE` | bitrate of that transcode (default `96`) |
+| `SPICA_LOUDNESS` | per-track ReplayGain normalisation; `0` turns it off (on by default) |
+| `SPICA_LOUDNESS_TARGET` | target integrated loudness for the gain (default `-14` LUFS) |
+| `SPICA_LOUDNESS_MAX_BOOST` | largest lift, and only with a known peak (default `6` dB) |
+| `SPICA_LOUDNESS_MAX_CUT` | largest cut (default `12` dB) |
+| `SPICA_LOUDNESS_PEAK_CEILING` | a lift may not push the sample peak past this (default `-1` dBFS) |
+| `SPICA_LOUDNESS_MEASURE` | measure tracks with no ReplayGain tag (default on; `0` = tag-only) |
+| `SPICA_LOUDNESS_SLICE` | tracks measured per job slice (default `200`) |
+| `SPICA_LOUDNESS_WORKERS` | concurrent ffmpeg workers (default `2`; `0` = min(2, cores)) |
+| `SPICA_LOUDNESS_TIMEOUT` | per-track ffmpeg timeout in seconds (default `300`) |
 | `SPICA_STATE`, `SPICA_CONFIG` | where state and config live inside the container (`/state`, `/config`) |
 | `ICECAST_URL` | Icecast base URL as the picker sees it (`http://icecast:8000`) |
 | `SPICA_PUBLIC_URL` | optional: the address listeners use, for the stream's `icy-url` |
@@ -774,6 +874,9 @@ a rebuild also re-canonicalises every genre.
   tempo, key and loudness, one vector per artist, and the ONNX weights that produced
   them. Its own file because the index is disposable and this is hours of CPU:
   deleting it only costs a re-analysis.
+- `loudness.db`: measured integrated loudness and sample peak for tracks whose files
+  carry no ReplayGain tag. Also separate from the index for the same reason; deleting
+  it only costs the measurement job again.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
 - `plans/<station>.json`: the set being played out — its line, its ids, and the shelf or

@@ -218,18 +218,19 @@ def request_rows(st, limit: int = 5) -> list[dict]:
     return rows
 
 
-def pool_preview(st, top: int = 15) -> dict:
+def pool_preview(st) -> dict:
     """What the station's rules actually select, so the admin can see the result."""
     conn = _conn()
     rows = navidrome.rows_for_station(conn, st)
-    artists = Counter((r["artist"] or "?") for r in rows)
-    albums = Counter((r["artist"] or "?") + " — " + (r["album"] or "?") for r in rows)
+    artists = {(r["album_artist"] or r["artist"] or "?") for r in rows}
+    albums = {
+        (r["album_artist"] or r["artist"] or "?") + " — " + (r["album"] or "?")
+        for r in rows
+    }
     return {
         "tracks": len(rows),
         "artists": len(artists),
         "albums": len(albums),
-        "top_artists": artists.most_common(top),
-        "top_albums": albums.most_common(top),
         "years": (min((r["year"] for r in rows if r["year"]), default=0),
                   max((r["year"] for r in rows if r["year"]), default=0)),
     }

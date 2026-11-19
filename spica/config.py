@@ -72,12 +72,43 @@ ANALYSIS_DEEP = os.environ.get("SPICA_ANALYSIS_DEEP", "").strip().lower() in ("1
 ANALYSIS_TRANSCODE = os.environ.get("SPICA_ANALYSIS_TRANSCODE", "").strip().lower() in ("1", "true", "yes", "on")
 ANALYSIS_BITRATE = int(os.environ.get("SPICA_ANALYSIS_BITRATE", "96"))
 
+# --- per-track loudness ---------------------------------------------------
+# A library is a pile of masters at different levels, and a radio that plays them
+# as they are jumps from quiet to loud every third record. Each track's ReplayGain
+# tag (read from Navidrome) becomes one static gain, applied before the crossfade.
+# This is normalisation, not the loudness-as-intensity measure the README rejects;
+# nothing here is read by the DJ. On by default, and a no-op on a library whose
+# files carry no ReplayGain tags.
+LOUDNESS = os.environ.get("SPICA_LOUDNESS", "1").strip().lower() not in ("0", "false", "no", "off")
+# Where every record should sit. -14 LUFS is the streaming convention; the
+# ReplayGain reference itself is -18, so a tagged track is lifted 4 dB from its tag.
+LOUDNESS_TARGET_LUFS = float(os.environ.get("SPICA_LOUDNESS_TARGET", "-14"))
+# Gain is cut as far as the target asks (up to this), but lifted no further than
+# this, and never above the peak ceiling. A boost with no known peak is held at 0.
+LOUDNESS_MAX_BOOST_DB = float(os.environ.get("SPICA_LOUDNESS_MAX_BOOST", "6"))
+LOUDNESS_MAX_CUT_DB = float(os.environ.get("SPICA_LOUDNESS_MAX_CUT", "12"))
+LOUDNESS_PEAK_CEILING_DBFS = float(os.environ.get("SPICA_LOUDNESS_PEAK_CEILING", "-1"))
+# Where a file has no tag, measure it once with the worker's ffmpeg. One-time and
+# incremental, and a no-op once the store is full; can be switched off without
+# disabling the tagged gain.
+LOUDNESS_MEASURE = os.environ.get("SPICA_LOUDNESS_MEASURE", "1").strip().lower() not in ("0", "false", "no", "off")
+# Tracks measured per job slice, so popularity and the rest interleave with the
+# backfill. One ffmpeg per worker, one thread each.
+LOUDNESS_SLICE = int(os.environ.get("SPICA_LOUDNESS_SLICE", "200"))
+LOUDNESS_WORKERS = int(os.environ.get("SPICA_LOUDNESS_WORKERS", "0")) or min(2, os.cpu_count() or 1)
+LOUDNESS_TIMEOUT = int(os.environ.get("SPICA_LOUDNESS_TIMEOUT", "300"))
+
 # --- web UI ---------------------------------------------------------------
 # Admin side is one password; listener side is public by design.
 ADMIN_PASSWORD = os.environ.get("SPICA_ADMIN_PASSWORD", "")
 SESSION_SECRET_FILE = STATE_DIR / ".session-secret"
 # Global DJ house rules, editable from the admin UI, injected into every pick.
 DJ_PERSONA_FILE = CONFIG_DIR / "dj-persona.md"
+# The two path instructions are editable too; the JSON contract and the legality
+# checks stay in the code.
+DJ_MODES = ("off", "artist", "track")
+DJ_MODE_LABELS = {"off": "Off", "artist": "Artist-led", "track": "Track-led"}
+DJ_MODE_DEFAULT = "track"
 # Liquidsoap's control server, used to restart the mixer after a station change.
 LIQ_TELNET = os.environ.get("LIQ_TELNET", "mixer:1234")
 SESSION_HOURS = 12
@@ -277,3 +308,83 @@ def save_llm_settings(base: str, key: str, model: str, headers: dict | None = No
         Path(LLM_FILE).chmod(0o600)
     except OSError:
         pass
+
+
+# ------------------------------------------------------------- metadata providers
+#
+# Last.fm and MusicBrainz have their own keys/contacts, and an operator should not
+# have to edit a container's environment to add one. The environment is the
+# default; config/providers.json wins, including an empty Last.fm key (a deliberate
+# "off" that an env default must not undo).
+def _providers_file() -> Path:
+    return CONFIG_DIR / "providers.json"
+
+
+def provider_settings() -> dict:
+    out = {"lastfm_key": LASTFM_KEY, "mb_user_agent": MB_USER_AGENT}
+    try:
+        raw = json.loads(_providers_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    if not isinstance(raw, dict):
+        return out
+    if "lastfm_key" in raw:
+        out["lastfm_key"] = str(raw.get("lastfm_key") or "").strip()
+    agent = str(raw.get("mb_user_agent") or "").strip()
+    if agent:
+        out["mb_user_agent"] = agent
+    return out
+
+
+def save_provider_settings(lastfm_key: str, mb_user_agent: str) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "lastfm_key": str(lastfm_key or "").strip(),
+        "mb_user_agent": str(mb_user_agent or "").strip(),
+    }
+    Path(_providers_file()).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    try:
+        Path(_providers_file()).chmod(0o600)
+    except OSError:
+        pass
+
+
+# ------------------------------------------------------------------ DJ mode
+
+def _dj_file() -> Path:
+    return CONFIG_DIR / "dj.json"
+
+
+def dj_mode() -> str:
+    """off, artist or track. The file wins; the environment is the default."""
+    mode = os.environ.get("SPICA_DJ_MODE", DJ_MODE_DEFAULT).strip().lower()
+    try:
+        raw = json.loads(_dj_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raw = {}
+    if isinstance(raw, dict):
+        value = str(raw.get("mode") or "").strip().lower()
+        if value in DJ_MODES:
+            mode = value
+    return mode if mode in DJ_MODES else DJ_MODE_DEFAULT
+
+
+def save_dj_mode(mode: str) -> str:
+    mode = str(mode or "").strip().lower()
+    if mode not in DJ_MODES:
+        raise ValueError(f"unknown DJ mode {mode!r}; expected one of {DJ_MODES}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    Path(_dj_file()).write_text(json.dumps({"mode": mode}, indent=2) + "\n", encoding="utf-8")
+    try:
+        Path(_dj_file()).chmod(0o600)
+    except OSError:
+        pass
+    return mode
+
+
+def dj_shelf_file() -> Path:
+    return CONFIG_DIR / "dj-shelf.md"
+
+
+def dj_table_file() -> Path:
+    return CONFIG_DIR / "dj-table.md"

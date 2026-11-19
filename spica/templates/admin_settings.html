@@ -3,8 +3,31 @@
 {% block main_class %}studio{% endblock %}
 {% block body %}
 <h1>Settings</h1>
-<p class="sub">The model that picks the songs. Any OpenAI-compatible endpoint works: a
-  hosted API, a local server, or a gateway in front of either.</p>
+<p class="sub">How the DJ works, the model it talks to, and the metadata providers behind it.</p>
+
+<h2 id="dj">DJ</h2>
+<form hx-post="/admin/settings/dj" hx-target="#dj-result" hx-swap="innerHTML">
+  <div class="field">
+    <label for="dj-mode">DJ mode</label>
+    <select id="dj-mode" name="mode">
+      <option value="off"{% if dj_mode == 'off' %} selected{% endif %}>Off — no model; each station plays its own rotation</option>
+      <option value="artist"{% if dj_mode == 'artist' %} selected{% endif %}>Artist-led — no audio analysis; the DJ works from a list of artists</option>
+      <option value="track"{% if dj_mode == 'track' %} selected{% endif %}>Track-led — needs audio analysis; the DJ works from a table of tracks</option>
+    </select>
+    <p class="sub">Off never calls a model, even with one configured. Track-led falls back to Artist-led on a station the analyser has not measured enough.</p>
+  </div>
+  {% if not has_model and dj_mode != 'off' %}
+    <p class="flash bad">No model endpoint is configured, so the DJ cannot pick yet. Stations play their own rotation until one is saved below.</p>
+  {% endif %}
+  <div class="merge-bar">
+    <button class="primary" type="submit">Save DJ mode</button>
+    <span class="sub">Changing it drops any set already waiting.</span>
+  </div>
+</form>
+<div id="dj-result"></div>
+
+<h2>The model</h2>
+<p class="sub">Any OpenAI-compatible endpoint works: a hosted API, a local server, or a gateway in front of either.</p>
 
 <form hx-post="/admin/settings" hx-target="#save-result" hx-swap="innerHTML">
   <div class="field">
@@ -49,13 +72,36 @@
 <div id="save-result"></div>
 <div id="test-result"></div>
 
-<h2>MusicBrainz</h2>
-<p class="sub">Requests carry <code>{{ mb_user_agent }}</code>. That is what MusicBrainz
-  asks for — a name and somewhere to complain — and it needs no account or key. Set
-  <code>MB_USER_AGENT</code> in the environment to put your own address there.</p>
+<h2>Metadata providers</h2>
+<p class="sub">Optional enrichment. Saved here, these override the environment for the next job and pick — no restart.</p>
+
+<form hx-post="/admin/settings/providers" hx-target="#provider-result" hx-swap="innerHTML">
+  <div class="field">
+    <label for="lastfm">Last.fm API key</label>
+    <input type="password" id="lastfm" name="lastfm_key" autocomplete="off"
+           placeholder="{{ 'a key is saved — leave blank to keep it' if lastfm_set else 'paste the key' }}">
+    {% if lastfm_set %}
+      <label class="checkline"><input type="checkbox" name="clear_lastfm" value="1"> remove the saved key</label>
+    {% endif %}
+    <p class="sub">Similar artists for the shelf and the <code>similar</code> tool, and the tag backfill for artists MusicBrainz does not know. Without a key those steps simply do not run.</p>
+  </div>
+
+  <div class="field">
+    <label for="mb">MusicBrainz contact</label>
+    <input type="text" id="mb" name="mb_user_agent" value="{{ providers.mb_user_agent }}"
+           placeholder="{{ mb_default }}">
+    <p class="sub">A name and somewhere to complain. MusicBrainz asks for it; it needs no account or key.</p>
+  </div>
+
+  <div class="merge-bar">
+    <button class="primary" type="submit">Save providers</button>
+    <span class="sub">saved to <code>config/providers.json</code></span>
+  </div>
+</form>
+<div id="provider-result"></div>
 
 <h2>No model?</h2>
-<p class="sub">With no endpoint saved, every station still plays: the mixer walks its
-  pool in order. What is missing is the DJ — the pick, the reason under each song, and
-  requests.</p>
+<p class="sub">With DJ mode off, or no endpoint saved, every station still plays: it
+  walks its own rotation in order. What is missing is the pick, the reason under each
+  song, and requests.</p>
 {% endblock %}

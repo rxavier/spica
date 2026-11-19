@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import urllib.error
 import urllib.parse
@@ -151,9 +152,16 @@ def song_id(url: str) -> str:
     """The id inside a stream URL this module produced, or "".
 
     Pool files, the queue file and Liquidsoap's own request metadata all hand back
-    these URLs, and the id is the only part anyone needs from them.
+    these URLs, and the id is the only part anyone needs from them. A request can
+    arrive wrapped in Liquidsoap's ``annotate:key="value":`` prefix (the per-track
+    gain lives there), so the target URL is found before it is parsed.
     """
-    query = urllib.parse.urlparse(url or "").query
+    url = url or ""
+    if url.startswith("annotate:"):
+        target = re.search(r"https?://", url)
+        if target:
+            url = url[target.start():]
+    query = urllib.parse.urlparse(url).query
     return urllib.parse.parse_qs(query).get("id", [""])[0]
 
 

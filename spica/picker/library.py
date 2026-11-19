@@ -16,7 +16,7 @@ import sqlite3
 import time
 from collections import Counter
 
-from .. import config, mixer, navidrome, queue
+from .. import config, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
 from .schemas import TOOLS
 
@@ -632,13 +632,13 @@ class Library:
 
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
-            marks = ",".join("?" for _ in names)
-            # Filter, then take the limit. The other order sampled rows the station
-            # cannot play and reported `owned: false` even when it owns plenty of
-            # tracks by those artists.
+            keys = [navidrome.name_key(name) for name in names]
+            marks = ",".join("?" for _ in keys)
+            # Match the record's artist, not the track credit: an album artist's
+            # tracks with guests are still that artist.
             rows = self.conn.execute(
-                f"SELECT * FROM tracks WHERE artist IN ({marks}) ORDER BY RANDOM()",
-                (*names,),
+                f"SELECT * FROM tracks WHERE album_artist_key IN ({marks}) ORDER BY RANDOM()",
+                (*keys,),
             ).fetchall()
             rows = self.rows_on_station(rows, station)
             # Stable sort: the artist that played ten minutes ago goes to the back,
@@ -677,7 +677,9 @@ class Library:
                 return {
                     "source": "genre",
                     "genre": row["genre"],
-                    "artists": sorted({r["artist"] for r in rows})[:10],
+                    "artists": sorted({
+                        (r["album_artist"] or r["artist"]) for r in rows
+                    })[:10],
                     "tracks": [self._row(r, ctx) for r in rows],
                 }
         return {"source": "none", "artists": [], "tracks": []}
@@ -757,7 +759,7 @@ class Library:
 
         rows = self.conn.execute(
             "SELECT * FROM tracks WHERE " + " AND ".join(where)
-            + " ORDER BY artist, album, track_no", args
+            + " ORDER BY COALESCE(NULLIF(album_artist, ''), artist), album, track_no", args
         ).fetchall()
         rows = self.rows_on_station(rows, station)
         if not rows:
@@ -950,7 +952,7 @@ class Library:
     def _full(row: sqlite3.Row) -> navidrome.Track:
         return navidrome.Track(
             id=row["id"],
-            uri=row["uri"],
+            uri=loudness.annotate(row["uri"], loudness.for_row(row, loudness.measured(row["id"]))),
             title=row["title"],
             artist=row["artist"],
             album_artist=(row["album_artist"] if "album_artist" in row.keys() else "") or row["artist"],

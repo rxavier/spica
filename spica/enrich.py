@@ -59,7 +59,7 @@ def mb_release_artist(mbz_album_id: str) -> tuple[str | None, str | None]:
     _throttle("mb", 1.1)  # MusicBrainz asks for <= 1 req/s
     url = f"{MB}/release/{mbz_album_id}?inc=artist-credits&fmt=json"
     try:
-        d = _get_json(url, {"User-Agent": config.MB_USER_AGENT})
+        d = _get_json(url, {"User-Agent": config.provider_settings()["mb_user_agent"]})
         credits = d.get("artist-credit") or []
         for c in credits:
             artist = c.get("artist") or {}
@@ -97,12 +97,13 @@ def lfm_similar_scored(name: str, limit: int = 100) -> list[tuple[str, float]]:
     together": a list of a hundred names always ends in noise, and a caller that only
     wants the three nearest has to be able to cut it.
     """
-    if not config.LASTFM_KEY or not name:
+    key = config.provider_settings()["lastfm_key"]
+    if not key or not name:
         return []
     _throttle("lfm", 0.2)
     q = urllib.parse.urlencode(
         {"method": "artist.getsimilar", "artist": name, "limit": limit,
-         "api_key": config.LASTFM_KEY, "format": "json"}
+         "api_key": key, "format": "json"}
     )
     try:
         d = _get_json(f"{LF}/?{q}")
@@ -128,12 +129,13 @@ def lfm_similar(name: str, limit: int = 25) -> list[str]:
 
 
 def lfm_tags(name: str) -> list[str]:
-    if not config.LASTFM_KEY or not name:
+    key = config.provider_settings()["lastfm_key"]
+    if not key or not name:
         return []
     _throttle("lfm", 0.2)
     q = urllib.parse.urlencode(
         {"method": "artist.gettoptags", "artist": name, "autocorrect": 1,
-         "api_key": config.LASTFM_KEY, "format": "json"}
+         "api_key": key, "format": "json"}
     )
     try:
         d = _get_json(f"{LF}/?{q}")
@@ -303,11 +305,12 @@ def lfm_track(artist: str, title: str) -> dict | None:
     """Last.fm play counts for one track."""
     from . import config
 
-    if not config.LASTFM_KEY or not artist or not title:
+    key = config.provider_settings()["lastfm_key"]
+    if not key or not artist or not title:
         return None
     params = {
         "method": "track.getInfo",
-        "api_key": config.LASTFM_KEY,
+        "api_key": key,
         "artist": artist,
         "track": title,
         "format": "json",
@@ -362,7 +365,7 @@ def _mb_get(url: str, attempts: int = 3) -> dict:
 
     last: Exception | None = None
     for attempt in range(attempts):
-        request = urllib.request.Request(url, headers={"User-Agent": config.MB_USER_AGENT})
+        request = urllib.request.Request(url, headers={"User-Agent": config.provider_settings()["mb_user_agent"]})
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
                 return json.loads(response.read())

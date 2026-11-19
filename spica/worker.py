@@ -9,8 +9,10 @@ restart continues rather than redoing the work.
 
 Kinds: refresh (re-index, rewrite the pools), genre_tags (Last.fm tags for artists
 with no label), musicbrainz (genres per artist), popularity (ListenBrainz, then
-Last.fm, play counts). While idle, one tick every REFRESH_CHECK_S notices a
-changed library and queues the follow-ups the new gaps call for.
+Last.fm, play counts), loudness (measure tracks whose files carry no ReplayGain
+tag), and analysis (the optional audio backfill). While idle, one tick every
+REFRESH_CHECK_S notices a changed library and queues the follow-ups the new gaps
+call for.
 """
 
 from __future__ import annotations
@@ -21,12 +23,12 @@ import sqlite3
 import sys
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import bootstrap
 from . import genres as genre_lib
-from . import config, enrich, genres, jobs, navidrome, pool, queue, subsonic
+from . import config, enrich, genres, jobs, loudness, navidrome, pool, queue, subsonic
 
 POLL_SECONDS = 5
 
@@ -57,12 +59,13 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
     # purposes, and Last.fm has no entry for the combination.
     by_artist: dict[str, list[str]] = {}
     for row in conn.execute(
-        """SELECT id, artist FROM tracks
-           WHERE artist != '' AND NOT EXISTS
+        """SELECT id, COALESCE(NULLIF(album_artist, ''), artist) AS artist
+           FROM tracks
+           WHERE COALESCE(NULLIF(album_artist, ''), artist) != '' AND NOT EXISTS
                  (SELECT 1 FROM track_genres g
                    WHERE g.track_id = tracks.id AND g.source = 'external')"""
     ):
-        by_artist.setdefault(navidrome.primary_artist(row["artist"]), []).append(row["id"])
+        by_artist.setdefault(row["artist"], []).append(row["id"])
     # Only names MusicBrainz itself calls genres survive; a provider tag that is not
     # in that vocabulary is somebody's mood, nationality or file-manager debris.
     vocabulary = enrich.mb_genre_vocabulary()
@@ -116,7 +119,9 @@ def run_refresh(conn, job_id: int, log=print) -> dict:
 def run_popularity(conn, job_id: int, log=print) -> dict:
     """Fill the popularity table: ListenBrainz in batches, Last.fm for the rest."""
     todo = conn.execute(
-        """SELECT t.id, t.artist, t.title, t.mbz_recording FROM tracks t
+        """SELECT t.id, COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
+                  t.title, t.mbz_recording
+           FROM tracks t
            WHERE NOT EXISTS (SELECT 1 FROM track_popularity p WHERE p.track_id = t.id)"""
     ).fetchall()
     total = len(todo)
@@ -174,7 +179,10 @@ def missing_musicbrainz(conn) -> int:
     cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
     artists = {
         row["artist"]
-        for row in conn.execute("SELECT DISTINCT artist FROM tracks WHERE artist != ''")
+        for row in conn.execute(
+            "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist"
+            " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+        )
     }
     return sum(1 for artist in artists if genre_lib.fold(artist) not in cached)
 
@@ -191,12 +199,17 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     """Cache MusicBrainz genres for every artist that does not have them yet."""
     cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
     rows = conn.execute(
-        "SELECT artist, COUNT(*) c FROM tracks WHERE artist != '' GROUP BY artist ORDER BY c DESC"
+        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS artist, COUNT(*) c"
+        " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+        " GROUP BY artist ORDER BY c DESC"
     ).fetchall()
     todo = [row for row in rows if genre_lib.fold(row["artist"]) not in cached]
     # Album titles are how a shared name gets settled: the right artist owns them.
     albums: dict[str, list[str]] = {}
-    for row in conn.execute("SELECT DISTINCT artist, album FROM tracks WHERE album != ''"):
+    for row in conn.execute(
+        "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist, album"
+        " FROM tracks WHERE album != ''"
+    ):
         albums.setdefault(row["artist"], []).append(row["album"])
     total = len(todo)
     jobs.progress(conn, job_id, 0, total)
@@ -366,6 +379,98 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
             "seconds": int(time.time() - started)}
 
 
+def run_loudness(conn, job_id: int, log=print) -> dict:
+    """Measure a slice of the tracks whose files carry no ReplayGain tag.
+
+    A slice, for the same reason as analysis: the first backfill is hours of CPU
+    and the other follow-ups should get a turn instead of waiting behind it. A
+    measurement is kept in its own store so a rebuild of the index does not wipe
+    it, and an attempted track is not tried again — a file that cannot be decoded
+    should not make every run start over.
+    """
+    if not config.LOUDNESS:
+        return {"tracks": 0, "note": "loudness is off (set SPICA_LOUDNESS=1)"}
+    if not loudness.measure_available():
+        return {"tracks": 0,
+                "note": "this worker image has no ffmpeg; run the -worker image"}
+
+    store = loudness.connect(create=True)
+    rows = loudness.pending(conn, config.LOUDNESS_SLICE)
+    total = len(rows)
+    jobs.progress(conn, job_id, 0, total)
+    if not total:
+        store.close()
+        return {"tracks": 0, "note": "every playable track already has a level"}
+
+    # Mint the URLs here, on one thread, so the salted token is not built by
+    # several ffmpeg workers at once.
+    tasks = [(row["id"], subsonic.stream_url(row["id"])) for row in rows]
+    workers = max(1, config.LOUDNESS_WORKERS)
+    done = failed = 0
+    errors: list[str] = []
+    started = time.time()
+
+    def measure_one(track_id: str, url: str) -> tuple[str, tuple]:
+        return track_id, loudness.measure(url)
+
+    def take(track_id: str, result: tuple) -> None:
+        nonlocal done
+        lufs, peak = result
+        loudness.save(store, track_id, lufs, peak)
+        done += 1
+
+    def fail(track_id: str, exc: Exception) -> None:
+        nonlocal failed
+        failed += 1
+        errors.append(str(exc))
+        loudness.save(store, track_id, None, None, str(exc))
+        log(f"loudness: {track_id}: {exc}")
+
+    if workers > 1:
+        # Not named `pool`: that is the module this function calls at the end.
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(measure_one, track_id, url): track_id
+                       for track_id, url in tasks}
+            for i, future in enumerate(as_completed(futures), 1):
+                track_id = futures[future]
+                try:
+                    _id, result = future.result()
+                    take(track_id, result)
+                except Exception as exc:
+                    fail(track_id, exc)
+                jobs.progress(conn, job_id, i, total)
+    else:
+        for i, (track_id, url) in enumerate(tasks, 1):
+            try:
+                _id, result = measure_one(track_id, url)
+                take(track_id, result)
+            except Exception as exc:
+                fail(track_id, exc)
+            jobs.progress(conn, job_id, i, total)
+
+    store.close()
+    if total and not done:
+        # The per-track errors are in the log; the first one in the summary is what
+        # makes "the whole slice failed" diagnosable from the admin page.
+        detail = errors[0] if errors else "no track could be measured"
+        raise RuntimeError(f"no track could be measured ({failed} failed): {detail}")
+    remaining = loudness.backlog(conn)
+    if done and not remaining:
+        # The pool is written once, at rebuild time. Now that the last untagged
+        # tracks have a level, rewrite it so the standby rotation is levelled too.
+        try:
+            stations = config.load_stations()
+            counts = pool.write_pools(conn, stations, log=log)
+            pool.resume_after_last_played(
+                stations, lambda st: (queue.recent(st, 1) or [{}])[-1], log=log
+            )
+            log(f"loudness: pools rewritten {counts}")
+        except Exception as exc:  # a pool rewrite must not fail the measurement
+            log(f"loudness: pools not rewritten: {exc}")
+    return {"tracks": done, "failed": failed, "remaining": remaining,
+            "seconds": int(time.time() - started)}
+
+
 def _analysis_due(conn) -> bool:
     """The optional backfill has work and nothing is pending for it.
 
@@ -392,10 +497,34 @@ def _analysis_due(conn) -> bool:
         return False
 
 
+def _loudness_due(conn) -> bool:
+    """There are untagged tracks to measure and a worker that can measure them.
+
+    Same shape as the analysis rule: a shrinking backlog must not need to grow
+    before it starts, and a recent failure waits an hour. Off when the operator
+    has asked for tags only, or when the image has no ffmpeg.
+    """
+    if not (config.LOUDNESS and config.LOUDNESS_MEASURE and loudness.measure_available()):
+        return False
+    if conn.execute(
+        "SELECT 1 FROM jobs WHERE kind = 'loudness' AND status IN ('queued','running')"
+    ).fetchone():
+        return False
+    last = jobs.last(conn, "loudness")
+    if last is not None and last["status"] == "failed":
+        if time.time() - float(last["finished_at"] or 0) < 3600:
+            return False
+    try:
+        return loudness.backlog(conn) > 0
+    except Exception as exc:
+        print(f"loudness: could not count the backlog: {exc}", flush=True)
+        return False
+
+
 def missing_similarity(conn) -> int:
     """Artists with nothing scored yet. Zero without a Last.fm key — there is nothing
     to ask, and a job queued for it would retry forever."""
-    if not config.LASTFM_KEY:
+    if not config.provider_settings()["lastfm_key"]:
         return 0
     row = conn.execute(
         """SELECT count(*) FROM (
@@ -420,7 +549,7 @@ def stale_reason(conn) -> str:
     return ""
 
 
-HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity, "analysis": run_analysis}
+HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity, "analysis": run_analysis, "loudness": run_loudness}
 
 # The follow-ups worth queueing when the index changes, in the order they matter:
 # MusicBrainz decides the genre for anything without a file tag, so it should be
@@ -462,6 +591,10 @@ def queue_followups(conn: sqlite3.Connection, seen: dict[str, int]) -> bool:
     if _analysis_due(conn):
         print("audio analysis backlog — queueing", flush=True)
         jobs.create(conn, "analysis")
+        return True
+    if _loudness_due(conn):
+        print("loudness backlog — queueing", flush=True)
+        jobs.create(conn, "loudness")
         return True
     return False
 
@@ -528,8 +661,8 @@ def main() -> int:
             jobs.finish(conn, job_id, result)
             # The rest of the slice goes to the back of the queue, so other job kinds
             # queued in between get a turn instead of waiting behind the whole backfill.
-            if kind == "analysis" and (result or {}).get("remaining"):
-                jobs.create(conn, "analysis")
+            if kind in ("analysis", "loudness") and (result or {}).get("remaining"):
+                jobs.create(conn, kind)
             print(f"job {job_id} {kind}: done {result}", flush=True)
         except Exception as exc:  # a bad job must not kill the worker
             jobs.fail(conn, job_id, str(exc))

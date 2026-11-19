@@ -5,8 +5,13 @@ skip a lookup. Describes the code in `spica/picker/`.
 
 ## The shape of one set
 
-There are two paths. With audio analysis off — or for a listener request — the set is
-the tool loop described below: six function schemas, forced lookups, an artist shelf.
+There are two paths. The admin's **DJ mode** chooses which one is offered:
+**Artist-led** always uses the shelf, **Track-led** uses the table when it can and falls
+back to the shelf, and **Off** does not call the model at all. A listener request always
+uses the tools.
+
+With audio analysis off — or for a listener request — the set is the tool loop
+described below: six function schemas, forced lookups, an artist shelf.
 With analysis on and nobody asking for anything, the set is **one call with no tools**:
 the brief carries a table of records with their ids, grouped by direction (see
 [The table](#the-table)). The set contract, the line and the checks are the same; what

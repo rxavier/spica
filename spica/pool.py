@@ -16,7 +16,7 @@ import secrets
 import sqlite3
 import time
 
-from . import config, navidrome, subsonic
+from . import config, loudness, navidrome, queue, subsonic
 
 ARTIST_WINDOW = 12
 
@@ -63,7 +63,8 @@ def _score(station: config.Station, row: sqlite3.Row, salt: int, percentile: dic
 
 
 def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str, float] | None = None,
-          salt: int | None = None) -> list[sqlite3.Row]:
+          salt: int | None = None, seed_artists: list[str] | None = None,
+          seed_album: str = "") -> list[sqlite3.Row]:
     """A fresh random order for every rebuild.
 
     It used to be keyed by the day, which bought reproducibility and cost variety:
@@ -75,8 +76,10 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
     salt = secrets.randbits(64) if salt is None else salt
     scored = sorted(rows, key=lambda r: _score(station, r, salt, percentile or {}))
     out: list[sqlite3.Row] = []
-    recent_artists: list[str] = []
-    recent_albums: list[str] = []
+    # Seed the spacing rules with what actually aired, so a rebuilt rotation does
+    # not open on the artist or album that just finished.
+    recent_artists = list(seed_artists or [])[-ARTIST_WINDOW:]
+    recent_albums = [seed_album] if seed_album else []
     pool = scored[:]
     while pool:
         for i, row in enumerate(pool):
@@ -194,19 +197,56 @@ def resume_after_last_played(stations: list[config.Station], last_played, log=pr
             log(f"pool {st.id}: resumed after {last.get('artist')} — {last.get('title')}")
 
 
+def _recent_context(conn: sqlite3.Connection, station: config.Station) -> tuple[set[str], list[str], str]:
+    """The recent plays a rebuilt rotation should leave out.
+
+    Newest first. The pool is a static loop, so this is the best moment to apply the
+    same avoid window the DJ uses: the tracks are left out of the list, and the first
+    placed track may not be by an artist or on an album that just finished.
+    """
+    entries = list(reversed(queue.recent(station, max(40, ARTIST_WINDOW))))
+    avoid = {str(e.get("id") or "") for e in entries[:40] if e.get("id")}
+    artists: list[str] = []
+    album = ""
+    for entry in entries:
+        track_id = str(entry.get("id") or "")
+        row = conn.execute(
+            "SELECT album_artist, artist, album_id FROM tracks WHERE id = ?", (track_id,)
+        ).fetchone() if track_id else None
+        name = (row["album_artist"] or row["artist"]) if row is not None else entry.get("artist") or ""
+        if name and len(artists) < ARTIST_WINDOW:
+            artists.append(name)
+        if not album and row is not None and row["album_id"]:
+            album = str(row["album_id"])
+    return avoid, artists, album
+
+
 def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=print) -> dict[str, int]:
     counts: dict[str, int] = {}
     for st in stations:
         rows = navidrome.rows_for_station(conn, st)
-        ordered = order(st, rows, _popularity_percentiles(conn, rows))
+        avoid, recent_artists, last_album = _recent_context(conn, st)
+        if avoid:
+            kept = [r for r in rows if r["id"] not in avoid]
+            # A tiny station must still have a rotation; only drop the recent
+            # tracks while at least half of it is left.
+            if len(kept) >= max(1, len(rows) // 2):
+                rows = kept
+        ordered = order(
+            st, rows, _popularity_percentiles(conn, rows),
+            seed_artists=recent_artists, seed_album=last_album,
+        )
         st.pool_file.parent.mkdir(parents=True, exist_ok=True)
         body_lines: list[str] = []
         seen: set[str] = set()
+        measured = loudness.all_measured()
         for r in ordered:
-            uri = r["uri"]
-            if uri in seen:  # the same track reached twice
+            # The gain rides on the line as Liquidsoap's liq_amplify annotation, so
+            # the fallback rotation is levelled exactly like a DJ pick.
+            uri = loudness.annotate(r["uri"], loudness.for_row(r, measured.get(r["id"])))
+            if r["id"] in seen:  # the same track reached twice
                 continue
-            seen.add(uri)
+            seen.add(r["id"])
             body_lines.append(uri)
         body = "\n".join(body_lines)
         tmp = st.pool_file.with_suffix(".tmp")
