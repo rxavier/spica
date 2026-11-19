@@ -354,7 +354,7 @@ constraint.
   Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
   make a genre station. The station editor keeps the include/exclude artist dropdowns;
   below them, *What this station plays now* lists every artist the saved rules can play,
-  with search and paging.
+  grouped by the record's artist, with search and paging.
 - `exclude_genres` / `exclude_artists` are absolute: they win over either list, and names
   are compared case-insensitively.
 - `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order of the
