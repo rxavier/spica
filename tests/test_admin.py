@@ -348,3 +348,45 @@ def test_the_path_instructions_are_editable(console):
     client.post("/admin/prompt/path",
                 data={"kind": "shelf", "text": "ignored", "reset": "1"})
     assert not (cfg / "dj-shelf.md").exists()
+
+
+def _seed_artists(conn, count):
+    with conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id, album_artist)"
+            " VALUES (?,?,?,?,?,?,?)",
+            [
+                (f"t{i:03d}", f"http://navidrome/{i}", f"Track {i}",
+                 f"Artist {i:03d}", f"Artist {i:03d}", f"al{i:03d}", f"Artist {i:03d}")
+                for i in range(1, count + 1)
+            ],
+        )
+
+
+def test_the_artist_picker_searches_and_pages(console):
+    client, _, _ = console
+    login(client)
+    _seed_artists(store.conn(), 35)
+
+    match = client.get("/admin/artists?q=artist%20035").text
+    assert "Artist 035" in match
+    assert "Artist 034" not in match
+
+    second = client.get("/admin/artists?page=2").text
+    assert "page 2 of 2" in second
+    assert "Artist 031" in second
+    assert "Artist 001" not in second
+
+
+def test_the_station_page_carries_the_artist_picker_and_selection(console):
+    client, cfg, _ = console
+    login(client)
+    _seed_artists(store.conn(), 2)
+    data = json.loads((cfg / "stations.json").read_text(encoding="utf-8"))
+    data["stations"][0]["include_artists"] = ["Artist 001"]
+    (cfg / "stations.json").write_text(json.dumps(data), encoding="utf-8")
+
+    page = client.get("/admin/stations/alt").text
+    assert "artist-pick" in page
+    assert "Artist 001" in page
+    assert 'name="include_artists" value="Artist 001"' in page

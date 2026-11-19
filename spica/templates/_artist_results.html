@@ -1,0 +1,25 @@
+<div class="artist-rows">
+  {% for a in items %}
+    <div class="artist-row">
+      <span class="artist-name">{{ a.name }}</span>
+      <span class="sub">{{ a.tracks }}</span>
+      <button type="button" class="link" data-artist-add data-name="{{ a.name }}">add</button>
+    </div>
+  {% else %}
+    {% if q %}<p class="sub">No artist matches “{{ q }}”.</p>
+    {% else %}<p class="sub">No artists in the library yet.</p>{% endif %}
+  {% endfor %}
+</div>
+{% if pages > 1 %}
+<div class="artist-pager">
+  {% if page > 1 %}
+    <a class="link" hx-get="/admin/artists?q={{ q|urlencode }}&page={{ page - 1 }}"
+       hx-target="closest .results" hx-swap="innerHTML">previous</a>
+  {% endif %}
+  <span class="sub">page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+    <a class="link" hx-get="/admin/artists?q={{ q|urlencode }}&page={{ page + 1 }}"
+       hx-target="closest .results" hx-swap="innerHTML">next</a>
+  {% endif %}
+</div>
+{% endif %}

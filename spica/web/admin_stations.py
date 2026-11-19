@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from .. import config
+from .. import navidrome
 from .. import pool
 from .. import store
 from .. import auth
@@ -30,6 +31,52 @@ from .shared import (
 )
 
 router = APIRouter()
+
+ARTISTS_PER_PAGE = 30
+
+
+def _artist_page(conn, q: str = "", page: int = 1) -> dict:
+    """One page of the full artist list, most recorded first."""
+    q = (q or "").strip()[:80]
+    # The record's artist, the identity the station rules and the DJ group by. A
+    # guest credit ("L’Impératrice & Fabiana Martone") is not a second artist.
+    # `album_artist_key` is the folded name, so search finds Wálters from "wal".
+    source = (
+        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS name,"
+        " COALESCE(NULLIF(album_artist_key, ''),"
+        "          COALESCE(NULLIF(album_artist, ''), artist)) AS key"
+        " FROM tracks"
+    )
+    where = "name != ''"
+    args: list = []
+    if q:
+        where += " AND (key LIKE ? OR name LIKE ?)"
+        args.extend([f"%{navidrome.name_key(q)}%", f"%{q}%"])
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT DISTINCT key FROM ({source}) WHERE {where})", args
+    ).fetchone()[0]
+    pages = max(1, (int(total) + ARTISTS_PER_PAGE - 1) // ARTISTS_PER_PAGE)
+    page = max(1, min(int(page or 1), pages))
+    rows = conn.execute(
+        f"SELECT key, MIN(name) AS name, COUNT(*) AS tracks FROM ({source}) WHERE {where}"
+        " GROUP BY key ORDER BY tracks DESC, name COLLATE NOCASE LIMIT ? OFFSET ?",
+        (*args, ARTISTS_PER_PAGE, (page - 1) * ARTISTS_PER_PAGE),
+    ).fetchall()
+    return {
+        "items": [{"name": r["name"], "tracks": r["tracks"]} for r in rows],
+        "page": page,
+        "pages": pages,
+        "q": q,
+    }
+
+
+@router.get("/admin/artists", response_class=HTMLResponse)
+async def admin_artists(request: Request, q: str = "", page: int = 1):
+    if not auth.is_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    return templates.TemplateResponse(
+        request, "_artist_results.html", _artist_page(_conn(), q, page)
+    )
 
 
 @router.get("/admin/stations", response_class=HTMLResponse)
@@ -57,14 +104,6 @@ async def admin_station_form(request: Request, station_id: str):
             "SELECT label, COUNT(*) n FROM track_genres GROUP BY label ORDER BY n DESC, label"
         )
     ]
-    # Every artist in the index, most recorded first, for the typeahead.
-    artists = [
-        row["artist"]
-        for row in _conn().execute(
-            "SELECT artist, COUNT(*) n FROM tracks GROUP BY artist ORDER BY n DESC, artist"
-        )
-        if row["artist"]
-    ]
     return templates.TemplateResponse(
         request,
         "admin_station.html",
@@ -73,7 +112,7 @@ async def admin_station_form(request: Request, station_id: str):
             "station": station_or_404(station_id),
             "preview": pool_preview(station_or_404(station_id)),
             "all_labels": labels,
-            "all_artists": artists,
+            "artists_page": _artist_page(_conn()),
             "codecs": config.CODECS,
             "labels": config.CODEC_LABEL,
             "extensions": config.CODEC_EXT,

@@ -2,12 +2,6 @@
 {% block title %}stations{% endblock %}
 {% block main_class %}studio{% endblock %}
 {% block body %}
-{% set ns = namespace(never=false, years=false, only=false) %}
-{% for item in items %}
-  {% if item.include_artists %}{% set ns.only = true %}{% endif %}
-  {% if item.exclude_artists %}{% set ns.never = true %}{% endif %}
-  {% if item.year_from or item.year_to %}{% set ns.years = true %}{% endif %}
-{% endfor %}
 <h1>Stations</h1>
 
 {% if request.query_params.get('deleted') %}
@@ -25,39 +19,18 @@
   </form>
   <span class="sub">A new station starts empty — set its genres on the next screen.</span>
 </div>
-<div class="tablewrap">
-  <table class="data">
-    <thead>
-      <tr>
-        <th>id</th>
-        <th>name</th>
-        <th>genres</th>
-        {% if ns.only %}<th>plus artists</th>{% endif %}
-        {% if ns.never %}<th>never plays</th>{% endif %}
-        {% if ns.years %}<th class="num">years</th>{% endif %}
-        <th class="act">edit</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-        <tr>
-          <td class="mono">{{ item.id }}</td>
-          <td class="strong">{{ item.name }}</td>
-          <td class="sub">
-            {%- if item.include_genres -%}
-              {{ item.include_genres|join(", ") }}
-            {%- else -%}
-              Everything
-            {%- endif -%}
-          </td>
-          {% if ns.only %}<td class="sub">{{ item.include_artists|join(", ") if item.include_artists else "—" }}</td>{% endif %}
-          {% if ns.never %}<td class="sub">{{ item.exclude_artists|join(", ") if item.exclude_artists else "—" }}</td>{% endif %}
-          {% if ns.years %}<td class="num sub">{{ item.year_from or "" }}{% if item.year_to %}–{{ item.year_to }}{% endif %}</td>{% endif %}
-          <td class="act"><a href="/admin/stations/{{ item.id }}">edit</a></td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="station-list">
+  {% for item in items %}
+    <div class="station-card">
+      <div class="station-main">
+        <div class="station-title">{{ item.name }} <span class="station-slug">{{ item.id }}</span></div>
+        <p class="station-brief">{{ item.description or "No brief yet." }}</p>
+      </div>
+      <a class="btn station-edit" href="/admin/stations/{{ item.id }}">Edit</a>
+    </div>
+  {% else %}
+    <p class="sub">No stations yet.</p>
+  {% endfor %}
 </div>
-<p class="sub">Adding, renaming or deleting a station regenerates spica.liq and restarts the mixer for you — a few seconds of silence on every station. The same actions by hand are under <a href="/admin/library">Library → Maintenance</a>.</p>
+<p class="sub">Adding, renaming or deleting a station restarts the audio engine for you — a few seconds of silence on every station. The same actions by hand are under <a href="/admin/library">Library → Maintenance</a>.</p>
 {% endblock %}
