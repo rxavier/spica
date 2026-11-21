@@ -32,10 +32,30 @@ def encoder(codec: str) -> str:
     return f"%mp3(bitrate={bitrate}, samplerate=48000, stereo=true)"
 
 
+def quoted(value: str) -> str:
+    """A Liquidsoap string literal for text nobody validated.
+
+    A station's name and description are typed into the admin form, so they can hold
+    a quote, a backslash or `#{`, and each of those ends or hijacks the literal it
+    lands in: the first two are escaped, and `#{` — which opens interpolation and
+    cannot be backslash-escaped in 2.4 — is broken out of the literal by
+    concatenation instead. The description of one station carrying a quoted phrase
+    was enough to make the whole script unparseable, which takes every station down.
+    """
+    escaped = (
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "").replace("\n", "\\n")
+    )
+    parts = escaped.split("#{")
+    if len(parts) == 1:
+        return f'"{escaped}"'
+    return '("' + '" ^ "#{" ^ "'.join(parts) + '")'
+
+
 def outputs_for(st: config.Station, password: str) -> list[str]:
     """One Icecast output per stream: one encoder each, one mount each."""
     lines: list[str] = []
     for codec in st.stream_set:
+        brief = f"{st.description or st.name} · {config.CODEC_LABEL[codec]}"
         lines += [
             f"output.icecast({encoder(codec)},",
             f'  id="out_{st.id}_{codec}", start=false,',
@@ -43,8 +63,7 @@ def outputs_for(st: config.Station, password: str) -> list[str]:
             f"  send_icy_metadata={'true' if codec == 'mp3' else 'false'},",
             f'  host="{config.ICECAST_OUTPUT_HOST}", port={config.ICECAST_OUTPUT_PORT}, '
             f'password="{password}", mount="{st.mount_for(codec)}",',
-            f'  name="{st.name}", description="{st.description or st.name} · '
-            f'{config.CODEC_LABEL[codec]}",',
+            f'  name={quoted(st.name)}, description={quoted(brief)},',
             # icy-url is the one place a stream can point at its own page. Some players
             # fetch that page and use its favicon as the station picture.
             *([f'  url="{config.PUBLIC_URL}/s/{st.id}",'] if config.PUBLIC_URL else []),
