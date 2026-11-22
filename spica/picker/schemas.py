@@ -31,6 +31,21 @@ class Pick:
     # did: "shelf", "table", or "table-partial" (with a not-measured group).
     path: str = ""
     coverage: float | None = None
+    # Every id the offer carried, played or not. Logged with the pick so the next sets
+    # can leave a record alone for a while even when nobody chose it.
+    offered: tuple = ()
+
+    def detail(self) -> dict:
+        """What the picker saw, in the shape `queue.record_pick` logs."""
+        return {
+            "brief": self.brief,
+            "tools": self.tools,
+            "reply": self.reply,
+            "shelf": list(self.shelf),
+            "offered": list(self.offered),
+            "path": self.path,
+            "coverage": self.coverage,
+        }
 
 
 TOOLS = [

@@ -167,6 +167,123 @@ def test_the_familiar_block_follows_the_station_lean(rig):
         known(config.Station(id="d", name="D", popularity="deep"))
 
 
+def test_a_pick_stays_out_of_the_table_when_nobody_was_listening(rig, monkeypatch):
+    """Forty airings is three hours, and half of them are the standby pool.
+
+    The DJ's own choices are the memory that covers a quiet night: without them a
+    station that sat idle since the morning can open with the set it played then.
+    """
+    lib, _store, _rows = rig
+    baseline = table.build(lib, config.Station(id="t", name="T"))
+    assert baseline is not None
+    victim = baseline["ids"][0]
+    # Nobody listened: the ledger holds nothing the DJ chose.
+    monkeypatch.setattr(queue, "recent_ids", lambda st, n=40: set())
+    monkeypatch.setattr(queue, "recent_pick_ids", lambda st, n=60: {victim})
+    built = table.build(lib, config.Station(id="t", name="T"))
+    assert built is not None
+    assert victim not in built["ids"]
+
+
+def test_a_record_offered_a_set_ago_is_not_offered_again(rig, monkeypatch):
+    """Being offered is having had a turn, played or not.
+
+    A record only left the table by airing, so the familiar block handed over the same
+    records it kept refusing — more than once in five tables, and never picked.
+    """
+    lib, _store, _rows = rig
+    baseline = table.build(lib, config.Station(id="t", name="T"))
+    assert baseline is not None
+    victim = baseline["ids"][0]
+    monkeypatch.setattr(queue, "offered_ids", lambda st, sets=4: {victim}, raising=False)
+    built = table.build(lib, config.Station(id="t", name="T"))
+    assert built is not None
+    assert victim not in built["ids"]
+
+
+def test_the_offer_memory_gives_way_before_the_table_does(rig, monkeypatch):
+    """On a station narrower than four tables' worth, a repeated offer beats no offer."""
+    lib, _store, rows = rig
+    monkeypatch.setattr(queue, "offered_ids", lambda st, sets=4: {row[0] for row in rows},
+                        raising=False)
+    built = table.build(lib, config.Station(id="t", name="T"))
+    assert built is not None
+    assert len(built["ids"]) >= table.MIN_TABLE
+
+
+def test_the_familiar_block_comes_from_whoever_was_off_the_air_longest(rig, monkeypatch):
+    """The single is the same single every time; the one you have not heard in ages is not.
+
+    Popularity ranks the familiar block on its own, so the song it offers is the one the
+    artist is known for — and it offers it again the next time. Absence comes first now:
+    between two familiar records, the one that has not aired wins even when it is the
+    less famous of the two.
+    """
+    lib, _store, rows = rig
+    just_played, away = rows[3][0], rows[6][0]   # Artist 01 and Artist 02, both Rock
+    monkeypatch.setattr(
+        lib, "popularity_ranks",
+        lambda candidates: {
+            row[0]: (1.0 if row[0] == just_played else 0.7 if row[0] == away else 0.5)
+            for row in rows
+        },
+    )
+    monkeypatch.setattr(
+        table, "_absence",
+        lambda lib, station, look=240: {
+            navidrome.name_key(f"Artist {a:02d}"): (200 if a == 2 else 1 if a == 1 else 60)
+            for a in range(12)
+        },
+    )
+    monkeypatch.setattr(table, "targets", lambda station: (("known", 1),))
+    monkeypatch.setattr(table, "MIN_TABLE", 1)
+    monkeypatch.setattr(table, "_spread_decades", lambda *a, **k: None)
+    built = table.build(lib, config.Station(id="t", name="T"))
+    assert built is not None
+    assert built["ids"] == [away]
+
+
+def _fake_candidate(index: int, **over) -> dict:
+    item = {
+        "id": str(index) * 22, "artist": f"A{index}", "artist_key": f"a{index}",
+        "title": f"t{index}", "album": "al", "year": 2000, "duration": 200,
+        "label": f"L{index}", "decade": 2000, "energy": 0.5, "bpm": 120.0, "key": "C maj",
+        "sound": "Rock", "family": "Rock", "popularity": 1.0, "popularity_known": True,
+        "absence": 50 - index, "sim": 0.5, "vector": None,
+    }
+    item.update(over)
+    return item
+
+
+def test_the_familiar_block_drops_an_artist_offered_a_set_ago():
+    """Ids alone rotate; the artist is what repeats, so the artist is what is remembered."""
+    candidates = [_fake_candidate(i) for i in range(6)]
+    anchor = {"energy": 0.5, "bpm": 120.0, "key": "C maj", "family": "Rock"}
+    groups = table._groups(candidates, anchor, 0, config.Station(id="t", name="T"),
+                           offered_artists={"a0", "a1", "a2"})
+    known = next(g for g in groups if g["name"] == "known")
+    assert {track["artist"] for track in known["tracks"]} == {"A3", "A4", "A5"}
+
+
+def test_the_familiar_block_comes_back_when_there_is_no_choice_left():
+    """Every familiar artist was offered last set: a block of six beats no block at all."""
+    candidates = [_fake_candidate(i) for i in range(6)]
+    anchor = {"energy": 0.5, "bpm": 120.0, "key": "C maj", "family": "Rock"}
+    groups = table._groups(candidates, anchor, 0, config.Station(id="t", name="T"),
+                           offered_artists={f"a{i}" for i in range(6)})
+    known = next(g for g in groups if g["name"] == "known")
+    assert len(known["tracks"]) == 6
+
+
+def test_absence_moves_a_record_up_its_direction():
+    just_played = {"sim": 0.90, "absence": 2, "popularity": 0.5}
+    off_the_air = {"sim": 0.88, "absence": 200, "popularity": 0.5}
+    stranger = {"sim": 0.60, "absence": 200, "popularity": 0.5}
+    assert table._offer_rank(off_the_air, 0.0) > table._offer_rank(just_played, 0.0)
+    # A bonus, not a new axis: it lifts neighbours, it does not smuggle in a stranger.
+    assert table._offer_rank(stranger, 0.0) < table._offer_rank(just_played, 0.0)
+
+
 def test_familiar_records_stay_in_the_on_air_family(rig):
     lib, store, rows = rig
     built = table.build(lib, config.Station(id="t", name="T"))

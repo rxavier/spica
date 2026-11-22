@@ -18,6 +18,7 @@ request still remembered.
 
 from __future__ import annotations
 
+import calendar
 import datetime
 import json
 import time
@@ -247,8 +248,10 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
     admin can answer "why *that* track?" without reproducing it.
     """
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
-    entry = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "id": track_id,
-             "title": title, "artist": artist, "why": why, "presence": presence}
+    entry: dict[str, object] = {
+        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "id": track_id,
+        "title": title, "artist": artist, "why": why, "presence": presence,
+    }
     if detail:
         if detail.get("brief"):
             # The brief carries the table and the timeline; 2,000 characters cut it
@@ -258,6 +261,10 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
             entry["tools"] = list(detail["tools"])[:8]
         if detail.get("shelf"):
             entry["shelf"] = list(detail["shelf"])[:16]
+        if detail.get("offered"):
+            # Every id the table carried, played or not: the next few sets read this
+            # to leave a record alone for a while even when nobody wanted it.
+            entry["offered"] = [str(track_id) for track_id in detail["offered"]][:64]
         if detail.get("path"):
             entry["path"] = str(detail["path"])[:24]
         if detail.get("coverage") is not None:
@@ -313,6 +320,98 @@ def recent_picks(station: config.Station, n: int = 12) -> list[dict]:
         except json.JSONDecodeError:
             continue
     return out
+
+
+# The play ledger and the pick log are two different memories, and repeats need both.
+# A track the DJ chose stays in the pick log even if it never aired, and the standby
+# pool's airings are only in the play ledger — so a window of one is never the window
+# of the other.
+def recent_pick_ids(station: config.Station, n: int = 60) -> set[str]:
+    """The ids the DJ chose in its last n picks."""
+    return {str(entry["id"]) for entry in recent_picks(station, n) if entry.get("id")}
+
+
+def recent_pick_artists(station: config.Station, n: int = 12) -> list[str]:
+    """The artists behind the last n picks, newest first."""
+    out: list[str] = []
+    for entry in reversed(recent_picks(station, n)):
+        name = str(entry.get("artist") or "").strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+# Entries read per hour of history. A station airs about thirteen tracks an hour; the
+# headroom covers a shorter one.
+_AIRINGS_PER_HOUR = 40
+
+
+def aired_within(station: config.Station, seconds: float) -> set[str]:
+    """Ids that aired inside the last `seconds`, from the play ledger.
+
+    `recent()` counts *airings*, and about half of them are the standby pool: forty
+    airings is under three hours, so a DJ that came back after a quiet night had
+    forgotten its own set and could open with it again. This is the same ledger asked
+    in hours instead, which is the unit a listener hears in.
+    """
+    cutoff = time.time() - seconds
+    limit = int(seconds / 3600 * _AIRINGS_PER_HOUR) + 40
+    ids: set[str] = set()
+    for line in reversed(_tail_lines(station.history_file, limit)):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        try:
+            stamp = calendar.timegm(time.strptime(str(entry.get("t")), "%Y-%m-%dT%H:%M:%SZ"))
+        except ValueError:
+            continue
+        if stamp < cutoff:
+            break
+        if entry.get("id"):
+            ids.add(str(entry["id"]))
+    return ids
+
+
+def offered_ids(station: config.Station, sets: int = 4) -> set[str]:
+    """Ids the DJ was offered in its last `sets` sets, played or not.
+
+    A record only leaves the table by *playing*, so the familiar block kept handing
+    over the same records it kept refusing — one was on better than a table in five
+    and never picked. Being offered is having had a turn too.
+    """
+    out: set[str] = set()
+    found = 0
+    for line in reversed(_tail_lines(_picks_path(station), max(1, sets) * 8)):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ids = entry.get("offered")
+        if not isinstance(ids, list) or not ids:
+            continue
+        out.update(str(track_id) for track_id in ids if track_id)
+        found += 1
+        if found >= sets:
+            break
+    return out
+
+
+# Repeat memory, in one place because two callers need the same answer: the table draws
+# its offer from it, and the DJ's tool rows report it. A record may not come round again
+# for this many picks, nor inside this many hours of air. Forty airings was the old
+# window and it failed twice over: under three hours, and half of it the standby pool, so
+# a station that sat idle since the morning had forgotten the set it played then.
+PICK_MEMORY = 60
+AIR_HOURS = 8
+
+
+def recently_out(station: config.Station, picks: int = PICK_MEMORY,
+                 hours: float = AIR_HOURS) -> set[str]:
+    """Ids that should not play again yet: what aired, and what the DJ chose."""
+    return (recent_ids(station, 40)
+            | recent_pick_ids(station, picks)
+            | aired_within(station, hours * 3600))
 
 
 def why_for(station: config.Station, title: str) -> str:

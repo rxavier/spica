@@ -161,6 +161,11 @@ def _blocked(lib, station, profiles: dict[str, dict]) -> set[str]:
             blocked.add(navidrome.name_key(name))
             anchors.append(name)
 
+    # The ledger is airings, and on a quiet station those are the standby pool: an artist
+    # the DJ chose an hour ago would otherwise be free to come straight back.
+    for name in queue.recent_pick_artists(station, BEHIND + 3):
+        blocked.add(navidrome.name_key(name))
+
     # The artists offered a set ago have had their turn at being offered. Without this
     # the same twelve names come back whenever the plays in between happen to leave them
     # clear, and the shelf becomes a fixed menu again, only smaller.

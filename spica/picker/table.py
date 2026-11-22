@@ -32,6 +32,19 @@ MIN_TABLE = 8
 PER_LABEL = 3  # one label cannot own the table
 ABSENCE = 40   # plays that count as "off the air"
 KNOWN = 0.66   # within-artist percentile that counts as "the one everyone knows"
+# A record *offered* this many sets ago has had its turn whether or not it played: the
+# play ledger alone let the familiar block hand over the same records it kept refusing.
+# The window itself — sixty picks or eight hours of air — lives in `queue`, because the
+# DJ's tool rows report it too.
+OFFER_SETS = 4
+# The familiar block is one record per artist, so it needs the artist's turn remembered
+# rather than the record's: two sets is enough to stop the same name coming back, and
+# longer starves it — there are only so many artists with a known record in one family.
+KNOWN_SETS = 2
+# How much "not been on in ages" can move a candidate up its direction. Similarity
+# alone is what made the station orbit one sound: `-absence` sat after `-sim` in the
+# sort key, so it only ever broke an exact tie.
+ABSENCE_WEIGHT = 0.12
 # Readiness for the full table, per station. Below this the table still runs, but with
 # an explicit "not measured yet" group so new music is not invisible.
 READY_TRACKS = 0.90
@@ -116,7 +129,7 @@ def build(lib, station) -> dict | None:
     partial = coverage < READY_TRACKS or artist_coverage < READY_ARTISTS
 
     blocked = _blocked_artists(lib, station)
-    played = queue.recent_ids(station, 40)
+    played = queue.recently_out(station)
     try:
         queued = set(mixer.queued_ids(station))
     except Exception:  # liquidsoap down: the table is still worth drawing
@@ -130,42 +143,17 @@ def build(lib, station) -> dict | None:
         ranks = {}
     absence = _absence(lib, station)
 
-    candidates = []
-    for row in rows:
-        track_id = row["id"]
-        if track_id in played or track_id in queued or track_id == on_air:
-            continue
-        vector = vectors.get(track_id)
-        feature = features.get(track_id)
-        if vector is None or not feature:
-            continue
-        artist = (row["album_artist"] or row["artist"] or "").strip()
-        key = navidrome.name_key(artist)
-        if not key or key in blocked:
-            continue
-        year = int(row["year"] or 0)
-        candidates.append({
-            "id": track_id,
-            "artist": artist,
-            "artist_key": key,
-            "title": row["title"] or "",
-            "album": row["album"] or "",
-            "year": year or None,
-            "duration": row["duration"],
-            "label": (labels.get(track_id) or ["?"])[0],
-            "decade": year // 10 * 10 if year else 0,
-            "energy": float(feature["energy"]) if feature.get("energy") is not None else 0.5,
-            "bpm": float(feature["bpm"]) if feature.get("bpm") else None,
-            "key": feature.get("key") or "",
-            "sound": feature.get("sound") or "",
-            "family": feature.get("family") or "",
-            "popularity": float(ranks.get(track_id, 0.5)),
-            "popularity_known": track_id in ranks,
-            "absence": int(absence.get(key, ABSENCE * 6)),
-            "vector": vector,
-        })
+    candidates = _candidates(rows, vectors, features, played, queued, on_air,
+                             blocked, labels, ranks, absence)
     if len(candidates) < MIN_TABLE:
         return None
+    # A record the last few sets offered has had its turn, played or not — that is what
+    # stops the familiar block from becoming a fixed cast. On a small station the rule
+    # could empty the table, and a smaller offer is worse than a repeated one.
+    offered = queue.offered_ids(station, OFFER_SETS)
+    fresh = [c for c in candidates if c["id"] not in offered]
+    if len(fresh) >= MIN_TABLE:
+        candidates = fresh
 
     anchor = _anchor(lib, station, features, vectors)
     if anchor is None or anchor.get("energy") is None:
@@ -175,7 +163,9 @@ def build(lib, station) -> dict | None:
     for candidate in candidates:
         candidate["sim"] = float(candidate["vector"] @ anchor["vector"])
 
-    groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0, station)
+    groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0, station,
+                     offered_artists=_offered_artists(
+                         lib, queue.offered_ids(station, KNOWN_SETS)))
     ids = [track["id"] for group in groups for track in group["tracks"]]
     if len(ids) < MIN_TABLE:
         return None
@@ -241,7 +231,83 @@ def render(table: dict) -> str:
 
 # ------------------------------------------------------------------ the directions
 
-def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[dict]:
+def _candidates(rows, vectors, features, played, queued, on_air, blocked,
+                labels, ranks, absence) -> list[dict]:
+    """Every record a set may be built from, with what it sounds like and how known."""
+    out = []
+    for row in rows:
+        track_id = row["id"]
+        if track_id in played or track_id in queued or track_id == on_air:
+            continue
+        vector = vectors.get(track_id)
+        feature = features.get(track_id)
+        if vector is None or not feature:
+            continue
+        artist = (row["album_artist"] or row["artist"] or "").strip()
+        key = navidrome.name_key(artist)
+        if not key or key in blocked:
+            continue
+        year = int(row["year"] or 0)
+        out.append({
+            "id": track_id,
+            "artist": artist,
+            "artist_key": key,
+            "title": row["title"] or "",
+            "album": row["album"] or "",
+            "year": year or None,
+            "duration": row["duration"],
+            "label": (labels.get(track_id) or ["?"])[0],
+            "decade": year // 10 * 10 if year else 0,
+            "energy": float(feature["energy"]) if feature.get("energy") is not None else 0.5,
+            "bpm": float(feature["bpm"]) if feature.get("bpm") else None,
+            "key": feature.get("key") or "",
+            "sound": feature.get("sound") or "",
+            "family": feature.get("family") or "",
+            "popularity": float(ranks.get(track_id, 0.5)),
+            "popularity_known": track_id in ranks,
+            "absence": int(absence.get(key, ABSENCE * 6)),
+            "vector": vector,
+        })
+    return out
+
+
+def _offered_artists(lib, offered: set[str]) -> set[str]:
+    """The artists whose records the last sets already offered, by name key.
+
+    Ids alone are not enough: an artist with several known records keeps a seat in the
+    familiar block by serving a different one each time, which is why the same five names
+    came back table after table while every individual record was rotated out.
+    """
+    out: set[str] = set()
+    for track_id in offered:
+        track = lib.by_id(track_id)
+        name = (getattr(track, "album_artist", "") or getattr(track, "artist", "")) if track else ""
+        if name:
+            out.add(navidrome.name_key(name))
+    return out
+
+
+def _absent(candidate: dict) -> float:
+    """How long since this artist aired, 0 = just now, 1 = longer than the window."""
+    return min(int(candidate["absence"]), ABSENCE) / ABSENCE
+
+
+def _offer_rank(candidate: dict, lean: float) -> float:
+    """Where a candidate sits in its direction: what it sounds like, and when it aired.
+
+    Similarity alone is why the station orbited one corner of the library. A record that
+    aired three songs ago beat one that had not been on all day by a thousandth of a
+    cosine, because `-absence` came after `-sim` in the sort key as a tiebreak that never
+    fired. Absence is a term of its own now: a bonus, capped, so it lifts a record that
+    has not had its turn without overruling "this is the same temperature".
+    """
+    return (float(candidate["sim"])
+            + ABSENCE_WEIGHT * _absent(candidate)
+            + 0.10 * lean * float(candidate["popularity"]))
+
+
+def _groups(candidates: list[dict], anchor: dict, seed: int, station,
+            offered_artists: set[str] | None = None) -> list[dict]:
     used_ids: set[str] = set()
     used_artists: set[str] = set()
     label_counts: Counter = Counter()
@@ -293,7 +359,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[di
     lean = -station.deep_bias
     by_sim = sorted(
         candidates,
-        key=lambda c: (-(c["sim"] + 0.10 * lean * c["popularity"]), -c["absence"]),
+        key=lambda c: (-_offer_rank(c, lean), _seed_key(seed, c["id"])),
     )
 
     plans = {
@@ -304,12 +370,15 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[di
         "contrast": [c for c in by_sim if turns(c)],
         "land": sorted(
             [c for c in candidates if lands(c)],
-            key=lambda c: (c["energy"], -c["absence"]),
+            key=lambda c: (c["energy"], -c["absence"], _seed_key(seed, c["id"])),
         ),
+        # The familiar option, from whoever has been off the air longest: "the one
+        # everyone knows" sorted by popularity alone hands over the same single every
+        # time, which is the opposite of what the station is for.
         "known": sorted(
             [c for c in candidates
              if c["popularity"] >= KNOWN and (not family or c["family"] == family)],
-            key=lambda c: (-c["popularity"], -c["absence"]),
+            key=lambda c: (-c["absence"], -c["popularity"], _seed_key(seed, c["id"])),
         ),
     }
 
@@ -325,7 +394,15 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station) -> list[di
             # a block whose label is a lie. "Land it" on a track already at the floor
             # of the station's energy is the case that made this necessary.
             continue
-        picked = take(plans[name], size)
+        plan = plans[name]
+        if name == "known" and offered_artists:
+            # Familiar, and not the same familiar as last time: an artist offered a set
+            # ago has had its turn, so its known records go behind the others. A shorter
+            # block is the point; it only falls back when there is not even a choice left.
+            unheard = [c for c in plan if c["artist_key"] not in offered_artists]
+            plan = unheard if len(unheard) >= min(size, 2) else (
+                unheard + [c for c in plan if c["artist_key"] in offered_artists])
+        picked = take(plan, size)
         if picked:
             groups.append({"name": name, "label": LABELS[name][0], "note": LABELS[name][1],
                            "tracks": picked})
