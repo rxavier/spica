@@ -143,6 +143,11 @@ REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
 # One read costs ~200 ms of wall clock, so this is the only place it happens; the
 # page poll, /status and the DJ all read the snapshot instead.
 ICECAST_POLL_S = float(os.environ.get("ICECAST_POLL_S", "2"))
+# Shortest track a station will play. An album's silent gaps, a four-second interlude
+# and a hidden "silence" file are all tracks to the index, and the rotation aired one
+# of them fifty-two times: they are not music, so they are not eligible anywhere —
+# pool, table, tools. Zero turns the rule off.
+MIN_TRACK_S = int(os.environ.get("SPICA_MIN_TRACK", "30"))
 
 
 # Three streams, one per codec, each at a bitrate that suits it. No knobs: the

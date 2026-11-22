@@ -563,6 +563,14 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
     def ok(row: sqlite3.Row) -> bool:
         if not row["uri"]:
             return False
+        keys = row.keys()
+        # A four-second gap between songs is a track to the index, not a track to a
+        # station: it airs as dead air, and the standby rotation played one fifty-two
+        # times. Unknown duration is left alone — no data is not a veto.
+        if "duration" in keys:
+            duration = int(row["duration"] or 0)
+            if config.MIN_TRACK_S and duration and duration < config.MIN_TRACK_S:
+                return False
         year = row["year"] or 0
         if st.year_from and year and year < st.year_from:
             return False
@@ -571,22 +579,25 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
         # Both names count as "this artist": a station that includes the act should
         # catch its tracks with guests, and one that excludes it should not let them
         # in through the credit.
-        keys = row.keys()
         record_artist = (row["album_artist"] if "album_artist" in keys else "") or ""
         names = {(row["artist"] or "").casefold(), record_artist.casefold()} - {""}
+        # An excluded artist is the most specific rule there is, so it wins outright.
         if unwanted and names & unwanted:
             return False
         # Genres and artists are both ways *in*: a track plays if it matches a
         # ticked genre OR belongs to a named artist. An artist list therefore
         # reaches outside the genres rather than narrowing them.
+        by_artist = bool(wanted) and bool(names & wanted)
+        labels = forms(by_track.get(row["id"], ())) if (include or wanted or exclude) else set()
         if include or wanted:
-            labels = forms(by_track.get(row["id"], ()))
             by_genre = bool(include) and bool(labels & include)
-            by_artist = bool(wanted) and bool(names & wanted)
             if not (by_genre or by_artist):
                 return False
-        if exclude:
-            labels = forms(by_track.get(row["id"], ()))
+        # And a named artist is an exception the other way too: naming it is the
+        # deliberate act, so it plays even when its genre is vetoed. A station that
+        # excludes Progressive Rock and lists Giraffe wants Giraffe; the old order
+        # vetoed it, which made `include_artists` look decorative.
+        if exclude and not by_artist:
             if labels & exclude:
                 return False
         return True

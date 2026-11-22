@@ -174,7 +174,8 @@ deployment story: [`deploy/README.md`](deploy/README.md).
 - **The shelf, and the table.** With analysis off, each set is drawn from a named shelf of
   about twelve artists, and the reply is checked against it — an artist that is not on the
   shelf is dropped like a track that is not on the station, and no artist appears twice
-  in a set. The shelf leaves out what played in the last five tracks, what is queued,
+  in a set. The shelf leaves out what played in the last five tracks, the artists the DJ
+  picked in its last eight, what is queued,
   and the three closest neighbours of the records either side of the set (Last.fm match
   ≥ 0.15, edges taken both ways), then fills ten slots by label weight with a cap of
   three per label, at least two decades and one artist from each third of the roster.
@@ -192,9 +193,15 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   range, opt-in). The offer to the DJ becomes **records, not artists**: about thirty-two
   tracks in five directions — continue the flow, move one axis, change it up, land it,
   and the one everyone knows — each with style, tempo, key, energy and how well known it
-  is, and the ids written in front, so a set is one model call and no lookups. The
-  familiar option is the top third of the on-air artist's catalogue within their family;
-  the station's own popularity lean decides how much of the table it gets. Listener
+  is, and the ids written in front, so a set is one model call and no lookups. A record
+  stays out of the table for sixty DJ picks or eight hours of air, whichever is longer,
+  and for four sets after it was merely *offered*: being offered is having had a turn,
+  and a record that never played used to come back on table after table. Absence also
+  lifts a candidate inside its direction, so near neighbours that have not had a turn come
+  first instead of the same few orbiting what is on air. The familiar option is the top
+  third of the artist's catalogue, ordered by whoever has been off the air longest rather
+  than by how famous the single is; the station's own popularity lean decides how much of
+  the table it gets. Listener
   requests still go through the tools, where a name can be searched. `similar` answers
   from the vectors first, and the fallback shelf's "sounds too like what is playing"
   rule stops depending on whether Last.fm happens to name an artist you own. Readiness
@@ -351,13 +358,21 @@ constraint.
   carries an included genre **or** is by an included artist — the record's artist, so
   naming an artist also catches its tracks with guests. That is how a station
   reaches outside its genres — tick `Progressive Rock`, add `Bloc Party`, and those Bloc
-  Party tracks play beside the prog. Artists alone make a shortlist station; genres alone
-  make a genre station. The station editor keeps the include/exclude artist dropdowns;
+  Party tracks play beside the prog. Naming an artist is the deliberate act, so it also
+  beats a genre *veto*: a station that excludes Progressive Rock and lists Giraffe gets
+  Giraffe, which is the reading that makes the list worth having. Artists alone make a
+  shortlist station; genres alone make a genre station. The station editor keeps the
+  include/exclude artist dropdowns;
   below them, *What this station plays now* lists every artist the saved rules can play,
   grouped by the record's artist, with search and paging. Each artist has an *exclude*
   button that ticks the same never-play list in the form.
-- `exclude_genres` / `exclude_artists` are absolute: they win over either list, and names
-  are compared case-insensitively.
+- `exclude_genres` / `exclude_artists` win over their include counterparts, names are
+  compared case-insensitively, and `exclude_artists` is the strongest rule there is: an
+  artist in both lists is out. A genre veto does not reach a named artist (see above).
+- Nothing plays shorter than `SPICA_MIN_TRACK` seconds (default `30`). Album gaps, a
+  four-second interlude and a hidden `[silence]` file are tracks to the index; they are
+  dead air on a station, and the standby rotation aired one fifty-two times. Set it to
+  `0` to allow them.
 - `popularity` is `deep`, `balanced` (the default) or `hits`. It weights the order of the
   pool — it never filters. `deep` opens on the tracks that fewest people know, `hits` on
   the ones they do.
@@ -825,6 +840,7 @@ the keys, and that is the file to start from.
 | `PICK_COOLDOWN` | seconds between DJ picks when Liquidsoap's control server cannot answer (default `240`) |
 | `KEEP_AHEAD` | requests left waiting while one plays (default `1`) |
 | `IDLE_STOP_S` | close a mount nobody is reading after this long; the station itself keeps playing (default `90`) |
+| `SPICA_MIN_TRACK` | shortest track a station will play, in seconds (default `30`; `0` allows gaps and interludes) |
 | `REFRESH_CHECK_S` | how often the worker compares the index with Navidrome's own count (default `900`) |
 | `SPICA_LIQ` | where the generated Liquidsoap script is written (default `config/spica.liq`) |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |

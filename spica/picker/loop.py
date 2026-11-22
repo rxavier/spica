@@ -342,6 +342,9 @@ def plan_pick(
         pick.path = ("shelf" if table is None
                      else ("table-partial" if table.get("partial") else "table"))
         pick.coverage = table.get("coverage") if table else None
+        # What the set was offered, played or not: the next few sets leave those records
+        # alone, so the same familiar block cannot come back every fifteen minutes.
+        pick.offered = tuple(table["ids"]) if table else ()
         pick.brief, pick.tools = brief, tuple(called)
         pick.reply = (content or "")[:500]
         pick.shelf = tuple(shelf_names)

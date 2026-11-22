@@ -269,7 +269,10 @@ needs:
   cut, 1 = the one everybody knows. Absolute play counts would only measure how big the artist
   is; this asks which of their songs people actually know. It is the number the crates
   turn into *a hit / mid / a deep cut*.
-- `played` means inside the 40-play avoid window, `queued` means waiting in the mixer.
+- `played` means the station should not play it again yet — inside the last forty airings,
+  among the last sixty picks, or aired within eight hours. The same answer the table draws
+  its offer from, so a row and an offer never disagree about what has had its turn. `queued`
+  means waiting in the mixer.
   `search` and `filter` return these rows flat; `history` adds `songs_ago` and `on_air`.
 
 When the optional audio analysis has run (`SPICA_ANALYSIS=1`), four more fields appear on
@@ -325,9 +328,10 @@ that raises returns `{"error": "…"}` rather than taking the pick down with it.
 `{limit?: 20}`
 
 The station's recent past, newest first, with `songs_ago` (0 = on air) and `on_air`.
-This is the difference between "don't repeat yourself" as an invisible 40-id blocklist
+This is the difference between "don't repeat yourself" as an invisible blocklist
 and something the model can reason about — an arc, a run on one artist, a record it
-already played three songs ago.
+already played three songs ago. The blocklist itself is wider than the log it reads:
+airings and picks are two different records, and the station counts both.
 
 ```json
 [{"id": "6O0e9…", "title": "Halo", "artist": "Bloc Party", "album": "Intimacy",

@@ -857,12 +857,12 @@ class Library:
     def _context(self, station: config.Station | None) -> dict:
         """Everything a track row needs, gathered once per call rather than per row.
 
-        Genres, how well known each track is for its artist, whether it is inside the
-        avoid window, and whether it is already queued — the four things the DJ needs
+        Genres, how well known each track is for its artist, whether it should come
+        round again yet, and whether it is already queued — the four things the DJ needs
         to judge a row, and the four things only some tools used to carry.
         """
         rows = self._station_rows(station)
-        played = queue.recent_ids(station, 40) if station else set()
+        played = queue.recently_out(station) if station else set()
         try:
             queued = set(mixer.queued_ids(station)) if station else set()
         except Exception:

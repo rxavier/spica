@@ -121,6 +121,29 @@ def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
     assert shelf.queue.last_shelf(station) == ["Old One", "Old Two"]
 
 
+def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_path):
+    """The ledger is airings, and on a quiet station those are the standby pool.
+
+    So the shelf reads the pick log too: an artist chosen an hour ago is exactly what
+    "an artist that has just played cannot be the answer to what comes next" is about.
+    """
+    from spica import navidrome
+
+    class IndexOnly:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def by_id(self, track_id):
+            return None
+
+    monkeypatch.setattr(shelf.queue, "recent", lambda st, n=20: [])
+    monkeypatch.setattr(shelf.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
+    monkeypatch.setattr(shelf.queue, "last_shelf", lambda st, look=6: [])
+    monkeypatch.setattr(shelf.mixer, "queued_ids", lambda st=None: [])
+    blocked = shelf._blocked(IndexOnly(navidrome.connect(tmp_path / "index.db")), station, {})
+    assert navidrome.name_key("Just Played") in blocked
+
+
 def test_a_shelf_too_small_to_choose_from_is_no_shelf_at_all(monkeypatch):
     """Two names is a wall, not a choice: the restriction is dropped, not tightened."""
     class Tiny:
