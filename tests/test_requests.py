@@ -9,6 +9,14 @@ def write_requests(station, lines):
     queue._write_request_lines(station, lines)
 
 
+def test_slot_and_request_temp_files_differ(station):
+    """A pick and a request are written in parallel; one temp name would let them
+    clobber each other mid-write."""
+    slot_tmp = queue._tmp(station.queue_file)
+    request_tmp = queue._tmp(queue.due_file(station))
+    assert slot_tmp != request_tmp
+
+
 def test_a_promoted_request_drops_the_set(station, monkeypatch):
     plan.save(station, "the mood they left", ["a", "b"])
     write_requests(station, [{"uri": "http://navidrome/req.flac", "label": "a request"}])

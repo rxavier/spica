@@ -27,6 +27,12 @@ from pathlib import Path
 from . import config, plan, subsonic
 
 
+def _tmp(path: Path) -> Path:
+    """A temp name unique to the full file name, so the slot (<id>.txt) and the
+    request list (<id>.request) cannot share one temp file."""
+    return path.with_name(path.name + ".tmp")
+
+
 def _write(station: config.Station, uri: str, label: str) -> None:
     """Fill the slot. The label is written first, so the queue file existing means
     its label exists too — the other order left a waiting track with no name after a
@@ -35,7 +41,7 @@ def _write(station: config.Station, uri: str, label: str) -> None:
     station.queue_file.with_suffix(".label").write_text(
         (label or "").strip() + "\n", encoding="utf-8"
     )
-    tmp = station.queue_file.with_suffix(".tmp")
+    tmp = _tmp(station.queue_file)
     tmp.write_text(uri + "\n", encoding="utf-8")
     tmp.replace(station.queue_file)
 
@@ -80,7 +86,7 @@ def _write_request_lines(station: config.Station, lines: list[dict]) -> None:
         path.unlink(missing_ok=True)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    tmp = _tmp(path)
     tmp.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
     tmp.replace(path)
 
