@@ -100,7 +100,7 @@ def test_store_roundtrip_and_todo(station, tmp_path):
     assert analysis.backlog(index, None) == 3  # no store yet: everything with a URI
 
     assert analysis.coverage(index, store)["known"] == 1
-    assert analysis.coverage(index, store)["total"] == 4
+    assert analysis.coverage(index, store)["total"] == 3  # 'd' is unplayable
 
 
 def test_a_deleted_track_does_not_inflate_coverage(station, tmp_path):
