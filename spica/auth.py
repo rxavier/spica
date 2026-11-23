@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import secrets
 import time
 from pathlib import Path
@@ -27,10 +28,14 @@ def _secret_file() -> Path:
 
 def _secret() -> bytes:
     path = _secret_file()
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(secrets.token_hex(32) + "\n", encoding="utf-8")
-        path.chmod(0o600)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(32) + "\n")
     return path.read_text(encoding="utf-8").strip().encode()
 
 
@@ -51,7 +56,7 @@ def valid(token: str | None) -> bool:
         kind, expiry, sig = token.rsplit("|", 2)
     except ValueError:
         return False
-    if kind != "admin" or not _sign(f"{kind}|{expiry}") == sig:
+    if kind != "admin" or not hmac.compare_digest(_sign(f"{kind}|{expiry}"), sig):
         return False
     try:
         return int(expiry) > int(time.time())
