@@ -103,6 +103,35 @@ def test_store_roundtrip_and_todo(station, tmp_path):
     assert analysis.coverage(index, store)["total"] == 4
 
 
+def test_a_deleted_track_does_not_inflate_coverage(station, tmp_path):
+    """The store outlives the index: a removed album's vectors are not library coverage.
+
+    Counting rows in the store read 101.3% on a real library (5,366 for 5,296 tracks),
+    because deleted albums keep their vectors on purpose.
+    """
+    index = seed(tmp_path / "index.db", [track("a", "Band A")])
+    store = analysis.connect(path=tmp_path / "analysis.db", create=True)
+    assert store is not None
+    insert(store, "a")
+    insert(store, "gone")  # analysed months ago, deleted since
+
+    got = analysis.coverage(index, store)
+    assert (got["known"], got["total"]) == (1, 1)
+    assert got["percent"] == 100.0
+    assert got["remaining"] == 0
+
+
+def test_an_unanalysed_track_still_shows_as_remaining(station, tmp_path):
+    index = seed(tmp_path / "index.db", [track("a", "Band A"), track("b", "Band B")])
+    store = analysis.connect(path=tmp_path / "analysis.db", create=True)
+    assert store is not None
+    insert(store, "a")
+
+    got = analysis.coverage(index, store)
+    assert (got["known"], got["total"], got["remaining"]) == (1, 2, 1)
+    assert got["percent"] == 50.0
+
+
 def test_tempo_shows_the_half_time_reading_when_the_feel_is_calm():
     assert analysis.tempo_label(117.4, 0.13) == "117 bpm (59 half-time)"
     assert analysis.tempo_label(117.4, 0.72) == "117 bpm"

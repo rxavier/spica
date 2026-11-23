@@ -541,15 +541,26 @@ def backlog(index_conn: sqlite3.Connection, store: sqlite3.Connection | None) ->
 
 
 def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
-    """The same shape jobs.coverage() uses, for the library page."""
+    """How much of *this* library has been analysed, for the library page.
+
+    The store outlives the index — that is the point of keeping it — so its row count is
+    not the library's count: a deleted album leaves its vectors behind, and the page read
+    101.3% (5,366 rows for 5,296 tracks). Count the ids that are still in the index, the
+    same way `todo()` and `jobs.coverage()` do.
+    """
     total = index_conn.execute("SELECT count(*) FROM tracks").fetchone()[0]
-    known = store.execute(
-        "SELECT count(*) FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
-    ).fetchone()[0]
+    analysed = {
+        row["track_id"]
+        for row in store.execute(
+            "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
+        )
+    }
+    present = {row["id"] for row in index_conn.execute("SELECT id FROM tracks")}
+    known = len(analysed & present)
     return {
-        "known": int(known),
+        "known": known,
         "total": int(total),
-        "remaining": max(0, int(total) - int(known)),
+        "remaining": max(0, int(total) - known),
         "percent": round(known * 100.0 / total, 1) if total else 0.0,
     }
 
