@@ -8,4 +8,4 @@
 # The analysis image is amd64 only: essentia has no Linux arm64 wheel.
 services:
   worker:
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.0}-analysis
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.1}-analysis

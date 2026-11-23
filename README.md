@@ -488,11 +488,19 @@ one fills the gaps:
 1. **file** — the genre in the files, as Navidrome reports it. Split on commas,
    semicolons, pipes and spaced slashes, so `Disco | Indie Pop` is two genres.
 2. **musicbrainz** — artist genres with their vote counts, cached per artist
-   (`mb_artist_genres`). Names are ambiguous — `Solaris` is a Hungarian prog band and
+   (`mb_artist_genres`). The lookup uses **the id Navidrome already carries** for the
+   artist when there is one, and only falls back to a name search: the search is where
+   the failures came from, since `blink‐182` is stored with a typographic hyphen and can
+   never match MusicBrainz's spelling. Either way, names are ambiguous — `Solaris` is a
+   Hungarian prog band and
    also an ambient producer, `Frost*` loses the search to Celtic Frost — so when several
    artists share a name the candidates are checked against **the album titles in the
    library** and the one that owns those records wins. If none does, the artist gets no
-   genre from MusicBrainz rather than a confident wrong one, and
+   genre from MusicBrainz rather than a confident wrong one — and that *is* cached, as an
+   empty answer, for `SPICA_MB_GENRES_DAYS` (default 30). Without that, a name the
+   database cannot answer for was re-asked on every refresh: forty artists, eight minutes
+   of throttled requests per import, one or two of them finding anything. A request that
+   fails is not cached, so an outage just tries again next time. And
    `config/artist-mbids.json` (`{"frost*": "<mbid>"}`) settles a case by hand if the
    database itself is wrong. Consulted for **every artist it knows**, tag or no tag,
    because the tags themselves are the least reliable layer: Banco's *Darwin!* says
@@ -841,6 +849,7 @@ the keys, and that is the file to start from.
 | `KEEP_AHEAD` | requests left waiting while one plays (default `1`) |
 | `IDLE_STOP_S` | close a mount nobody is reading after this long; the station itself keeps playing (default `90`) |
 | `SPICA_MIN_TRACK` | shortest track a station will play, in seconds (default `30`; `0` allows gaps and interludes) |
+| `SPICA_MB_GENRES_DAYS` | how long a MusicBrainz genre miss stands before the artist is asked again (default `30`) |
 | `REFRESH_CHECK_S` | how often the worker compares the index with Navidrome's own count (default `900`) |
 | `SPICA_LIQ` | where the generated Liquidsoap script is written (default `config/spica.liq`) |
 | `LIQ_TELNET` | Liquidsoap control server (default `mixer:1234`) |

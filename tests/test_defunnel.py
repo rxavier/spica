@@ -12,6 +12,7 @@ what the model would actually receive.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -334,12 +335,13 @@ def test_musicbrainz_precedence_matches_the_album_artist(db):
 
 
 def test_missing_musicbrainz_counts_album_artists(db):
+    """A cached check counts as done, genres or not: see test_mb_genres for the TTL."""
     seed(db, [track("1" * 22, "Band & Guest", album_artist="Band")], [])
     assert worker.missing_musicbrainz(db) == 1
     with db:
         db.execute(
             "INSERT INTO mb_artist_genres (artist_key, mbid, genres, fetched_at)"
             " VALUES (?,?,?,?)",
-            ("band", "mbid", "[]", 0),
+            ("band", "mbid", "[]", int(time.time())),
         )
     assert worker.missing_musicbrainz(db) == 0

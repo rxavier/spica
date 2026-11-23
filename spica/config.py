@@ -148,6 +148,11 @@ ICECAST_POLL_S = float(os.environ.get("ICECAST_POLL_S", "2"))
 # of them fifty-two times: they are not music, so they are not eligible anywhere —
 # pool, table, tools. Zero turns the rule off.
 MIN_TRACK_S = int(os.environ.get("SPICA_MIN_TRACK", "30"))
+# How long a MusicBrainz genre miss stands before the artist is asked about again. A miss
+# is cached as an empty answer, because leaving no trace is what made the follow-up queue
+# a forty-artist job on every refresh for ever. Long enough to stop the loop, short
+# enough that an artist edited upstream comes back.
+MB_GENRES_TTL_S = int(float(os.environ.get("SPICA_MB_GENRES_DAYS", "30")) * 86400)
 
 
 # Three streams, one per codec, each at a bitrate that suits it. No knobs: the
