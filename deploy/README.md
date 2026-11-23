@@ -89,7 +89,7 @@ image:
 
 ```sh
 # .env
-SPICA_TAG=0.15.1
+SPICA_TAG=0.15.2
 SPICA_ANALYSIS=1
 
 docker compose -f compose.yaml -f compose.analysis.yaml up -d
@@ -116,12 +116,12 @@ With a local clone, set `SPICA_TAG=dev` so compose picks `dev-worker` (and
 
 ## Building the image yourself
 
-`compose.yaml` runs `ghcr.io/rxavier/spica:0.15.1` for the picker and init, and
-`ghcr.io/rxavier/spica:0.15.1-worker` for the worker. To build from source instead,
+`compose.yaml` runs `ghcr.io/rxavier/spica:0.15.2` for the picker and init, and
+`ghcr.io/rxavier/spica:0.15.2-worker` for the worker. To build from source instead,
 replace the `image:` lines in `init`, `picker` and `worker` with:
 
 ```yaml
-    build: https://github.com/rxavier/spica.git#v0.15.1
+    build: https://github.com/rxavier/spica.git#v0.15.2
 ```
 
 and give the worker a `build.target: worker` (or use the local build commands in
@@ -131,8 +131,8 @@ With a local clone:
 
 ```sh
 git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.15.1 .
-cd spica && docker build --target worker -t ghcr.io/rxavier/spica:0.15.1-worker .
+cd spica && docker build -t ghcr.io/rxavier/spica:0.15.2 .
+cd spica && docker build --target worker -t ghcr.io/rxavier/spica:0.15.2-worker .
 ```
 
 For audio analysis, build the analyser variant too and use the overlay; the build
