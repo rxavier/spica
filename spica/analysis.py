@@ -548,14 +548,16 @@ def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
     101.3% (5,366 rows for 5,296 tracks). Count the ids that are still in the index, the
     same way `todo()` and `jobs.coverage()` do.
     """
-    total = index_conn.execute("SELECT count(*) FROM tracks").fetchone()[0]
+    total = index_conn.execute(
+        "SELECT count(*) FROM tracks WHERE uri != ''").fetchone()[0]
     analysed = {
         row["track_id"]
         for row in store.execute(
             "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
         )
     }
-    present = {row["id"] for row in index_conn.execute("SELECT id FROM tracks")}
+    present = {row["id"] for row in index_conn.execute(
+        "SELECT id FROM tracks WHERE uri != ''")}
     known = len(analysed & present)
     return {
         "known": known,
