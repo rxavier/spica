@@ -15,6 +15,7 @@ set is still in that mood. Nothing about the station's identity moves.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from pathlib import Path
 
@@ -92,6 +93,7 @@ def record(station: config.Station, text: str, songs: int = DEFAULT_SONGS) -> di
     text = (text or "").strip()
     songs = max(1, min(MAX_SONGS, int(songs or DEFAULT_SONGS)))
     req = {
+        "id": secrets.token_hex(8),
         "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "text": text,
         "songs": songs,
@@ -112,8 +114,9 @@ def record(station: config.Station, text: str, songs: int = DEFAULT_SONGS) -> di
 def attach_track(station: config.Station, req: dict, track) -> None:
     """Point the request at the track it produced, for the list to show."""
     reqs = _load(station)
+    marker = req.get("id")
     for entry in reqs:
-        if entry.get("t") == req.get("t") and entry.get("text") == req.get("text"):
+        if marker and entry.get("id") == marker:
             entry["track"] = {"id": track.id, "title": track.title, "artist": track.artist}
             break
     else:
