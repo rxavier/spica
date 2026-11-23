@@ -111,17 +111,21 @@ def set_queue(station, uris: list[str]) -> bool:
     """Replace what is waiting with `uris`, in that order.
 
     Liquidsoap's request.queue can only push onto the end and remove by id, so
-    changing the order means emptying it and refilling it. False when the control
-    server did not answer, which leaves the old queue alone rather than half-written.
+    changing the order means emptying it and refilling it. This is best-effort, not
+    atomic: an error can leave the queue partly refilled. False means the new queue
+    is not known to be in place, so the caller keeps its requests owed and retries;
+    it never marks them aired on a failed push.
     """
     rids = _pending_rids(station)
     if rids is None:
         return False
     try:
         for rid in rids:
-            command(f"q_{station.id}.remove {rid}")
+            if command(f"q_{station.id}.remove {rid}").startswith("ERROR"):
+                return False
         for uri in uris:
-            command(f"q_{station.id}.push {uri}")
+            if command(f"q_{station.id}.push {uri}").startswith("ERROR"):
+                return False
     except OSError:
         return False
     return True
