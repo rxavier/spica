@@ -413,8 +413,20 @@ def _release_titles(mbid: str, attempts: int = 3) -> set[str]:
     return set()
 
 
-def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1) -> dict | None:
+def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1,
+                     mbid: str | None = None) -> dict | None:
     """MusicBrainz genres for an artist, most voted first.
+
+    With `mbid` — the id Navidrome already carries for the artist — this is one lookup
+    instead of a search. The search is where the failures came from: `blink‐182` is
+    stored with a typographic hyphen and can never match `blink-182`, and a shared name
+    the album titles cannot settle is answered "unknown" for ever. The id settles both,
+    and costs half the requests.
+
+    `None` means the question could not be asked — a timeout, a limiter that never
+    recovered — and the caller should try again later. An empty `genres` list is an
+    answer: MusicBrainz has nothing for this artist, and asking again today will not
+    change it.
 
     Two calls for an unambiguous name: the search turns a name into an id, the lookup
     carries the genres with their vote counts. When several artists share the name, the
@@ -428,8 +440,11 @@ def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1) ->
         return None
 
     override = _artist_overrides().get(genres.fold(artist))
+    name = artist
     if override:
-        mbid, name = override, artist
+        mbid = override
+        time.sleep(pause)
+    elif mbid:
         time.sleep(pause)
     else:
         query = urllib.parse.urlencode({"query": f'artist:"{artist}"', "fmt": "json", "limit": 5})
@@ -439,7 +454,7 @@ def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1) ->
             return None
         hits = [h for h in hits if int(h.get("score") or 0) >= 85][:5]
         if not hits:
-            return None
+            return {"mbid": "", "name": artist, "genres": []}
         chosen = hits[0]
         if len(hits) > 1 and albums:
             wanted = {genres.fold(a) for a in albums if a}
@@ -450,10 +465,10 @@ def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1) ->
                 if overlap > best_overlap:
                     best, best_overlap = hit, overlap
             if best is None:
-                return None  # ambiguous and nothing to prove it with: no opinion
+                return {"mbid": "", "name": artist, "genres": []}  # ambiguous, no opinion
             chosen = best
         elif len(hits) > 1:
-            return None  # shared name and no album titles to settle it
+            return {"mbid": "", "name": artist, "genres": []}  # shared name, no album titles
         mbid, name = chosen.get("id"), chosen.get("name") or artist
         time.sleep(pause)
 

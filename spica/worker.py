@@ -174,17 +174,33 @@ def run_popularity(conn, job_id: int, log=print) -> dict:
     return {"tracks": total, "stored": stored}
 
 
-def missing_musicbrainz(conn) -> int:
-    """Artists with no MusicBrainz genre cached yet."""
-    cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
-    artists = {
-        row["artist"]
+def _artists_without_mb_genres(conn) -> list[sqlite3.Row]:
+    """Artists to ask MusicBrainz about, most records first.
+
+    A row in `mb_artist_genres` is a *check*, not an answer: `genres = '[]'` says
+    MusicBrainz had nothing for that artist. Counting those as done is what stops a name
+    the database cannot answer for from being asked again on every refresh — the job used
+    to run for eight minutes on every import, forty names at a time, finding one or two.
+    The TTL brings a miss back in case the artist was edited upstream.
+    """
+    cutoff = int(time.time()) - config.MB_GENRES_TTL_S
+    fresh = {
+        row["artist_key"]
         for row in conn.execute(
-            "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist"
-            " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+            "SELECT artist_key FROM mb_artist_genres WHERE fetched_at >= ?", (cutoff,)
         )
     }
-    return sum(1 for artist in artists if genre_lib.fold(artist) not in cached)
+    rows = conn.execute(
+        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS artist, COUNT(*) c"
+        " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
+        " GROUP BY artist ORDER BY c DESC"
+    ).fetchall()
+    return [row for row in rows if genre_lib.fold(row["artist"]) not in fresh]
+
+
+def missing_musicbrainz(conn) -> int:
+    """Artists with no MusicBrainz genres cached yet, or a cache entry gone stale."""
+    return len(_artists_without_mb_genres(conn))
 
 
 def missing_popularity(conn) -> int:
@@ -197,13 +213,7 @@ def missing_popularity(conn) -> int:
 
 def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     """Cache MusicBrainz genres for every artist that does not have them yet."""
-    cached = {row["artist_key"] for row in conn.execute("SELECT artist_key FROM mb_artist_genres")}
-    rows = conn.execute(
-        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS artist, COUNT(*) c"
-        " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
-        " GROUP BY artist ORDER BY c DESC"
-    ).fetchall()
-    todo = [row for row in rows if genre_lib.fold(row["artist"]) not in cached]
+    todo = _artists_without_mb_genres(conn)
     # Album titles are how a shared name gets settled: the right artist owns them.
     albums: dict[str, list[str]] = {}
     for row in conn.execute(
@@ -216,8 +226,13 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     found = 0
     for i, row in enumerate(todo, 1):
         artist = row["artist"]
-        info = enrich.mb_artist_genres(artist, albums.get(artist, []))
-        if info and info["genres"]:
+        # Navidrome already knows which artist this is; the name search is what failed on
+        # the hyphenated spellings and the shared names. Ask by id when we have it.
+        info = enrich.mb_artist_genres(artist, albums.get(artist, []),
+                                       mbid=enrich.cached_mbid(conn, artist))
+        if info is not None:
+            # Written whether or not there were genres: an empty answer is a result, and
+            # leaving no trace is what made this job re-ask the same names for ever.
             import json as _json
 
             with conn:
@@ -226,12 +241,13 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
                     " VALUES (?,?,?,?)",
                     (
                         genre_lib.fold(artist),
-                        info["mbid"],
-                        _json.dumps(info["genres"]),
+                        info.get("mbid") or "",
+                        _json.dumps(info.get("genres") or []),
                         int(time.time()),
                     ),
                 )
-            found += 1
+            if info.get("genres"):
+                found += 1
         jobs.progress(conn, job_id, i, total)
         if i % 20 == 0 or i == total:
             log(f"musicbrainz {i}/{total} ({found} with genres)")
