@@ -9,6 +9,7 @@ TensorFlow wrapper.
 from __future__ import annotations
 
 import json
+import struct
 
 import pytest
 
@@ -130,6 +131,22 @@ def test_an_unanalysed_track_still_shows_as_remaining(station, tmp_path):
     got = analysis.coverage(index, store)
     assert (got["known"], got["total"], got["remaining"]) == (1, 2, 1)
     assert got["percent"] == 50.0
+
+
+@pytest.mark.skipif(analysis.np is None, reason="refresh_artists needs numpy")
+def test_artist_vectors_ignore_other_model_versions(station, tmp_path):
+    """Old vectors must not leak into an artist centroid beside current ones."""
+    index = seed(tmp_path / "index.db", [track("a", "Band A"), track("b", "Band A")])
+    store = analysis.connect(path=tmp_path / "analysis.db", create=True)
+    assert store is not None
+    insert(store, "a")
+    insert(store, "b", version="older-vector")
+    vec = struct.pack("3f", 1.0, 0.0, 0.0)
+    with store:
+        store.execute("UPDATE track_analysis SET vec = ?", (vec,))
+
+    assert analysis.refresh_artists(index, store) == 1
+    assert store.execute("SELECT tracks FROM artist_analysis").fetchone()["tracks"] == 1
 
 
 def test_tempo_shows_the_half_time_reading_when_the_feel_is_calm():

@@ -626,7 +626,9 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
     # Joined in Python: the two stores are separate files on purpose.
     by_track = {
         row["track_id"]: row for row in store.execute(
-            "SELECT track_id, vec, bpm, energy, styles FROM track_analysis"
+            "SELECT track_id, vec, bpm, energy, styles FROM track_analysis "
+            "WHERE model_version = ?",
+            (MODEL_VERSION,),
         )
     }
     for row in index_conn.execute(
