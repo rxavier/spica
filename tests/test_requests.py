@@ -39,6 +39,14 @@ def test_nothing_new_leaves_the_set_alone(station, monkeypatch):
     assert plan.load(station) is not None
 
 
+def test_set_queue_reports_command_errors(station, monkeypatch):
+    """An ERROR reply is a failed push: the caller must not mark requests aired."""
+    monkeypatch.setattr(mixer, "_pending_rids", lambda st: ["1"])
+    monkeypatch.setattr(mixer, "command", lambda line: "ERROR no such request")
+
+    assert mixer.set_queue(station, ["http://navidrome/req.flac"]) is False
+
+
 def test_no_control_server_leaves_the_set_alone(station, monkeypatch):
     plan.save(station, "still playing", ["a", "b"])
     write_requests(station, [{"uri": "http://navidrome/req.flac", "label": "a request"}])
