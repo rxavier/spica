@@ -94,16 +94,17 @@ def ensure(verbose: bool = True) -> list[str]:
     if not icecast.exists():
         source_password = _env("ICECAST_SOURCE_PASSWORD") or secrets.token_hex(16)
         admin_password = _env("ICECAST_ADMIN_PASSWORD") or secrets.token_hex(16)
-        icecast.write_text(
-            ICECAST_XML.format(
-                location=_env("SPICA_LOCATION", "Somewhere"),
-                admin=_env("SPICA_ADMIN_EMAIL", "admin@example.com"),
-                hostname=_env("SPICA_HOSTNAME", "localhost"),
-                source_password=source_password,
-                admin_password=admin_password,
-            ),
-            encoding="utf-8",
-        )
+        fd = os.open(icecast, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(
+                ICECAST_XML.format(
+                    location=_env("SPICA_LOCATION", "Somewhere"),
+                    admin=_env("SPICA_ADMIN_EMAIL", "admin@example.com"),
+                    hostname=_env("SPICA_HOSTNAME", "localhost"),
+                    source_password=source_password,
+                    admin_password=admin_password,
+                )
+            )
         made.append("icecast.xml")
         if verbose and not _env("ICECAST_SOURCE_PASSWORD"):
             print(
