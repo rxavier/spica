@@ -199,9 +199,11 @@ def history_of(st, limit: int = 25, now: dict | None = None) -> list[dict]:
                 row["artist"] = found["artist"]
                 row["title"] = found["title"]
         row["album_id"] = album_id
-        row["cover_tag"] = store.cover_tag(row["album_id"])
         row["current"] = bool(live) and store.norm(f"{row.get('artist', '')} {row.get('title', '')}") == live
         row["source"] = SOURCE_LABELS.get(row.get("source", ""), row.get("source", ""))
+    tags = store.cover_tags(row.get("album_id", "") for row in rows)
+    for row in rows:
+        row["cover_tag"] = tags.get(row.get("album_id", ""), "0")
     return rows
 
 

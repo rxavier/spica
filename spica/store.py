@@ -109,6 +109,22 @@ def cover_tag(album_id: str) -> str:
     return cover.rsplit("_", 1)[-1][:10] if "_" in cover else "0"
 
 
+def cover_tags(album_ids) -> dict[str, str]:
+    """The version tag for many albums, in one query instead of one per row."""
+    ids = {album_id for album_id in album_ids if album_id}
+    covers: dict[str, str] = {}
+    try:
+        for row in track_queries.album_covers(conn(), ids):
+            covers[row["album_id"]] = row["cover_id"]
+    except sqlite3.Error:
+        pass
+    out: dict[str, str] = {}
+    for album_id in ids:
+        cover = covers.get(album_id) or album_id
+        out[album_id] = cover.rsplit("_", 1)[-1][:10] if "_" in cover else "0"
+    return out
+
+
 def album_for(track_id: str) -> str:
     """Cover id for a played track, so the list can show artwork."""
     row = tracks()["id"].get(track_id or "")
