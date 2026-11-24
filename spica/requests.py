@@ -1,14 +1,14 @@
 """Listener requests that outlive a single pick.
 
 A request is not a one-shot, but it is not an order either. The listener asked for
-something; the DJ answered with the track it played; after that the request is
+something; the picker answered with the track it played; after that the request is
 context — useful for a while, since "they wanted something heavier two songs ago"
 says something about the room, and meaningless a dozen songs later. So a request is
 stored with the number of plays that had happened when it was made, and it is
 remembered for N plays rather than a clock time: pacing a station by songs is how a
 listener experiences it.
 
-The DJ is told what was asked and how long ago, and decides each time whether the
+The picker is told what was asked and how long ago, and decides each time whether the
 set is still in that mood. Nothing about the station's identity moves.
 """
 
@@ -23,7 +23,7 @@ from . import config, ledger
 from .atomic import atomic_write
 
 # How many plays a request is remembered for. Not how long it is obeyed: after the
-# track it produced, it is context the DJ may follow or leave.
+# track it produced, it is context the picker may follow or leave.
 DEFAULT_SONGS = 3
 MAX_SONGS = 30
 
@@ -47,7 +47,7 @@ def _plays(station: config.Station) -> int:
         _counts.pop(key, None)
         return 0
     seen, plays = _counts.get(key, (0, 0))
-    if size < seen:  # truncated or replaced under us
+    if size < seen:  # truncated or replaced underneath it
         seen, plays = 0, 0
     if size > seen:
         try:

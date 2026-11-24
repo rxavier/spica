@@ -215,7 +215,7 @@ async def admin_station_save(
         request, "_saved.html", {"message": message, "station_id": station_id}
     )
     if station_id != original_id:
-        # The form on screen still posts the old id, and still holds it in `new_id`,
+        # The form on screen still posts the previous id, and holds it in `new_id`,
         # so the next save would quietly write nothing or rename it back. Land the
         # page on the new id and let it flash what happened.
         response.headers["HX-Redirect"] = f"/admin/stations/{station_id}?saved={quote(message)}"

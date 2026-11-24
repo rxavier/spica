@@ -1,8 +1,8 @@
-"""What the queue is doing, and what the DJ saw when it filled it.
+"""What the queue is doing, and what the picker saw when it filled it.
 
 The panes elsewhere answer "is the library healthy" and "what is on air". This one
 answers the question that comes up at midnight: why *this* track, right after *that*
-one — with the brief the DJ read, the tools it called and the reply it gave, beside
+one — with the prompt context the picker read, the tools it called and the reply it gave, beside
 what the station actually did with it.
 
 Read-only and deliberately plain: the pick log is the record, this page is a window
@@ -59,19 +59,19 @@ def _stations_view() -> list[dict]:
                     "at": _local(entry.get("t", "")),
                     "title": entry.get("title", ""),
                     "artist": entry.get("artist", ""),
-                    "why": entry.get("why", ""),
+                    "why": entry.get("reason", ""),
                     "presence": entry.get("presence", ""),
-                    "brief": entry.get("brief", ""),
+                    "prompt_context": entry.get("prompt_context", ""),
                     "reply": entry.get("reply", ""),
                     "tools": entry.get("tools") or [],
-                    "path": entry.get("path", ""),
+                    "path": entry.get("strategy", ""),
                     "path_label": {
-                        "table": "Tracks",
-                        "table-partial": "Tracks (partial)",
-                        "shelf": "Artists",
-                    }.get(entry.get("path", ""), ""),
+                        "tracks": "Tracks",
+                        "tracks-partial": "Tracks (partial)",
+                        "artists": "Artists",
+                    }.get(entry.get("strategy", ""), ""),
                     "coverage": entry.get("coverage"),
-                    "shelf": entry.get("shelf") or [],
+                    "candidate_artists": entry.get("candidate_artists") or [],
                 }
             )
         held = plan.load(st) or {}
@@ -85,7 +85,7 @@ def _stations_view() -> list[dict]:
                 "slot": queue.queued(st),
                 "ahead": mixer.pending(st),
                 "requests": requests_mod.active(st),
-                "set_theme": str(held.get("theme") or ""),
+                "set_theme": str(held.get("set_rationale") or ""),
                 "set_remaining": len(held.get("ids") or []),
                 "picks": picks,
             }

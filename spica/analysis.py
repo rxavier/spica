@@ -76,7 +76,7 @@ def enabled() -> bool:
 
     The picker runs the lean image (numpy); the analyser runs the analysis image.
     Requiring the full extra here made the picker carry onnxruntime and essentia for
-    a table it only reads vectors for.
+    a store it only reads vectors for.
     """
     return bool(config.ANALYSIS) and readable()
 
@@ -386,7 +386,7 @@ class Analyzer:
             mean_styles = act.mean(0)
             order = np.argsort(-mean_styles)[:3]
             # The full Discogs label is kept ("Electronic---House"): the parent is the
-            # family the table groups by, the leaf is what the DJ reads. Rendering
+            # family the candidate tracks group by, the leaf is what the picker reads.
             # strips it; storing it does not.
             out["styles"] = [
                 (self.styles[i], round(float(mean_styles[i]), 3))
@@ -441,7 +441,7 @@ def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
     """Unanalysed tracks, spread across artists, newest arrivals first within each.
 
     Walking the album order leaves a half-finished backfill clustered on the first
-    letters of the alphabet, and a table drawn from that is a different station. One
+    letters of the alphabet, and candidates drawn from that are a different station. One
     track per artist first means 20% coverage still covers every artist; within an
     artist, a fresh import is measured before the rest of the catalogue.
     """
@@ -538,7 +538,7 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
     """Recompute one vector per artist: the mean of its tracks' unit vectors.
 
     Similarity is then artist-to-artist in the same space the tracks live in, which
-    is what the shelf's "sounds too like what is playing" exclusion needs — and it
+    is what the "sounds too like what is playing" exclusion needs — and it
     can only ever name artists this library owns.
     """
     vectors: dict[str, list] = {}
@@ -601,7 +601,7 @@ def unit(vector):
     return vector / norm if norm else vector
 
 
-# ------------------------------------------------------------------- DJ helpers
+# ---------------------------------------------------------------- picker helpers
 
 def feature_map(store: sqlite3.Connection | None) -> dict[str, dict]:
     """Per-track scalars for tool rows — no embedding blobs, so it stays small."""
@@ -626,7 +626,7 @@ def feature_map(store: sqlite3.Connection | None) -> dict[str, dict]:
 
 
 def vector_map(store: sqlite3.Connection | None) -> dict:
-    """track id -> unit embedding, for the table's distance work.
+    """track id -> unit embedding, for the candidate tracks' distance work.
 
     Read once per picker process and cached there: it is ~5 KB per track, but it is
     also the only way to ask "what sounds like what" without a network call.
@@ -659,7 +659,7 @@ def tempo_label(bpm, energy) -> str:
 
 
 def key_label(key: str | None, scale: str | None) -> str:
-    """Essentia hands back "A" + "minor"; the DJ reads "A min"."""
+    """Essentia hands back "A" + "minor"; the picker reads "A min"."""
     if not key:
         return ""
     scale = (scale or "").casefold()
@@ -729,10 +729,10 @@ def audio_neighbours(index_conn: sqlite3.Connection, store: sqlite3.Connection |
     return blocked
 
 
-def shelf_sound(store: sqlite3.Connection | None, names: list[str]) -> str:
-    """One compact line: what the shelf sounds like, artist by artist.
+def style_summary(store: sqlite3.Connection | None, names: list[str]) -> str:
+    """One compact line: what the candidate artists sound like, artist by artist.
 
-    The shelf already tells the model *who* may play; this tells it what they
+    The candidate list already says *who* may play; this says what they
     sound like, which is the part it cannot infer from a name it does not know.
     """
     if store is None or not names:

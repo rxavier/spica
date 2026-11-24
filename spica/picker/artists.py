@@ -1,14 +1,9 @@
-"""The shelf: the artists the DJ may choose from for one set.
+"""Candidate artists for one set: who the picker may choose from, and why.
 
-A list of names is a stronger instrument than a rule. The model treats what it is
-handed as its material — given ten names, three to five of every six tracks come off
-them — so handing it a *representative* slice of the station makes the set a smaller
-version of the station instead of a smaller version of the model's taste.
-
-Everything decided here is a fact: what played, what is queued, what sounds like what,
-how much of the station each label is, which decade an artist belongs to, how well
-played their records are. None of it is a judgement about the music; the choice of
-which of these ten to play, and in what order, is still the DJ's.
+With analysis off (or as the fallback when there is no usable on-air anchor), the
+offer is a list of artists instead of records. Every track in the reply has to come
+from this list, none of the artists appears twice, and the station's rules have already
+been applied to the pool the list is drawn from.
 """
 
 from __future__ import annotations
@@ -23,25 +18,25 @@ from ..names import seed_key
 from ..queries import tracks as track_queries
 from .memory import ABSENCE, artist_absence, blocked_artists, spread_decades
 
-# What keeps an artist off the shelf: the last few plays, the tracks already waiting,
+# What keeps an artist off the candidate list: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
 BEHIND = 5
 QUEUED = 5
 SIMILAR_K = 3
 SIMILAR_FLOOR = 0.15
 
-# Ten names is a shelf, not a menu: a six-track set drawn from ten leaves a real
-# choice and still makes the offer mean something. Two more are added from whoever has
+# Ten names are a candidate list, not a menu: a six-track set drawn from ten leaves a real
+# choice and still makes the list mean something. Two more are added from whoever has
 # been off the air longest, so a record that has not had its turn in hours is not
 # excluded by a stratification that never thinks about time.
-SHELF = 10
+CANDIDATES = 10
 ABSENT = 2
-PER_LABEL = 3     # one label cannot own the shelf
-MIN_SHELF = 3     # fewer than this is not a shelf, it is a wall: no restriction at all
+PER_LABEL = 3     # one label cannot own the candidate list
+MIN_CANDIDATES = 3     # fewer than this is not a choice, it is a wall: no restriction at all
 
 
 def build(lib, station) -> list[dict]:
-    """The shelf for one set: artist names, with the reason each one is there."""
+    """The candidate artists for one set, with the reason each one is there."""
     rows = lib._station_rows(station)
     if not rows:
         return []
@@ -51,20 +46,20 @@ def build(lib, station) -> list[dict]:
     if not pool:
         return []
 
-    base = _stratified(pool, SHELF, lib.draw_seed)
+    base = _stratified(pool, CANDIDATES, lib.draw_seed)
     taken = {p["key"] for p in base}
     extra = _longest_absent(lib, station, [p for p in pool if p["key"] not in taken], ABSENT)
     chosen = base + extra
 
     # Present it unordered. A list in a meaningful order gets read top-down and turned
-    # into a cast; a handful of names has to be sorted out by the DJ.
+    # into a cast; a handful of names has to be sorted out by the picker.
     chosen.sort(key=lambda p: seed_key(lib.draw_seed, p["key"]))
-    if len(chosen) < MIN_SHELF:
+    if len(chosen) < MIN_CANDIDATES:
         # A small library after a night of plays can leave two or three names. Handing
         # those over as the only thing that can air would stop the station rather than
         # vary it, so the restriction is dropped and the night continues.
         return []
-    return [{"artist": p["name"], "why": p.get("why", "shelf")} for p in chosen]
+    return [{"artist": p["name"], "reason": p.get("reason", "candidate")} for p in chosen]
 
 
 # ------------------------------------------------------------------ the ingredients
@@ -101,11 +96,11 @@ def _profiles(lib, rows: list) -> dict[str, dict]:
 
 
 def _standing(conn) -> dict[str, float]:
-    """How big each artist is, 0 = the smallest name on the shelf, 1 = the biggest.
+    """How big each artist is, 0 = the smallest name, 1 = the biggest.
 
     The rank the tools use is within-artist — "which of their songs do people know" —
-    and averaging that over an artist gives 0.5 for everybody, which is no use for
-    deciding whether a shelf has both ends of the roster. This one is the artist's own
+    and averaging that over an artist gives 0.5 for everybody, which is not useful for
+    deciding whether the list has both ends of the artist pool. This one is the artist's own
     median play count, ranked against the other artists from the same provider (Last.fm
     and ListenBrainz counts are not on the same scale).
     """
@@ -131,7 +126,7 @@ def _standing(conn) -> dict[str, float]:
 
 
 def _tier(percentile: float | None) -> int:
-    """Which third of the roster an artist sits in: 0 = deep, 1 = middle, 2 = big."""
+    """Which third of the artist pool this artist sits in: 0 = deep, 1 = middle, 2 = big."""
     if percentile is None:
         return 1
     if percentile < 1 / 3:
@@ -166,7 +161,7 @@ def _blocked(lib, station, profiles: dict[str, dict]) -> set[str]:
     # The same "sounds too like what is next" rule, from the audio vectors when the
     # optional analysis ran. Worth having beside Last.fm rather than instead of it:
     # the provider can only name artists this library does not own, so for more than
-    # half the roster its three nearest neighbours are unplayable and the rule does
+    # half the artist pool its three nearest neighbours are unplayable and the rule does
     # nothing. Audio neighbours are drawn from the library by construction.
     store = lib.analysis_store() if callable(getattr(lib, "analysis_store", None)) else None
     if store is not None:
@@ -184,7 +179,7 @@ def _neighbours(conn, profiles: dict[str, dict], anchors: list[str]) -> dict[str
 
     Last.fm's lists are one-way — L'Impératrice names Nu Genea, Nu Genea names none of
     ours — so an edge counts whichever artist it was recorded from. Anchors with
-    nothing cached are asked once, which keeps a shelf working on a fresh index.
+    nothing cached are asked once, which keeps a candidate list working on a fresh index.
     """
     owned = {p["name"] for p in profiles.values()}
     for anchor in set(anchors):
@@ -207,9 +202,9 @@ def _neighbours(conn, profiles: dict[str, dict], anchors: list[str]) -> dict[str
 def _quotas(weights: Counter, slots: int, cap: int) -> dict[str, int]:
     """Slots per label, proportional to its weight, none above the cap (D'Hondt).
 
-    Returns fewer than `slots` when the caps add up to less than the shelf wants: a pool
+    Returns fewer than `slots` when the caps add up to less than the list wants: a pool
     with two labels and a cap of three cannot pay for ten names, and the caller tops the
-    list up with the cap lifted rather than handing over a short shelf.
+    list up with the cap lifted rather than handing over a short list.
     """
     quota = {label: 0 for label in weights}
     for _ in range(slots):
@@ -222,9 +217,9 @@ def _quotas(weights: Counter, slots: int, cap: int) -> dict[str, int]:
 
 
 def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
-    """A small version of the station: label weight, both ends of the roster, two eras."""
+    """A small version of the station: label weight, both ends of the artist pool, two eras."""
     if len(pool) <= size:
-        return [dict(p, why="shelf") for p in pool]
+        return [dict(p, reason="candidate") for p in pool]
 
     order = sorted(pool, key=lambda p: seed_key(seed, p["key"]))
     chosen: list[dict] = []
@@ -232,10 +227,10 @@ def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
 
     def take(item: dict) -> None:
         taken.add(item["key"])
-        chosen.append(dict(item, why="shelf"))
+        chosen.append(dict(item, reason="candidate"))
 
-    # One artist from each third of the roster first, on a different label where the
-    # shelf allows it: a list of only the big names is a playlist, and one of only deep
+    # One artist from each third of the artist pool first, on a different label where the
+    # candidates allow it: a list of only the big names is a playlist, and one of only deep
     # cuts is a different station.
     used_labels: set[str] = set()
     for tier in (2, 1, 0):
@@ -263,7 +258,7 @@ def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
         if len(chosen) >= size:
             break
 
-    # A thin shelf can leave the quotas unfilled; the cap goes before the list does.
+    # A thin pool can leave the quotas unfilled; the cap goes before the list does.
     # Ten names with one label carrying four beats six names in a neat three-three.
     for respect_cap in (True, False):
         for item in order:
@@ -280,7 +275,7 @@ def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
 
 
 def _spread_decades(order: list[dict], chosen: list[dict]) -> None:
-    """Two decades on the shelf when the pool can pay for it."""
+    """Two decades in the candidate list when the pool can pay for it."""
     def replaceable(i: int, items: list[dict]) -> bool:
         # Keep the last record of a label, so the era swap does not empty a quota.
         label = items[i]["label"]
@@ -312,4 +307,4 @@ def _longest_absent(lib, station, pool: list[dict], k: int) -> list[dict]:
             continue
         scored.append((ago if ago is not None else never, item))
     scored.sort(key=lambda pair: (-pair[0], seed_key(lib.draw_seed, pair[1]["key"])))
-    return [dict(item, why="absent") for _, item in scored[:k]]
+    return [dict(item, reason="absent") for _, item in scored[:k]]

@@ -1,8 +1,8 @@
-"""The one place a pick goes from the DJ's head onto the station.
+"""The one place a pick goes from the picker's head onto the station.
 
 Every path that airs a pick — the background loop, the REST request, an operator's
 forced pick and the listener form — has to touch the same four things: the mixer
-queue, the standby pool, the pick log and the station's last-airing summary. They
+queue, the fallback rotation, the pick log and the station's last-airing summary. They
 were assembled by hand in each path and had already drifted, so they live here.
 """
 
@@ -33,7 +33,7 @@ def air_pick(st, pick, *, displace: bool = False, as_request: bool = False,
       - `displace`: a person asked for this, so it goes next and the track that was
         waiting returns to the head of the pool.
       - `as_request`: a listener request, which is appended behind other requests
-        and promoted ahead of the DJ's pick.
+        and promoted ahead of the picker's pick.
       - neither: the background loop, which may wait for a free slot and never
         preempts one. A full slot is a refusal, not an airing.
     """
@@ -63,7 +63,7 @@ def air_pick(st, pick, *, displace: bool = False, as_request: bool = False,
         pick.track.id,
         pick.track.title,
         pick.track.artist,
-        pick.why,
+        pick.reason,
         presence=presence.reason(st.id, listeners),
         detail=pick.detail(),
     )
@@ -71,7 +71,7 @@ def air_pick(st, pick, *, displace: bool = False, as_request: bool = False,
         "listeners": listeners,
         "pushed": time.time(),
         "queued": line,
-        "why": pick.why,
+        "why": pick.reason,
         "at": time.strftime("%H:%M:%S"),
     }
     return Aired(True, position=position, displaced=displaced)

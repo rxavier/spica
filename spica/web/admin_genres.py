@@ -56,8 +56,7 @@ def _genres_page(message: str) -> RedirectResponse:
     """Back to the pane with a line saying what just happened.
 
     A 303 is followed by the browser as a page load, so the tables, the counts and the
-    scroll are rebuilt from the database — the earlier HX-Refresh on a redirect was
-    dropped by the fetch, which is why a merge looked like it did nothing.
+    scroll are rebuilt from the database.
     """
     return RedirectResponse(f"/admin/genres?{urlencode({'msg': message})}", status_code=303)
 

@@ -52,7 +52,7 @@ same corner: fourteen L'Impératrice tracks in an hour, every one of them defens
 its own.
 
 A set answers *where is this stretch of the night going*, and it is held in
-`state/plans/<station>.json` as `{theme, ids, made, shelf}`. `pick_next` hands the queue the
+`state/plans/<station>.json` as `{set_rationale, ids, made, candidate_artists}`. `pick_next` hands the queue the
 next id and asks the model nothing at all until the set runs out: twelve tracks measured
 at six model calls, half a call per track, instead of three or four each.
 
@@ -95,7 +95,7 @@ leaving a wasted retry as the failure mode.
 
 ## The table
 
-`spica/picker/table.py`. Only with analysis on, and only for a set nobody requested.
+`spica/picker/tracks.py`. Only with analysis on, and only for a set nobody requested.
 The unit of the offer is the **record**, not the artist: analysis is what makes two
 tracks by one act distinguishable, and the shelf used artists precisely because nothing
 here could do that.
@@ -150,7 +150,7 @@ anchor must be a real one: the on-air track's vector or its artist's centroid. W
 it the shelf takes over rather than the table guessing against station medians. The
 analysis backlog is ordered one track per artist first (newest arrivals first within
 an artist), so a half-finished backfill already has every artist's sound instead of
-only the first letters of the alphabet. Every pick records which path it took and the
+only the first letters of the alphabet. Every pick records which strategy it took and the
 coverage it saw (`state/history/<station>.picks.jsonl`: `path`, `coverage`).
 
 ## The shelf
@@ -158,7 +158,7 @@ coverage it saw (`state/history/<station>.picks.jsonl`: `path`, `coverage`).
 This is the analysis-off path, and the fallback for a station with no usable anchor
 when analysis is on; a normal set with analysis uses the table above. A set is drawn
 from a named list of about a dozen artists, and the reply is checked against it.
-`spica/picker/shelf.py`, one call per set.
+`spica/picker/artists.py`, one call per set.
 
 **What is excluded, before any drawing.** The artists of the last five plays, the five
 queued tracks, what is on air, every artist on the previous set's shelf, and the three
@@ -228,7 +228,7 @@ because it played, but because Therapie TAXI played and the two are near enough.
 
 The crate is no longer handed over in the brief. It was three records with ids in front
 of it, which is why it picked from them: the tools cost a round trip and the crate was
-free. `flip` still produces that pile on demand.
+free. `redraw` still produces that pile on demand.
 
 **One timeline, and the reason only where the reason is the DJ's.** The song on air is
 part of that timeline — it carries its reason too when the DJ chose it, and a standby note
@@ -339,7 +339,7 @@ airings and picks are two different records, and the station counts both.
 Deduplicated: a restart re-announcing the current track doesn't create a second entry,
 so `songs_ago` counts real advances.
 
-### `flip` — another three records
+### `redraw` — another three records
 
 `{}`
 
@@ -383,7 +383,7 @@ Two more rules on the same path. An act that has aired in the last twenty tracks
 offered at all; when *everything* similar has just been on air the answer is an empty
 list plus "something here does sound like it, but it has been on air recently — take the
 set somewhere else and change the temperature". And when nothing here sounds like the
-name at all, the answer says so and points at `filter` and `flip` ("find another vibe"),
+name at all, the answer says so and points at `filter` and `redraw` ("find another vibe"),
 with `did_you_mean` for a name that is here under a different spelling.
 
 Whether the name exists on disk but not on the station, or nowhere at all, is not a

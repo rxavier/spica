@@ -1,4 +1,4 @@
-"""The DJ: an LLM with a small toolbox over the local index.
+"""The picker: an LLM with a small toolbox over the local index.
 
 Only ever called for a station that someone is listening to (or on an explicit
 request). One call = one pick, so the token bill tracks use.

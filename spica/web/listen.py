@@ -69,7 +69,7 @@ async def station_live(request: Request, station_id: str):
     """The now-playing block on its own — what the page polls every five seconds."""
     st = station_or_404(station_id)
     # One reading, and only what the fragment renders: the ledger has its own
-    # endpoint, and this used to build history and the request list as well.
+    # endpoint; history and the request list are separate fragments.
     now = await asyncio.to_thread(now_playing, st)
     return templates.TemplateResponse(request, "_live.html", {"now": now})
 
@@ -169,7 +169,7 @@ async def station_state(station_id: str, stream: str = ""):
     chosen = (stream or "").strip().lower() or st.stream_set[0]
     states = icecast.listen_states()
     if st.mount_for(chosen) not in states:
-        # The player asks about a stream it has just asked us to open, and it is
+        # The player asks about a stream it has just asked the app to open, and it is
         # polling every 350 ms: give it a fresh answer rather than one from before
         # the mount existed.
         states = await asyncio.to_thread(icecast.refresh)
@@ -217,18 +217,18 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         )
     except Exception as exc:
         # The request is recorded either way, and the station's next pick reads the
-        # request log. A DJ that cannot answer this second must not turn "pedido
+        # request log. A picker that cannot answer this second must not turn "pedido
         # registrado" into a 500 in the listener's face.
-        log.warning("[%s] request recorded but the DJ could not answer: %s", st.id, exc)
+        log.warning("[%s] request recorded but the picker could not answer: %s", st.id, exc)
         pick = None
     message = "Pedido registrado. La próxima elección lo va a tener en cuenta."
     if pick is not None:
-        # A request is a person in the room: it airs next, ahead of the DJ's pick.
+        # A request is a person in the room: it airs next, ahead of the picker's pick.
         # The pick is not lost — it moves behind the request, in the queue it is
         # already in, so it airs straight after instead of after a whole rotation.
         aired = await asyncio.to_thread(air.air_pick, st, pick, as_request=True, log=log.info)
         await asyncio.to_thread(requests_mod.attach_track, st, entry, pick.track)
-        message = f"{pick.track.as_line()} — {pick.why}"
+        message = f"{pick.track.as_line()} — {pick.reason}"
         if aired.position > 1:
             message += f" Toca después de {aired.position - 1} pedido(s) más."
     rows = await asyncio.to_thread(request_rows, st)

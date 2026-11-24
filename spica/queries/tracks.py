@@ -12,7 +12,7 @@ import sqlite3
 from .. import db, navidrome
 
 # Every word must land in one of these columns; a name spread over artist and
-# title ("Ride Vapour Trail") still matches.
+# title ("Beach House Space Song") still matches.
 SEARCH_COLUMNS = (
     "title LIKE ? OR artist LIKE ? OR album LIKE ? OR album_artist LIKE ? "
     "OR album_artist_key LIKE ?"

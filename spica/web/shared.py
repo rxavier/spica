@@ -64,10 +64,9 @@ def next_up(st) -> str:
     """The next track by name, read from the mixer rather than the slot file.
 
     The slot file exists only between the picker writing it and the mixer taking it
-    a second later, so "next up" used to appear and vanish inside one poll — a flash
-    of a track that was still going to play. What Liquidsoap is holding is the real
-    answer and it holds it for the length of the track on air. The slot label stays
-    as the fallback for a mixer that cannot be reached.
+    a second later, so it is not a stable answer. What Liquidsoap is holding is the
+    real answer and it holds it for the length of the track on air. The slot label
+    stays as the fallback for a mixer that cannot be reached.
     """
     try:
         waiting = mixer.queued_ids(st)
@@ -154,10 +153,10 @@ def now_playing(st, states: dict | None = None) -> dict:
 
 
 SOURCE_LABELS = {
-    "dj": "DJ pick",
-    "llm": "DJ pick",          # entries written before the rename
-    "standby": "Standby pick",
-    "pool": "Standby pick",
+    "dj": "picker pick",
+    "llm": "picker pick",          # entries written before the rename
+    "fallback_rotation": "Fallback rotation",
+    "pool": "Fallback rotation",
     "request": "Request",
     "manual": "Manual",
 }
@@ -340,7 +339,7 @@ def known_labels(names: list[str]) -> list[str]:
     genre whose tracks are only stored fine.
     """
     conn = store.conn()
-    shelf = {
+    canonical_labels = {
         genre_lib.fold(genre_lib.canonical(label))
         for label in label_queries.known(conn)
     }
@@ -351,8 +350,8 @@ def known_labels(names: list[str]) -> list[str]:
             continue
         # The console offers collapsed names ("Electronic"), the index stores the fine
         # ones ("Nu Disco"). A name the operator can pick is one that resolves into the
-        # shelf, not one that appears verbatim in a column.
-        if genre_lib.fold(genre_lib.canonical(name)) in shelf and name not in seen:
+        # rollup, not one that appears verbatim in a column.
+        if genre_lib.fold(genre_lib.canonical(name)) in canonical_labels and name not in seen:
             seen.add(name)
             out.append(name)
     return out

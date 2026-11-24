@@ -28,9 +28,8 @@ _FOLD = str.maketrans({
 def name_key(name: str) -> str:
     """A name reduced to what it says, not how it was typed.
 
-    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one artist; a model typing
-    an ASCII apostrophe used to get nothing back from a library that stores the
-    typographic one.
+    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one artist, so an ASCII
+    apostrophe still reaches a library that stores the typographic one.
     """
     text = unicodedata.normalize("NFKD", str(name or ""))
     text = "".join(ch for ch in text if not unicodedata.combining(ch))

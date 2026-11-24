@@ -15,7 +15,7 @@ def make_pick(track_id: str = "t1") -> Pick:
             artist="Artist", album="Album", album_id="al1", track_no=1, year=2000,
             genre="Rock", duration=200,
         ),
-        why="Because.",
+        reason="Because.",
     )
 
 

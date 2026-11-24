@@ -156,7 +156,7 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   decision per stretch of night instead of one per record. A listener request throws the rest of the
   set away, because it was chosen for the mood they asked to leave.
 - **LLM picks with real tools, when a set needs them.** Six of them: `history` (what
-  the station just played, with how many songs ago), `flip` (three more records from the
+  the station just played, with how many songs ago), `redraw` (three more records from the
   racks, never the ones already dealt), `search` (word-wise, and a name that plays
   nowhere here answers with the artists that sound like it), `filter` (a draw from the
   station, narrowed by genre and years, with totals and paging), `catalogue` (an
@@ -315,7 +315,7 @@ are in the file, not compiled in.
 this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
-                         dj-persona.md, dj.json, dj-shelf.md, dj-table.md,
+                         dj-persona.md, dj.json, dj-artists.md, dj-tracks.md,
                          llm.json, providers.json, artist-mbids.json
 state/                   index.db, analysis.db, loudness.db, models/, pools/, plans/,
                          queue/, history/, now/, art/, genre-aliases.json, logs/
@@ -528,7 +528,7 @@ Before any of that, genres are normalised:
   These are a **station-selection rollup, applied when a station is matched** — ticking
   `Electronic` catches a record the library files under `Nu Disco`. They are not a rewrite
   of the index: the tools and the DJ keep the library's own vocabulary, which is what makes
-  `filter {'genre': 'Nu Disco'}` answer with nu-disco records instead of the whole shelf.
+  `filter {'genre': 'Nu Disco'}` answer with nu-disco records instead of the whole rollup.
   Merging in the admin writes one of these rules; relabelling the stored tracks is a
   separate, explicit action, because it throws the fine label away.
 
@@ -644,17 +644,17 @@ backfill, and the MusicBrainz contact. The environment is only the default; the 
 values win, and the worker reads them on its next job.
 
 **The library page answers "what kind of DJ is this?"** It shows which offer each station
-is using — the record table or the artist shelf — the last pick's path and measured
+is using — track candidates or artist candidates — the last pick's strategy and measured
 coverage, and one row per input (genres, popularity, similarity, analysis, loudness) with
 the job that fills it. Rebuilds and mixer regeneration live there too.
 
 The global prompt is the DJ's character — the voice it speaks in, which is also the line
 listeners read under each song. It is prepended to every pick on every station; each
 station's brief is added on top, and the mechanics of picking (sets rather than single
-tracks, tools only, the JSON reply, and the shelf or table the answer has to come from)
+tracks, tools only, the JSON reply, and the candidates the answer has to come from)
 the JSON contract and the legality checks stay in the code so an edit cannot let an
 illegal track air. The voice lives in `config/dj-persona.md`, and the two path
-instructions in `config/dj-shelf.md` and `config/dj-table.md`; with no file the built-in
+instructions in `config/dj-artists.md` and `config/dj-tracks.md`; with no file the built-in
 text is used, and each *restore* button deletes the override. The *DJ Persona* page
 shows all three editable blocks beside the complete system prompt for a chosen station,
 so what the model is actually told is visible.
@@ -901,15 +901,15 @@ a rebuild also re-canonicalises every genre.
   it only costs the measurement job again.
 - `pools/<station>.m3u`: what the station plays when nobody is steering; one stream URL
   per line.
-- `plans/<station>.json`: the set being played out — its line, its ids, and the shelf or
-  table artists it was chosen from.
+- `plans/<station>.json`: the set being played out — its `set_rationale`, its ids, and the
+  `candidate_artists` it was chosen from.
 - `queue/<station>.txt`: the single-file hand-off between picker and mixer.
 - `now/<station>.txt` and `.offset`: the mixer's own record of each track it starts, and
   how far the picker has read. This is what keeps the ledger honest when no mount is open.
 - `history/<station>.jsonl`: append-only play log, written by this project only.
 - `history/<station>.picks.jsonl`: the DJ's choices with their reasons, the presence
-  that justified them, the shelf or table artists it was offered, the path it took
-  (`table`, `table-partial` or `shelf`) with the analysis coverage it saw, and — for
+  that justified them, the `candidate_artists` it saw, the `strategy` it took
+  (`tracks`, `tracks-partial` or `artists`) with the analysis coverage it saw, and — for
   picks recorded from here on — the brief it read, the tools it called and the reply it
   gave. The last 500 are kept.
 - `history/requests/<station>.jsonl`: live listener requests.

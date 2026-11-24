@@ -52,12 +52,12 @@ def note(st: config.Station, raw_title: str) -> None:
     _played_at[st.id] = time.time()
 
     row = store.find_track(artist, song or raw)
-    why = queue.why_for(st, song or raw)
+    why = queue.reason_for(st, song or raw)
     queue.record(
         st,
         row["id"] if row else "",
         (row["title"] if row else song) or raw,
         (row["artist"] if row else artist),
-        "dj" if why else "standby",
+        "dj" if why else "fallback_rotation",
         why,
     )

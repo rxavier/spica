@@ -43,8 +43,8 @@ SET_MOVES = (
 )
 
 
-SHELF_DEFAULT = f"""\
-The brief tells you what is on air, what came before it and what is already queued. \
+ARTIST_DEFAULT = f"""\
+The prompt tells you what is on air, what came before it and what is already queued. \
 For anything further back — the last half hour, what you played before the current \
 record — call history. If your line names the record it follows, that record is the \
 one on air now, never one from several songs back.
@@ -60,7 +60,7 @@ when a listener wants it.
 
 {SET_MOVES}
 
-The brief names the artists on the shelf for this set. Every track comes from one of \
+The prompt names the candidate artists for this set. Every track comes from one of \
 them, no artist twice, and nothing outside the list will air whatever it says: that is \
 the station's boundary, not a suggestion. Which of them you use, how many, in what \
 order and why is the part that is yours — a dozen names are a range of directions, not \
@@ -75,9 +75,9 @@ nearest thing that works and say so the way a person would. Everything you retur
 already be on this station."""
 
 
-TABLE_DEFAULT = f"""\
-The brief carries the timeline and the table for this set: records with their ids, \
-grouped by the direction each one takes. Every id must come from that table — nothing \
+TRACK_DEFAULT = f"""\
+The prompt carries the timeline and the candidate tracks for this set: records with their ids, \
+grouped by the direction each one takes. Every id must come from those candidates — nothing \
 else can air — and no lookups are needed.
 
 Choose a set, not a single record: between three and ten tracks, in the order they \
@@ -93,7 +93,7 @@ other groups are for later in the set, and the closer comes last.
 
 {SET_MOVES}
 
-The table is an offer, not a setlist: more records than a set needs, in five directions. \
+The candidate tracks are a choice, not a setlist: more records than a set needs, in five directions. \
 The groups are directions — continue, move one axis, change it up, land, the one everyone \
 knows — not a running order. Take the trajectory you want, in the order it should air, \
 and leave the rest.
@@ -123,12 +123,12 @@ def _read_or_default(path: Path, default: str) -> str:
     return text
 
 
-def shelf_guidance() -> str:
-    return _read_or_default(config.dj_shelf_file(), SHELF_DEFAULT)
+def artist_guidance() -> str:
+    return _read_or_default(config.dj_artists_file(), ARTIST_DEFAULT)
 
 
-def table_guidance() -> str:
-    return _read_or_default(config.dj_table_file(), TABLE_DEFAULT)
+def track_guidance() -> str:
+    return _read_or_default(config.dj_tracks_file(), TRACK_DEFAULT)
 
 
 def persona() -> str:
@@ -151,16 +151,16 @@ def persona() -> str:
     return text
 
 
-def system_prompt(station: config.Station, roster: dict, table: bool = False) -> str:
+def system_prompt(station: config.Station, catalog_summary: dict, track_candidates: bool = False) -> str:
     """Persona from the operator, then what this station is, then the path and mechanics."""
     bits = [persona()]
     if station.description:
         bits.append("This station is yours to run like this: " + station.description)
 
-    labels = roster.get("labels") or []
+    labels = catalog_summary.get("labels") or []
     if labels:
         shown = ", ".join(f"{label} ({n})" for label, n in labels[:28])
-        more = roster["labels_total"] - len(labels[:28])
+        more = catalog_summary["labels_total"] - len(labels[:28])
         bits.append(
             "Its genres, by weight: " + shown
             + (f", and {more} smaller genres." if more > 0 else ".")
@@ -170,22 +170,22 @@ def system_prompt(station: config.Station, roster: dict, table: bool = False) ->
     if station.year_from or station.year_to:
         bits.append(f"Years: {station.year_from or 'any'}–{station.year_to or 'any'}.")
 
-    artists = roster.get("artists") or []
+    artists = catalog_summary.get("artists") or []
     if artists:
         bits.append(
-            f"{roster['artists_total']} artists and {roster['tracks']} tracks are within "
-            "reach, and the brief narrows tonight's set to a handful of them. A band you "
+            f"{catalog_summary['artists_total']} artists and {catalog_summary['tracks']} tracks are within "
+            "reach, and the prompt narrows tonight's set to a handful of them. A band you "
             "know from elsewhere is very likely not here, so name what the tools return "
             "rather than what you remember — and when a name is not here, the tools answer "
             "with what is."
         )
     else:
-        bits.append(f"There are about {roster.get('tracks', 0)} tracks within reach.")
+        bits.append(f"There are about {catalog_summary.get('tracks', 0)} tracks within reach.")
 
-    if table:
-        bits.append(table_guidance())
+    if track_candidates:
+        bits.append(track_guidance())
         bits.append(SET_CONTRACT_TABLE)
     else:
-        bits.append(shelf_guidance())
+        bits.append(artist_guidance())
         bits.append(SET_CONTRACT)
     return "\n\n".join(bits)

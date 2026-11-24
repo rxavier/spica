@@ -9,8 +9,8 @@ from three honest signals instead:
     a paused one keeps its socket open but stops reading, so a session that has not
     delivered a chunk for a while is treated as paused, not as a listener;
   * somebody connected straight to the mount, which only counts when the connection did
-    not come from our relay. That case cannot be measured, because the bytes never pass
-    through us.
+    not come from the relay. That case cannot be measured, because the bytes never pass
+    through the relay.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def relay_summary(station_id: str) -> dict[str, int]:
 def report(station_id: str, mount_listeners: int) -> dict:
     """One reading of the three signals: whether anyone listens, and why."""
     summary = relay_summary(station_id)
-    # Anything left on the mount that is not one of our own relay sessions is a
+    # Anything left on the mount that is not one of the relay sessions is a
     # foreign connection (a player pointed straight at Icecast).
     external = max(0, mount_listeners - summary["all"])
     if heartbeat_age(station_id) <= HEARTBEAT_S:

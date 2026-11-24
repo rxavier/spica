@@ -1,4 +1,4 @@
-"""Background jobs: queue, progress, and the "how much does the DJ know" numbers.
+"""Background jobs: queue, progress, and the "how much does the picker know" numbers.
 
 Deliberately small. The picker stays responsive because it only ever *writes a
 row*; the heavy work runs in the `spica-worker` container, which polls this table.
@@ -156,7 +156,7 @@ _COVERAGE_TTL_S = 5.0
 
 
 def coverage(conn: sqlite3.Connection) -> dict:
-    """What the DJ actually knows — the numbers the library page acts on.
+    """What the picker actually knows — the numbers the library page acts on.
 
     Five full-table counts, and the page polls them. Kept for a few seconds per
     connection; a caller that adds to the returned dict gets its own copy.

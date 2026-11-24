@@ -230,7 +230,7 @@ def count_with_source(
 
 
 def relabel(conn: sqlite3.Connection, target: str, source: str) -> None:
-    """Move every row spelled `source` onto `target`, then drop the old spelling."""
+    """Move every row spelled `source` onto `target`, then drop the previous spelling."""
     conn.execute(
         "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
         " SELECT track_id, ?, source FROM track_genres WHERE label = ?",

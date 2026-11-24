@@ -6,7 +6,7 @@ second push is refused rather than overwriting a track the mixer has not taken y
 
 A listener request has its own ordered list and is promoted into the mixer's queue
 ahead of the waiting pick. That pick and the rest of its set are cleared, and the loop
-chooses a new set with the request in the brief.
+chooses a new set with the request in the prompt context.
 """
 
 from __future__ import annotations
@@ -21,15 +21,15 @@ from .ledger import (
     parse_stamp,
     utc_stamp,
     aired_within,
-    last_shelf,
-    offered_ids,
+    last_candidate_artists,
+    candidate_ids,
     picks_path,
     read_tail,
     recent_pick_artists,
     recent_pick_ids,
     recent_picks,
     recently_out,
-    why_for,
+    reason_for,
 )
 
 
@@ -100,13 +100,13 @@ def take_request(station: config.Station) -> dict | None:
 
 
 def promote_requests(station: config.Station) -> int:
-    """Put the waiting requests ahead of the DJ's pick, in the order they were asked.
+    """Put the waiting requests ahead of the picker's pick, in the order they were asked.
 
     The station keeps one track waiting so a changeover never falls back to the
     pool. A request supersedes that track rather than queueing behind it: "play
     something heavier" is about the mood the listener has just changed, and the pick
     waiting there was chosen for the mood they changed from. It is dropped and the
-    loop chooses again within a tick, and the request is still in the brief.
+    loop chooses again within a tick, and the request is still in the prompt context.
 
     Liquidsoap's queue can only push onto the end and remove by id, so this is a
     rewrite — take everything out, push the requests, in order, and nothing else.
@@ -138,9 +138,9 @@ def promote_requests(station: config.Station) -> int:
     if pending_ids != [subsonic.song_id(uri) for uri in want] and not mixer.set_queue(station, want):
         _write_request_lines(station, lines)
         return 0
-    # The DJ's set was chosen for the mood the listener has just changed, and the
+    # The picker's set was chosen for the mood the listener has just changed, and the
     # queue no longer holds the track it was going to play next. Its remaining
-    # tracks go with it; the loop asks for a new set with the request in the brief,
+    # tracks go with it; the loop asks for a new set with the request in the prompt context,
     # which is the point of the request.
     plan.clear(station)
     for line in lines:
@@ -209,35 +209,35 @@ def split_title(raw: str) -> tuple[str, str]:
 PICKS_KEPT = 500
 
 
-def record_pick(station: config.Station, track_id: str, title: str, artist: str, why: str = "",
-                presence: str = "", detail: dict | None = None) -> None:
-    """What the DJ chose. Kept apart from history, which only records plays.
+def record_pick(station: config.Station, track_id: str, title: str, artist: str,
+                reason: str = "", presence: str = "", detail: dict | None = None) -> None:
+    """What the picker chose. Kept apart from history, which only records plays.
 
-    The presence reading is logged with it: "why was the DJ picking at 3 a.m.?" is a
-    question that comes back, and the answer has to be in the record. `detail` is
-    what the picker itself saw — the brief, the tools it called, its reply — so the
-    admin can answer "why *that* track?" without reproducing it.
+    The presence reading is logged with it: "why was the picker running at 3 a.m.?" is
+    a question that comes back, and the answer has to be in the record. `detail` is
+    what the picker itself saw — the prompt context, the tools it called, its reply —
+    so the admin can answer "why *that* track?" without reproducing it.
     """
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
     entry: dict[str, object] = {
         "t": utc_stamp(), "id": track_id,
-        "title": title, "artist": artist, "why": why, "presence": presence,
+        "title": title, "artist": artist, "reason": reason, "presence": presence,
     }
     if detail:
-        if detail.get("brief"):
-            # The brief carries the table and the timeline; 2,000 characters cut it
-            # in the middle of the offer. Keep the whole thing the DJ read.
-            entry["brief"] = str(detail["brief"])[:12000]
+        if detail.get("prompt_context"):
+            # The prompt context carries the candidates and the timeline; keep the
+            # whole thing the model read rather than cutting it mid-list.
+            entry["prompt_context"] = str(detail["prompt_context"])[:12000]
         if detail.get("tools"):
             entry["tools"] = list(detail["tools"])[:8]
-        if detail.get("shelf"):
-            entry["shelf"] = list(detail["shelf"])[:16]
-        if detail.get("offered"):
-            # Every id the table carried, played or not: the next few sets read this
-            # to leave a record alone for a while even when nobody wanted it.
-            entry["offered"] = [str(track_id) for track_id in detail["offered"]][:64]
-        if detail.get("path"):
-            entry["path"] = str(detail["path"])[:24]
+        if detail.get("candidate_artists"):
+            entry["candidate_artists"] = list(detail["candidate_artists"])[:16]
+        if detail.get("candidate_ids"):
+            # Every candidate id, played or not: the next few sets read this to leave
+            # a record alone for a while even when nobody wanted it.
+            entry["candidate_ids"] = [str(track_id) for track_id in detail["candidate_ids"]][:64]
+        if detail.get("strategy"):
+            entry["strategy"] = str(detail["strategy"])[:24]
         if detail.get("coverage") is not None:
             entry["coverage"] = detail["coverage"]
         if detail.get("reply"):
@@ -263,7 +263,7 @@ def recent(station: config.Station, n: int = 20) -> list[dict]:
     """The last n plays, newest last, with a restart's re-announce collapsed.
 
     Only the tail of the file is read, and the window grows until n real plays come
-    back — de-duplicating after the slice used to return fewer than asked for.
+    back, so de-duplication never returns fewer than asked for.
     """
     want = max(1, n)
     grab = want + 4

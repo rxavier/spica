@@ -360,7 +360,7 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
 def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None):
     """One predicate that decides whether a track may play on this station.
 
-    Used by the pool builder AND by the DJ's tools, so a station's rules are a
+    Used by the pool builder AND by the picker's tools, so a station's rules are a
     constraint on what the model can return, not a suggestion in its prompt.
 
     ``by_track`` lets a caller that already holds the label map pass it in; the
@@ -372,10 +372,10 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None)
     #
     # The operator's aliases are a station-selection rollup, and they act HERE, at
     # match time: a track stored under its fine label ("Nu Disco") also answers the
-    # shelf the operator filed it under ("Electronic"). Only the *track* side is rolled
+    # rollup the operator filed it under ("Electronic"). Only the *track* side is rolled
     # up — the station's own words keep their spelling (builtin spelling fixes aside),
     # so a station that ticks "Nu Disco" is asking for nu disco and not for the whole
-    # Electronic shelf.
+    # Electronic rollup.
     canon: dict[str, str] = {}
     for track_labels in by_track.values():
         for label in track_labels:
@@ -399,7 +399,7 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None)
             return False
         keys = row.keys()
         # A four-second gap between songs is a track to the index, not a track to a
-        # station: it airs as dead air, and the standby rotation played one fifty-two
+        # station: it airs as dead air, and the fallback rotation played one fifty-two
         # times. Unknown duration is left alone — no data is not a veto.
         if "duration" in keys:
             duration = int(row["duration"] or 0)
@@ -470,11 +470,11 @@ def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None)
 
 
 def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
-    """Stored labels grouped the way the operator builds stations: one name per shelf.
+    """Stored labels grouped the way the operator builds stations: one name per rollup.
 
     The index keeps the library's fine vocabulary ("Nu Disco", "Post-Disco", …) so the
-    DJ's tools can match it; the admin console and station matching work on the
-    operator's rollup instead, because ticking one shelf beats ticking twelve. This is
+    picker's tools can match it; the admin console and station matching work on the
+    operator's rollup instead, because ticking one rollup beats ticking twelve. This is
     the console's view: `{collapsed name: {tracks, members}}`.
     """
     out: dict[str, dict] = {}
@@ -487,7 +487,7 @@ def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
 
 
 def _members_by_shelf(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Folded shelf name -> every stored label under it, built in one scan."""
+    """Folded rollup name -> every stored label under it, built in one scan."""
     out: dict[str, list[str]] = {}
     for label in label_queries.distinct(conn):
         out.setdefault(genre_lib.fold(genre_lib.canonical(label)), []).append(label)
@@ -505,7 +505,7 @@ def _member_labels(conn: sqlite3.Connection, label: str,
 def genre_report(conn: sqlite3.Connection) -> dict:
     """The operator's vocabulary plus the raw labels behind it — the console's data.
 
-    `labels` is collapsed (one entry per shelf, with the fine labels nested under it)
+    `labels` is collapsed (one entry per rollup, with the fine labels nested under it)
     because the console exists to build stations; `raw` and `unmapped` still describe
     the library's own words, which is what a merge rule is written against.
     """
@@ -538,8 +538,8 @@ def genre_report(conn: sqlite3.Connection) -> dict:
 def genre_counts(conn: sqlite3.Connection) -> list[dict]:
     """One row per collapsed label: tracks, albums, sources, and its fine labels.
 
-    Collapsed because this table is how the operator builds stations — one row per
-    shelf, with the library's own labels nested underneath. The index still stores the
+    Collapsed because this view is how the operator builds stations — one row per
+    rollup, with the library's own labels nested underneath. The index still stores the
     fine ones; grouping is a view, not a rewrite.
     """
     collapsed = _collapsed(conn)

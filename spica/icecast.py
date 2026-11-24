@@ -2,7 +2,7 @@
 
 One read of the status page costs about 200 ms of wall clock — most of it Icecast
 pacing itself, only ~5 ms of its CPU — and the page poll, /status, the pick loop
-and the DJ's brief all want the same answer within a few seconds. So it is read
+and the picker's prompt context all want the same answer within a few seconds. So it is read
 once, on a timer, into a snapshot every caller shares; nobody waits on Icecast
 inside a request any more.
 
@@ -53,7 +53,7 @@ def refresh() -> dict[str, MountState]:
         r.raise_for_status()
         body = r.json().get("icestats", {})
     except Exception:
-        # An Icecast hiccup is not news: keep what we had and let it go stale.
+        # An Icecast hiccup is not news: keep the previous snapshot and let it go stale.
         return _snapshot
     out: dict[str, MountState] = {}
     for src in _as_list(body.get("source")):
