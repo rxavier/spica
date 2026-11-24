@@ -32,9 +32,8 @@ def _path(station: config.Station) -> Path:
     return station.history_file.parent / "requests" / f"{station.id}.jsonl"
 
 
-# path -> (bytes already counted, plays counted). The log only ever grows, so the
-# count is extended rather than redone; this used to walk the whole file once per
-# stored request, on every pick and on every refresh of the listener's request list.
+# path -> (bytes already counted, plays counted). The log only grows, so the count is
+# extended from the last offset rather than walking the file on every request read.
 _counts: dict[str, tuple[int, int]] = {}
 
 

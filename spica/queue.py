@@ -53,8 +53,8 @@ def push(station: config.Station, uri: str, label: str = "") -> bool:
 
     First writer wins, because the mixer takes the file on its next tick and
     whatever it takes is what airs: a second push must not overwrite an unconsumed
-    one, which used to drop a track with no trace anywhere. This is how the pick
-    loop feeds the station — a background pick may wait, but it never preempts.
+    one and silently drop a track. This is how the pick loop feeds the station — a
+    background pick may wait, but it never preempts.
     """
     if station.queue_file.exists():
         return False

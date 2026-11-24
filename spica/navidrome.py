@@ -429,8 +429,7 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None)
                 return False
         # And a named artist is an exception the other way too: naming it is the
         # deliberate act, so it plays even when its genre is vetoed. A station that
-        # excludes Progressive Rock and lists Giraffe wants Giraffe; the old order
-        # vetoed it, which made `include_artists` look decorative.
+        # excludes Progressive Rock and lists Giraffe wants Giraffe.
         if exclude and not by_artist:
             if labels & exclude:
                 return False
