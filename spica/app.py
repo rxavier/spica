@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from . import air
 from . import bootstrap
 from . import config, icecast, mixer, navidrome, picker, plays, pool, presence, queue, store, web
 from . import requests as requests_mod
@@ -24,7 +25,7 @@ from .queries import tracks as track_queries
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("radio")
 
-LAST: dict[str, dict] = {}
+LAST = air.LAST
 QUIET_SINCE: dict[str, float] = {}
 INDEX_STAMP: list[float] = [0.0]
 
@@ -94,27 +95,14 @@ async def loop() -> None:
                 if p is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": "pick failed — playlist continues"}
                     continue
-                if not queue.push(st, p.track.uri, p.track.as_line()):
+                aired = await asyncio.to_thread(air.air_pick, st, p, log=log.info)
+                if not aired.ok:
                     # Someone else filled the slot while the DJ was thinking — a
                     # listener request, usually. Their track airs; this pick is
                     # dropped rather than replacing it, and is not logged as played.
-                    LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n,
-                                   "why": "one already waiting — pick dropped"}
+                    LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": aired.why}
                     log.info("[%s] dropped a pick: %s is already waiting", st.id, queue.queued(st))
                     continue
-                queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                                  presence=presence.reason(st.id, n),
-                                  detail=p.detail())
-                # The pool is the fallback whenever the queue runs dry; push this pick
-                # to the end of it so the two sources cannot play it twice.
-                await asyncio.to_thread(pool.skip_past, [st], p.track.id)
-                LAST[st.id] = {
-                    "listeners": n,
-                    "pushed": time.time(),
-                    "queued": p.track.as_line(),
-                    "why": p.why,
-                    "at": time.strftime("%H:%M:%S"),
-                }
                 log.info("[%s] queued %s — %s (%s)", st.id, p.track.title, p.track.artist, p.why[:60])
         except Exception as exc:  # keep the loop alive whatever happens
             log.warning("loop error: %s", exc)
@@ -278,19 +266,8 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     if p is None:
         return None
     # A person asked for this, so it goes next even if something was already
-    # waiting. What it displaced never aired, so it returns to the top of the pool
-    # instead of being a full rotation away — the DJ's pick is delayed, not lost.
-    displaced = queue.replace(st, p.track.uri, p.track.as_line())
-    if displaced:
-        await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
-    else:
-        await asyncio.to_thread(pool.skip_past, [st], p.track.id)
-    states = icecast.listen_states()
-    n = icecast.total_listeners(states, st)
-    queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                      presence=presence.reason(st.id, n),
-                      detail=p.detail())
-    LAST[st.id] = {"queued": p.track.as_line(), "why": p.why, "at": time.strftime("%H:%M:%S")}
+    # waiting; the displaced track goes back to the top of the pool.
+    await asyncio.to_thread(air.air_pick, st, p, displace=True, log=log.info)
     return p
 
 
@@ -334,16 +311,7 @@ async def force_pick(station_id: str) -> dict:
     p = await asyncio.to_thread(picker.pick_next, store.library(), st, None, queue.recent_ids(st))
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
-    displaced = queue.replace(st, p.track.uri, p.track.as_line())
-    if displaced:
-        await asyncio.to_thread(pool.rewind_to, st, displaced, log=log.info)
-    else:
-        await asyncio.to_thread(pool.skip_past, [st], p.track.id)
-    states = icecast.listen_states()
-    n = icecast.total_listeners(states, st)
-    queue.record_pick(st, p.track.id, p.track.title, p.track.artist, p.why,
-                      presence=presence.reason(st.id, n),
-                      detail=p.detail())
+    await asyncio.to_thread(air.air_pick, st, p, displace=True, log=log.info)
     return {"station": st.id, "track": p.track.as_line(), "why": p.why}
 
 
