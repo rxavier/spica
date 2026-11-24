@@ -10,10 +10,9 @@ from .. import picker
 from .. import plan
 from .. import auth
 from ..picker import prompt as prompt_mod
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request, Depends
 from fastapi.responses import (
     HTMLResponse,
-    RedirectResponse,
     Response,
 )
 
@@ -21,7 +20,7 @@ from .shared import (
     templates,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 
 def _parse_headers(text: str) -> dict:
@@ -41,8 +40,6 @@ def _parse_headers(text: str) -> dict:
 
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     llm = config.llm_settings()
     providers = config.provider_settings()
     mode = config.dj_mode()
@@ -72,7 +69,6 @@ async def admin_settings_save(
     headers: str = Form(""),
     clear_key: str = Form(""),
 ):
-    auth.require_admin(request)
     current = config.llm_settings()
     # An empty key field means "leave it alone"; the explicit checkbox clears it.
     new_key = "" if clear_key else (key.strip() or current["key"])
@@ -86,7 +82,6 @@ async def admin_settings_save(
 
 @router.post("/admin/settings/dj", response_class=HTMLResponse)
 async def admin_settings_dj(request: Request, mode: str = Form(...)):
-    auth.require_admin(request)
     try:
         chosen = config.save_dj_mode(mode)
     except ValueError as exc:
@@ -111,7 +106,6 @@ async def admin_settings_providers(
     mb_user_agent: str = Form(""),
     clear_lastfm: str = Form(""),
 ):
-    auth.require_admin(request)
     current = config.provider_settings()
     new_key = "" if clear_lastfm else (lastfm_key.strip() or current["lastfm_key"])
     config.save_provider_settings(new_key, mb_user_agent.strip())
@@ -138,8 +132,6 @@ async def admin_settings_test(
     rather than what was last saved — testing the old values is how a typo in a base
     URL survives a green tick.
     """
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     saved = config.llm_settings()
     llm = {
         "base": (base or "").strip().rstrip("/") or saved["base"],
@@ -204,8 +196,6 @@ async def admin_settings_test(
 
 @router.get("/admin/prompt", response_class=HTMLResponse)
 async def admin_prompt(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     try:
         text = config.DJ_PERSONA_FILE.read_text(encoding="utf-8")
     except OSError:
@@ -250,7 +240,6 @@ async def admin_prompt(request: Request):
 
 @router.post("/admin/prompt", response_class=HTMLResponse)
 async def admin_prompt_save(request: Request, text: str = Form("")):
-    auth.require_admin(request)
     config.DJ_PERSONA_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.DJ_PERSONA_FILE.write_text(text, encoding="utf-8")
     response = templates.TemplateResponse(
@@ -269,7 +258,6 @@ async def admin_prompt_path(
     text: str = Form(""),
     reset: str = Form(""),
 ):
-    auth.require_admin(request)
     path = {"shelf": config.dj_shelf_file, "table": config.dj_table_file}.get(kind)
     if path is None:
         raise HTTPException(400, "unknown path")
@@ -293,7 +281,6 @@ async def admin_prompt_path(
 
 @router.post("/admin/prompt/reset", response_class=HTMLResponse)
 async def admin_prompt_reset(request: Request):
-    auth.require_admin(request)
     try:
         config.DJ_PERSONA_FILE.unlink()
     except FileNotFoundError:

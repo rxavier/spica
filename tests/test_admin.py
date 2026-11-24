@@ -428,3 +428,9 @@ def test_provider_settings_are_parsed_once(tmp_path, monkeypatch):
     assert config.provider_settings()["lastfm_key"] == "k"
     assert config.provider_settings()["lastfm_key"] == "k"
     assert len(parses) == 1
+
+
+def test_an_unauthenticated_write_is_401_not_a_login_page(console):
+    client, _, _ = console
+    response = client.post("/admin/jobs", data={"kind": "refresh"}, follow_redirects=False)
+    assert response.status_code == 401

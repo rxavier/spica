@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request, Depends
+from fastapi.responses import HTMLResponse
 
 from .. import auth
 from .. import config
@@ -31,7 +31,7 @@ from .shared import LOCAL_TZ, now_playing, stations, templates
 
 log = logging.getLogger("radio")
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 # How many picks the pane shows. The log keeps more; this is what fits a screen
 # without turning "read the last few" into a scroll.
@@ -99,8 +99,6 @@ def _stations_view() -> list[dict]:
 def admin_queue(request: Request):
     # Every admin handler carries its own gate; this one shipped without it, so the
     # pane — titles, reasons, briefs — was readable by anyone who asked for it.
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     views = _stations_view()
     wanted = (request.query_params.get("station") or "").strip()
     selected = next((v for v in views if v["station"].id == wanted), views[0] if views else None)

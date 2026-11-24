@@ -15,7 +15,7 @@ from .. import store
 from .. import subsonic
 from .. import auth
 from ..queries import tracks as track_queries
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Depends
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -27,28 +27,23 @@ from .shared import (
     _conn,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_home(request: Request):
     """The console has no dashboard: stations are the first thing you configure."""
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     return RedirectResponse("/admin/stations", status_code=303)
 
 
 @router.get("/admin/jobs", response_class=HTMLResponse)
 async def admin_jobs(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
     return templates.TemplateResponse(request, "_jobs.html", {"jobs": recent})
 
 
 @router.post("/admin/jobs", response_class=HTMLResponse)
 async def admin_job_create(request: Request, kind: str = Form(...)):
-    auth.require_admin(request)
     try:
         await asyncio.to_thread(jobs.create, _conn(), kind)
     except ValueError as exc:
@@ -117,8 +112,6 @@ def _library_context() -> dict:
 
 @router.get("/admin/library", response_class=HTMLResponse)
 async def admin_library(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     context = await asyncio.to_thread(_library_context)
     return templates.TemplateResponse(
         request,
@@ -129,7 +122,6 @@ async def admin_library(request: Request):
 
 @router.post("/admin/rebuild", response_class=HTMLResponse)
 async def admin_rebuild(request: Request):
-    auth.require_admin(request)
 
     def _run() -> tuple[int, dict]:
         conn = _conn()
@@ -151,7 +143,6 @@ async def admin_rebuild(request: Request):
 
 @router.post("/admin/reload", response_class=HTMLResponse)
 async def admin_reload(request: Request):
-    auth.require_admin(request)
 
     from .. import liqgen
 
