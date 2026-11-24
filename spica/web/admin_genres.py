@@ -112,6 +112,14 @@ def _all_labels(conn) -> list[str]:
     return label_queries.distinct(conn)
 
 
+def _genre_tracks_context(conn, labels: list[str]) -> dict:
+    return {
+        "labels": labels,
+        "all_labels": _all_labels(conn),
+        **navidrome.label_explorer(conn, labels),
+    }
+
+
 @router.post("/admin/genres/unassign", response_class=HTMLResponse)
 async def admin_genres_unassign(
     request: Request,
@@ -132,35 +140,15 @@ async def admin_genres_unassign(
             pool.write_pools(conn, store.stations())
 
         await asyncio.to_thread(_unassign)
-    all_labels, explorer = await asyncio.to_thread(
-        lambda: (_all_labels(conn), navidrome.label_explorer(conn, labels))
-    )
-    return templates.TemplateResponse(
-        request,
-        "_genre_tracks.html",
-        {
-            "labels": labels,
-            "all_labels": all_labels,
-            **explorer,
-        },
-    )
+    context = await asyncio.to_thread(_genre_tracks_context, conn, labels)
+    return templates.TemplateResponse(request, "_genre_tracks.html", context)
 
 
 @router.get("/admin/genres/tracks", response_class=HTMLResponse)
 async def admin_genres_tracks(request: Request, label: list[str] = Query(default=[])):
     conn = store.conn()
-    all_labels, explorer = await asyncio.to_thread(
-        lambda: (_all_labels(conn), navidrome.label_explorer(conn, label))
-    )
-    return templates.TemplateResponse(
-        request,
-        "_genre_tracks.html",
-        {
-            "labels": label,
-            "all_labels": all_labels,
-            **explorer,
-        },
-    )
+    context = await asyncio.to_thread(_genre_tracks_context, conn, label)
+    return templates.TemplateResponse(request, "_genre_tracks.html", context)
 
 
 @router.post("/admin/genres/assign", response_class=HTMLResponse)
@@ -181,15 +169,5 @@ async def admin_genres_assign(
             pool.write_pools(conn, store.stations())
 
         await asyncio.to_thread(_assign)
-    all_labels, explorer = await asyncio.to_thread(
-        lambda: (_all_labels(conn), navidrome.label_explorer(conn, labels))
-    )
-    return templates.TemplateResponse(
-        request,
-        "_genre_tracks.html",
-        {
-            "labels": labels,
-            "all_labels": all_labels,
-            **explorer,
-        },
-    )
+    context = await asyncio.to_thread(_genre_tracks_context, conn, labels)
+    return templates.TemplateResponse(request, "_genre_tracks.html", context)
