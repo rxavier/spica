@@ -33,6 +33,12 @@ KIND_LABELS: dict[str, str] = {
 }
 KINDS = tuple(KIND_LABELS)
 
+# Kinds that can run out of a slice with work left: the worker requeues them for
+# the rest rather than treating the slice as the whole backlog.
+SLICED = frozenset({"analysis", "loudness"})
+if not SLICED <= set(KINDS):
+    raise RuntimeError(f"sliced kinds are not job kinds: {sorted(SLICED - set(KINDS))}")
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     job_queries.ensure_schema(conn)
