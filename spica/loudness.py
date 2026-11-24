@@ -26,7 +26,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config
+from . import config, db
+from .queries import loudness as loudness_queries
 
 # ReplayGain 2.0's reference: a tag's ``trackGain`` is the dB offset that brings
 # the track to this integrated loudness, so the track itself is reference − gain.
@@ -35,15 +36,7 @@ REPLAYGAIN_REFERENCE_LUFS = -18.0
 # The metadata key Liquidsoap's amplify operator reads. Its value is "<n> dB".
 ANNOTATION = "liq_amplify"
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS track_loudness (
-    track_id    TEXT PRIMARY KEY,
-    lufs        REAL,
-    peak        REAL,
-    measured_at INTEGER NOT NULL DEFAULT 0,
-    error       TEXT NOT NULL DEFAULT ''
-);
-"""
+
 
 
 # ------------------------------------------------------------------ gain maths
@@ -154,11 +147,9 @@ def connect(*, create: bool = False) -> sqlite3.Connection | None:
         if not create:
             return None
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
-    conn.row_factory = sqlite3.Row
+    conn = db.open_db(path, timeout=30)
     if create:
-        conn.executescript(SCHEMA)
-        conn.commit()
+        loudness_queries.ensure_schema(conn)
     return conn
 
 
@@ -166,10 +157,8 @@ def save(conn: sqlite3.Connection, track_id: str, lufs: float | None,
          peak: float | None, error: str = "") -> None:
     """Keep one attempt. A failed measurement is kept with its error, not retried."""
     with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO track_loudness (track_id, lufs, peak, measured_at, error)"
-            " VALUES (?,?,?,?,?)",
-            (track_id, lufs, peak, int(time.time()), str(error)[:300]),
+        loudness_queries.save(
+            conn, (track_id, lufs, peak, int(time.time()), str(error)[:300])
         )
 
 
@@ -181,9 +170,7 @@ def measured(track_id: str) -> tuple[float | None, float | None] | None:
     if conn is None:
         return None
     try:
-        row = conn.execute(
-            "SELECT lufs, peak FROM track_loudness WHERE track_id = ?", (track_id,)
-        ).fetchone()
+        row = loudness_queries.measured(conn, track_id)
     finally:
         conn.close()
     return (row["lufs"], row["peak"]) if row and row["lufs"] is not None else None
@@ -199,9 +186,7 @@ def all_measured() -> dict[str, tuple[float | None, float | None]]:
     try:
         return {
             row["track_id"]: (row["lufs"], row["peak"])
-            for row in conn.execute(
-                "SELECT track_id, lufs, peak FROM track_loudness WHERE lufs IS NOT NULL"
-            )
+            for row in loudness_queries.all_measured(conn)
         }
     finally:
         conn.close()
@@ -212,7 +197,7 @@ def _done_ids() -> set[str]:
     if conn is None:
         return set()
     try:
-        return {row["track_id"] for row in conn.execute("SELECT track_id FROM track_loudness")}
+        return loudness_queries.done_ids(conn)
     finally:
         conn.close()
 
@@ -221,10 +206,7 @@ def pending(index_conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
     """Tracks with neither a ReplayGain tag nor an attempt, in album order."""
     done = _done_ids()
     out: list[sqlite3.Row] = []
-    for row in index_conn.execute(
-        "SELECT id, uri, replaygain_gain FROM tracks WHERE uri != ''"
-        " ORDER BY album_artist, album, track_no, id"
-    ):
+    for row in loudness_queries.candidates(index_conn):
         if row["id"] in done or row["replaygain_gain"] is not None:
             continue
         out.append(row)
@@ -237,7 +219,7 @@ def backlog(index_conn: sqlite3.Connection) -> int:
     """How many playable tracks still need a measurement."""
     done = _done_ids()
     total = 0
-    for row in index_conn.execute("SELECT id, replaygain_gain FROM tracks WHERE uri != ''"):
+    for row in loudness_queries.gain_rows(index_conn):
         if row["id"] in done or row["replaygain_gain"] is not None:
             continue
         total += 1
@@ -248,20 +230,14 @@ def coverage(index_conn: sqlite3.Connection) -> dict | None:
     """How much of the playable library has a level, from either source."""
     if not config.LOUDNESS:
         return None
-    playable = {
-        row["id"] for row in index_conn.execute("SELECT id FROM tracks WHERE uri != ''")
-    }
-    tagged = {
-        row["id"] for row in index_conn.execute(
-            "SELECT id FROM tracks WHERE uri != '' AND replaygain_gain IS NOT NULL"
-        )
-    }
+    playable = loudness_queries.playable_ids(index_conn)
+    tagged = loudness_queries.tagged_ids(index_conn)
     seen: set[str] = set()
     errors = 0
     conn = connect()
     if conn is not None:
         try:
-            for row in conn.execute("SELECT track_id, lufs FROM track_loudness"):
+            for row in loudness_queries.measured_rows(conn):
                 if row["lufs"] is not None:
                     seen.add(row["track_id"])
                 else:

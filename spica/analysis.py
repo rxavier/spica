@@ -35,7 +35,8 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from . import config, navidrome
+from . import config, db, navidrome
+from .queries import analysis as analysis_queries
 
 try:  # the extra; a plain install runs everything else without it
     import numpy as np
@@ -96,39 +97,7 @@ def store_path() -> Path:
 
 # ----------------------------------------------------------------------- schema
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS track_analysis (
-    track_id       TEXT PRIMARY KEY,
-    artist_key     TEXT NOT NULL DEFAULT '',
-    duration       REAL,
-    bpm            REAL,
-    bpm_confidence REAL,
-    key            TEXT,
-    key_scale      TEXT,
-    key_strength   REAL,
-    lufs           REAL,
-    lra            REAL,
-    dyn_complexity REAL,
-    danceability   REAL,
-    energy         REAL,
-    styles         TEXT NOT NULL DEFAULT '[]',
-    heads          TEXT NOT NULL DEFAULT '{}',
-    vocal          INTEGER,
-    vec            BLOB,
-    model_version  TEXT NOT NULL DEFAULT '',
-    analyzed_at    INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS artist_analysis (
-    artist_key TEXT PRIMARY KEY,
-    name       TEXT NOT NULL DEFAULT '',
-    vec        BLOB,
-    tracks     INTEGER NOT NULL DEFAULT 0,
-    bpm        REAL,
-    energy     REAL,
-    styles     TEXT NOT NULL DEFAULT '[]',
-    updated_at INTEGER NOT NULL DEFAULT 0
-);
-"""
+
 
 
 def connect(path: Path | None = None, *, create: bool = False,
@@ -143,14 +112,9 @@ def connect(path: Path | None = None, *, create: bool = False,
         return None
     if not create and not path.exists():
         return None
-    if readonly:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
-    else:
-        conn = sqlite3.connect(path, timeout=30)
-    conn.row_factory = sqlite3.Row
+    conn = db.open_db(path, readonly=readonly, timeout=10 if readonly else 30)
     if create:
-        conn.executescript(SCHEMA)
-        conn.commit()
+        analysis_queries.ensure_schema(conn)
     return conn
 
 
@@ -473,22 +437,15 @@ def save(conn: sqlite3.Connection, track_id: str, artist_key: str, data: dict) -
     vec = data.get("vec")
     blob = np.asarray(vec, np.float32).tobytes() if vec is not None and len(vec) else b""
     with conn:
-        conn.execute(
-            """INSERT OR REPLACE INTO track_analysis
-               (track_id, artist_key, duration, bpm, bpm_confidence, key, key_scale,
-                key_strength, lufs, lra, dyn_complexity, danceability, energy, styles,
-                heads, vocal, vec, model_version, analyzed_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                track_id, artist_key, data.get("duration"), data.get("bpm"),
-                data.get("bpm_confidence"), data.get("key"), data.get("key_scale"),
-                data.get("key_strength"), data.get("lufs"), data.get("lra"),
-                data.get("dyn_complexity"), data.get("danceability"), data.get("energy"),
-                json.dumps(data.get("styles") or []), json.dumps(data.get("heads") or {}),
-                data.get("vocal"), blob, data.get("model_version") or MODEL_VERSION,
-                int(time.time()),
-            ),
-        )
+        analysis_queries.insert(conn, (
+            track_id, artist_key, data.get("duration"), data.get("bpm"),
+            data.get("bpm_confidence"), data.get("key"), data.get("key_scale"),
+            data.get("key_strength"), data.get("lufs"), data.get("lra"),
+            data.get("dyn_complexity"), data.get("danceability"), data.get("energy"),
+            json.dumps(data.get("styles") or []), json.dumps(data.get("heads") or {}),
+            data.get("vocal"), blob, data.get("model_version") or MODEL_VERSION,
+            int(time.time()),
+        ))
 
 
 def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
@@ -500,15 +457,9 @@ def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
     track per artist first means 20% coverage still covers every artist; within an
     artist, a fresh import is measured before the rest of the catalogue.
     """
-    done = {
-        row["track_id"] for row in store.execute(
-            "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
-        )
-    }
+    done = analysis_queries.track_ids(store, MODEL_VERSION)
     by_artist: dict[str, list] = {}
-    for row in index_conn.execute(
-        "SELECT id, artist, album_artist, uri, fetched_at FROM tracks WHERE uri != ''"
-    ):
+    for row in analysis_queries.candidate_rows(index_conn):
         if row["id"] in done:
             continue
         key = navidrome.name_key(row["album_artist"] or row["artist"] or "")
@@ -535,8 +486,7 @@ def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
 def backlog(index_conn: sqlite3.Connection, store: sqlite3.Connection | None) -> int:
     """How many tracks still need analysis (0 when the store does not exist yet)."""
     if store is None:
-        return index_conn.execute(
-            "SELECT count(*) FROM tracks WHERE uri != ''").fetchone()[0]
+        return analysis_queries.playable_count(index_conn)
     return len(todo(index_conn, store, limit=1_000_000))
 
 
@@ -548,23 +498,11 @@ def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
     101.3% (5,366 rows for 5,296 tracks). Count the ids that are still in the index, the
     same way `todo()` and `jobs.coverage()` do.
     """
-    total = index_conn.execute(
-        "SELECT count(*) FROM tracks WHERE uri != ''").fetchone()[0]
-    analysed = {
-        row["track_id"]
-        for row in store.execute(
-            "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
-        )
-    }
-    present = {row["id"] for row in index_conn.execute(
-        "SELECT id FROM tracks WHERE uri != ''")}
+    total = analysis_queries.playable_count(index_conn)
+    analysed = analysis_queries.track_ids(store, MODEL_VERSION)
+    present = analysis_queries.playable_ids(index_conn)
     known = len(analysed & present)
-    return {
-        "known": known,
-        "total": int(total),
-        "remaining": max(0, int(total) - known),
-        "percent": round(known * 100.0 / total, 1) if total else 0.0,
-    }
+    return db.coverage(known, total)
 
 
 def station_coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:
@@ -573,11 +511,7 @@ def station_coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) 
     Readiness is decided per station, not per library: a narrow prog station can be
     fully analysed while the rest of the collection is not.
     """
-    known = {
-        row["track_id"] for row in store.execute(
-            "SELECT track_id FROM track_analysis WHERE model_version = ?", (MODEL_VERSION,)
-        )
-    }
+    known = analysis_queries.track_ids(store, MODEL_VERSION)
     out = {}
     for station in config.load_stations():
         rows = navidrome.rows_for_station(index_conn, station)
@@ -614,9 +548,7 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
     """
     vectors: dict[str, list] = {}
     names: dict[str, str] = {}
-    for row in index_conn.execute(
-        "SELECT id, album_artist, artist FROM tracks WHERE uri != ''"
-    ):
+    for row in analysis_queries.candidate_rows(index_conn):
         name = row["album_artist"] or row["artist"] or ""
         if not name:
             continue
@@ -625,15 +557,10 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
         vectors.setdefault(key, [])
     # Joined in Python: the two stores are separate files on purpose.
     by_track = {
-        row["track_id"]: row for row in store.execute(
-            "SELECT track_id, vec, bpm, energy, styles FROM track_analysis "
-            "WHERE model_version = ?",
-            (MODEL_VERSION,),
-        )
+        row["track_id"]: row
+        for row in analysis_queries.artist_track_rows(store, MODEL_VERSION)
     }
-    for row in index_conn.execute(
-        "SELECT id, album_artist, artist FROM tracks WHERE uri != ''"
-    ):
+    for row in analysis_queries.candidate_rows(index_conn):
         hit = by_track.get(row["id"])
         if hit is None or not hit["vec"]:
             continue
@@ -649,7 +576,7 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
     written = 0
     now = int(time.time())
     with store:
-        store.execute("DELETE FROM artist_analysis")
+        analysis_queries.clear_artists(store)
         for key, items in vectors.items():
             if not items:
                 continue
@@ -662,10 +589,8 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
                 for name, prob in styles:
                     counts[name] = counts.get(name, 0.0) + float(prob)
             top = sorted(counts.items(), key=lambda kv: -kv[1])[:3]
-            store.execute(
-                """INSERT OR REPLACE INTO artist_analysis
-                   (artist_key, name, vec, tracks, bpm, energy, styles, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+            analysis_queries.insert_artist(
+                store,
                 (key, names.get(key, ""), vector.astype(np.float32).tobytes(), len(items),
                  float(np.median(bpms)) if bpms else None,
                  float(np.mean(energies)) if energies else None,
@@ -688,12 +613,7 @@ def feature_map(store: sqlite3.Connection | None) -> dict[str, dict]:
     if store is None:
         return {}
     try:
-        rows = store.execute(
-            """SELECT track_id, bpm, bpm_confidence, key, key_scale, energy, styles,
-                      vocal, lufs, danceability
-               FROM track_analysis WHERE model_version = ?""",
-            (MODEL_VERSION,),
-        )
+        rows = analysis_queries.feature_rows(store, MODEL_VERSION)
     except sqlite3.Error:
         return {}
     out = {}
@@ -722,10 +642,7 @@ def vector_map(store: sqlite3.Connection | None) -> dict:
     if store is None or np is None:
         return {}
     try:
-        rows = store.execute(
-            "SELECT track_id, vec FROM track_analysis WHERE model_version = ? AND length(vec) > 0",
-            (MODEL_VERSION,),
-        )
+        rows = analysis_queries.vector_rows(store, MODEL_VERSION)
     except sqlite3.Error:
         return {}
     out = {}
@@ -798,7 +715,7 @@ def audio_neighbours(index_conn: sqlite3.Connection, store: sqlite3.Connection |
     if store is None or np is None:
         return set()
     try:
-        rows = store.execute("SELECT artist_key, vec FROM artist_analysis").fetchall()
+        rows = analysis_queries.artist_vector_rows(store)
     except sqlite3.Error:
         return set()
     vectors = {
@@ -835,9 +752,7 @@ def shelf_sound(store: sqlite3.Connection | None, names: list[str]) -> str:
     if store is None or not names:
         return ""
     try:
-        rows = store.execute(
-            "SELECT artist_key, name, bpm, energy, styles FROM artist_analysis"
-        ).fetchall()
+        rows = analysis_queries.artist_profile_rows(store)
     except sqlite3.Error:
         return ""
     by_key = {row["artist_key"]: row for row in rows}
@@ -870,7 +785,7 @@ def nearest_artists(store: sqlite3.Connection | None, name: str, k: int = 8) -> 
     if store is None or np is None:
         return []
     try:
-        rows = store.execute("SELECT artist_key, name, vec FROM artist_analysis").fetchall()
+        rows = analysis_queries.artist_pool_rows(store)
     except sqlite3.Error:
         return []
     target = navidrome.name_key(name)
