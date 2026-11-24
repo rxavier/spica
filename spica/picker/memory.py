@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .. import mixer, navidrome, queue
+from .. import ledger, mixer, navidrome, queue
 
 # How many plays count as "off the air" when candidates are scoring absence.
 ABSENCE = 40
@@ -101,8 +101,8 @@ def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = Non
     """
     played = recent_artists(lib, station, recent)
     queued = queued_artists(lib, station, queued_limit)
-    names = list(played) + list(queued) + list(queue.last_candidate_artists(station))
+    names = list(played) + list(queued) + list(ledger.last_candidate_artists(station))
     if include_picks:
-        names += queue.recent_pick_artists(station, recent + 3)
+        names += ledger.recent_pick_artists(station, recent + 3)
     keys = {navidrome.name_key(name) for name in names if name}
     return Blocklist(keys=keys, played=played, queued=queued)

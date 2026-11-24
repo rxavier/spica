@@ -12,7 +12,7 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 
-from .. import analysis, mixer, navidrome, queue
+from .. import analysis, ledger, mixer, navidrome, queue
 from ..names import seed_key
 from ..queries import tracks as track_queries
 from .memory import ABSENCE, artist_absence, blocked_artists, spread_decades
@@ -122,7 +122,7 @@ def build(lib, station) -> dict | None:
     partial = coverage < READY_TRACKS or artist_coverage < READY_ARTISTS
 
     blocked = _blocked_artists(lib, station)
-    played = queue.recently_out(station)
+    played = ledger.recently_out(station)
     try:
         queued = set(mixer.queued_ids(station))
     except Exception:  # liquidsoap down: candidates are still worth drawing
@@ -143,7 +143,7 @@ def build(lib, station) -> dict | None:
     # A record the last few sets offered has had its turn, played or not — that is what
     # stops the familiar block from becoming a fixed cast. On a small station the rule
     # could empty the candidates, and fewer candidates are worse than a repeated one.
-    seen = queue.candidate_ids(station, SEEN_SETS)
+    seen = ledger.candidate_ids(station, SEEN_SETS)
     fresh = [c for c in candidates if c["id"] not in seen]
     if len(fresh) >= MIN_CANDIDATES:
         candidates = fresh
@@ -158,7 +158,7 @@ def build(lib, station) -> dict | None:
 
     groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0, station,
                      seen_artists=_seen_artists(
-                         lib, queue.candidate_ids(station, FAMILIAR_SETS)))
+                         lib, ledger.candidate_ids(station, FAMILIAR_SETS)))
     ids = [track["id"] for group in groups for track in group["tracks"]]
     if len(ids) < MIN_CANDIDATES:
         return None

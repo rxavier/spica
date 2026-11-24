@@ -53,7 +53,7 @@ def _stations_view() -> list[dict]:
         live = icecast.live_mount(states, st)
         n = live[1].listeners if live else 0
         picks = []
-        for entry in reversed(queue.recent_picks(st, ROWS)):
+        for entry in reversed(ledger.recent_picks(st, ROWS)):
             picks.append(
                 {
                     "at": _local(entry.get("t", "")),

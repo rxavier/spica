@@ -52,7 +52,7 @@ def note(st: config.Station, raw_title: str) -> None:
     _played_at[st.id] = time.time()
 
     row = store.find_track(artist, song or raw)
-    why = queue.reason_for(st, song or raw)
+    why = ledger.reason_for(st, song or raw)
     queue.record(
         st,
         row["id"] if row else "",

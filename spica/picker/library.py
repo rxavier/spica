@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections import Counter
 
-from .. import config, loudness, mixer, navidrome, queue
+from .. import config, ledger, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
 from ..names import seed_key
 from ..queries import labels as label_queries
@@ -881,7 +881,7 @@ class Library:
         should carry.
         """
         rows = self._station_rows(station)
-        played = queue.recently_out(station) if station else set()
+        played = ledger.recently_out(station) if station else set()
         try:
             queued = set(mixer.queued_ids(station)) if station else set()
         except Exception:
