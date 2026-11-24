@@ -7,6 +7,11 @@ builds the rows and hands them to the `replace_*` functions here.
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
+
+# Paths already migrated in this process: connect opens often enough that the
+# PRAGMA scans are pure overhead after the first one.
+_READY: set[str] = set()
 
 TRACK_COLUMNS = (
     "id,uri,title,artist,album,album_id,track_no,year,genre,duration,fetched_at,"
@@ -15,7 +20,10 @@ TRACK_COLUMNS = (
 )
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
+def ensure_schema(conn: sqlite3.Connection, db_path: str | Path | None = None) -> None:
+    key = str(Path(db_path).resolve()) if db_path is not None else None
+    if key is not None and key in _READY:
+        return
     # Indexes built before the API rewrite stored a filesystem path. The track
     # table is a rebuildable projection, so an old shape is dropped rather than
     # migrated: POST /rebuild repopulates it from the API.
@@ -141,6 +149,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
            )"""
     )
     conn.commit()
+    if key is not None:
+        _READY.add(key)
 
 
 def replace_tracks(conn: sqlite3.Connection, rows) -> None:
