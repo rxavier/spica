@@ -88,6 +88,14 @@ def all_for_index(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT id, title, artist, album_id FROM tracks").fetchall()
 
 
+# The columns a picker row needs. Hot queries select these instead of `*`; the
+# full-row accessors keep `*`.
+ROW_COLUMNS = (
+    "id, uri, title, artist, album, album_id, track_no, year, genre, duration,"
+    " mbz_album, mbz_recording, album_artist"
+)
+
+
 def playable_tracks(
     conn: sqlite3.Connection, columns: str = "*"
 ) -> list[sqlite3.Row]:
@@ -215,7 +223,7 @@ def tracks_by_artist_keys(
 ) -> list[sqlite3.Row]:
     where, args = db.where_in("album_artist_key", keys)
     order = " ORDER BY RANDOM()" if random_order else ""
-    return conn.execute(f"SELECT * FROM tracks WHERE {where}{order}", args).fetchall()
+    return conn.execute(f"SELECT {ROW_COLUMNS} FROM tracks WHERE {where}{order}", args).fetchall()
 
 
 def dominant_genre(conn: sqlite3.Connection, artist_key: str) -> str:
@@ -231,7 +239,7 @@ def tracks_in_genre_excluding_artist(
     conn: sqlite3.Connection, genre: str, artist_key: str
 ) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT * FROM tracks WHERE genre = ? AND album_artist_key <> ?"
+        f"SELECT {ROW_COLUMNS} FROM tracks WHERE genre = ? AND album_artist_key <> ?"
         " ORDER BY RANDOM()",
         (genre, artist_key),
     ).fetchall()
@@ -251,13 +259,13 @@ def search(
         where.append("(" + SEARCH_COLUMNS + ")")
         args += _search_args(token)
     rows = conn.execute(
-        "SELECT * FROM tracks WHERE " + " AND ".join(where)
+        f"SELECT {ROW_COLUMNS} FROM tracks WHERE " + " AND ".join(where)
         + " ORDER BY album_artist, album, track_no LIMIT ?",
         (*args, fetch_limit),
     ).fetchall()
     if not rows and len(tokens) > 1:
         rows = conn.execute(
-            "SELECT * FROM tracks WHERE (" + SEARCH_COLUMNS + f") AND {db.PLAYABLE}"
+            f"SELECT {ROW_COLUMNS} FROM tracks WHERE (" + SEARCH_COLUMNS + f") AND {db.PLAYABLE}"
             + " ORDER BY album_artist, album, track_no LIMIT ?",
             (*_search_args(text), fetch_limit),
         ).fetchall()
@@ -278,7 +286,7 @@ def catalogue(
         where.append("album LIKE ?")
         args.append(f"%{album.strip()}%")
     return conn.execute(
-        "SELECT * FROM tracks WHERE " + " AND ".join(where)
+        f"SELECT {ROW_COLUMNS} FROM tracks WHERE " + " AND ".join(where)
         + f" ORDER BY {db.artist_expr()}, album, track_no",
         args,
     ).fetchall()
