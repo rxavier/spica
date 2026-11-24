@@ -100,7 +100,7 @@ def aliases(state):
 def has_alias(state, source, target):
     """Aliases are stored with the source folded, which is what a rebuild matches on."""
     return any(
-        entry.get("from", "").lower() == source.lower() and entry.get("to") == target
+        entry.get("from") == genres.fold(source) and entry.get("to") == target
         for entry in aliases(state)
     )
 
