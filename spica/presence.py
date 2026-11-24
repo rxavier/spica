@@ -70,26 +70,27 @@ def relay_summary(station_id: str) -> dict[str, int]:
     }
 
 
-def listening(station_id: str, mount_listeners: int) -> bool:
-    """True when somebody is plausibly in front of the radio right now."""
-    if heartbeat_age(station_id) <= HEARTBEAT_S:
-        return True
+def report(station_id: str, mount_listeners: int) -> dict:
+    """One reading of the three signals: whether anyone listens, and why."""
     summary = relay_summary(station_id)
-    if summary["players"] > 0:
-        return True
     # Anything left on the mount that is not one of our own relay sessions is a
     # foreign connection (a player pointed straight at Icecast).
-    return max(0, mount_listeners - summary["all"]) > 0
+    external = max(0, mount_listeners - summary["all"])
+    if heartbeat_age(station_id) <= HEARTBEAT_S:
+        return {"listening": True, "reason": "listening (page open)"}
+    if summary["players"] > 0:
+        return {"listening": True, "reason": "listening (player connected)"}
+    if external > 0:
+        return {"listening": True, "reason": "listening (external player)"}
+    if summary["all"]:
+        return {"listening": False, "reason": "idle (client paused)"}
+    return {"listening": False, "reason": "idle (nobody listening)"}
+
+
+def listening(station_id: str, mount_listeners: int) -> bool:
+    """True when somebody is plausibly in front of the radio right now."""
+    return report(station_id, mount_listeners)["listening"]
 
 
 def reason(station_id: str, mount_listeners: int) -> str:
-    if heartbeat_age(station_id) <= HEARTBEAT_S:
-        return "listening (page open)"
-    summary = relay_summary(station_id)
-    if summary["players"] > 0:
-        return "listening (player connected)"
-    if max(0, mount_listeners - summary["all"]) > 0:
-        return "listening (external player)"
-    if summary["all"]:
-        return "idle (client paused)"
-    return "idle (nobody listening)"
+    return report(station_id, mount_listeners)["reason"]
