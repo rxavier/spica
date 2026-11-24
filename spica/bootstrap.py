@@ -17,7 +17,7 @@ import json
 import os
 import secrets
 
-from . import config
+from . import config, liqgen
 from .atomic import atomic_write
 
 ICECAST_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -121,8 +121,6 @@ def ensure(verbose: bool = True) -> list[str]:
 
     script = config.CONFIG_DIR / "spica.liq"
     if not script.exists():
-        from . import liqgen
-
         password = _env("ICECAST_SOURCE_PASSWORD")
         if not password:
             # read what the generated icecast.xml carries, so the two agree

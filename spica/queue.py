@@ -15,7 +15,7 @@ import json
 import time
 from pathlib import Path
 
-from . import config, plan, subsonic
+from . import config, mixer, plan, subsonic
 from .atomic import atomic_write
 from .ledger import parse_stamp, picks_path, read_tail, utc_stamp
 
@@ -99,8 +99,6 @@ def promote_requests(station: config.Station) -> int:
     rewrite — take everything out, push the requests, in order, and nothing else.
     Returns how many requests are now waiting.
     """
-    from . import mixer
-
     pending = mixer.pending_uris(station)
     if pending is None:  # no control server: the loop's slot hand-over still works
         return 0
