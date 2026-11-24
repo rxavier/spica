@@ -23,6 +23,7 @@ from collections import Counter
 from .. import analysis, mixer, navidrome, queue
 from ..names import seed_key
 from ..queries import tracks as track_queries
+from .memory import blocked_artists
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
 # still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
@@ -529,29 +530,10 @@ def _blocked_artists(lib, station) -> set[str]:
     """Artists that may not be offered: just played, queued, or on the last table.
 
     No sonic distance here — the point of the table is that "close to what is on air"
-    is one of the directions on purpose.
+    is one of the directions on purpose. The DJ's own recent picks are left out, so
+    the familiar block stays reachable for a set not anchored to an airing.
     """
-    names: list[str] = []
-
-    def name_of(track_id: str, fallback: str = "") -> str:
-        row = lib.by_id(track_id) if track_id else None
-        if row is not None:
-            return row.album_artist or row.artist or ""
-        return fallback
-
-    for entry in queue.recent(station, 6):
-        name = name_of(str(entry.get("id") or ""), str(entry.get("artist") or ""))
-        if name:
-            names.append(name)
-    names.extend(queue.last_shelf(station))
-    try:
-        for track_id in mixer.queued_ids(station):
-            name = name_of(track_id)
-            if name:
-                names.append(name)
-    except Exception:
-        pass
-    return {navidrome.name_key(name) for name in names if name}
+    return blocked_artists(lib, station, recent=6, include_picks=False).keys
 
 
 def _absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:

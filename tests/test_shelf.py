@@ -11,7 +11,7 @@ import json
 from collections import Counter
 
 from spica import config, navidrome
-from spica.picker import loop, shelf
+from spica.picker import loop, memory, shelf
 from spica.picker.schemas import Pick
 
 
@@ -148,7 +148,7 @@ def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_
     monkeypatch.setattr(shelf.queue, "recent", lambda st, n=20: [])
     monkeypatch.setattr(shelf.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
     monkeypatch.setattr(shelf.queue, "last_shelf", lambda st, look=6: [])
-    monkeypatch.setattr(shelf.mixer, "queued_ids", lambda st=None: [])
+    monkeypatch.setattr(memory.mixer, "queued_ids", lambda st=None: [])
     blocked = shelf._blocked(IndexOnly(navidrome.connect(tmp_path / "index.db")), station, {})
     assert navidrome.name_key("Just Played") in blocked
 
