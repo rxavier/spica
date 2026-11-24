@@ -802,7 +802,7 @@ the keys, and that is the file to start from.
 
 | Variable | Meaning |
 |---|---|
-| `SPICA_TAG` | the image tag to run, e.g. `0.14.0` |
+| `SPICA_TAG` | the image tag to run, e.g. `0.15.2` |
 | `PUID`, `PGID` | the user that owns `config/` and `state/` (default `1000`) |
 | `TZ` | the container timezone, for logs and the ledger's server fallback |
 | `ICECAST_SOURCE_PASSWORD` | what the mixer publishes with; written into `icecast.xml` on first run |
@@ -819,7 +819,7 @@ the keys, and that is the file to start from.
 | `LLM_HEADERS` | optional extra headers, `k=v` comma separated |
 | `LASTFM_KEY` | optional: name-based similarity and tag backfill; the admin's settings page wins |
 | `MB_USER_AGENT` | optional: contact string for MusicBrainz; the admin's settings page wins |
-| `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker; the worker must run the `-analysis` image (see [deploy/README.md](deploy/README.md#audio-analysis)) |
+| `SPICA_ANALYSIS` | optional: `1` turns on audio analysis in the worker; the worker must run the `-analysis` image (see [deploy/README.md](deploy/README.md#audio-analysis-and-loudness)) |
 | `SPICA_ANALYSIS_TEMPO` | `degara` (fast, default) or `multifeature` (more accurate, ~3× CPU) |
 | `SPICA_ANALYSIS_SLICE` | tracks analysed per job (default `200`); other jobs interleave |
 | `SPICA_ANALYSIS_WORKERS` | processes for one analysis job (default `2`); each needs ~0.5 GB |
