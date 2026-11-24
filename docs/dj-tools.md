@@ -89,7 +89,7 @@ which of the shelf's artists, in what order, and the line. An installation whose
 says something else entirely still works — the prompt steers those choices, the shelf
 only bounds where the choice may come from.
 
-So a reply written without calling a tool can only pass by guessing 21-character
+So a reply written without calling a tool can only pass by guessing 22-character
 Navidrome ids. `tool_choice: "required"` on round 0 makes that explicit instead of
 leaving a wasted retry as the failure mode.
 
@@ -299,11 +299,9 @@ track:
  "popularity": 0.37, "played": false}
 ```
 
-The same twenty tracks used to appear twice — once nested under the album, once as a flat
-`tracks` list — and the trimmer cut the flat list to a single row while the album block
-beside it still held everything, so a `catalogue` answer sat at 5,700 characters and said
-"showing 1 of 20". One view, lean rows: The Smiths went from 10,681 characters to 3,083,
-and Nine Inch Nails from 16,194 (8,235 after trimming, over the cap) to 3,795.
+Each track appears once, nested under its album; there is no flat list behind it for
+the trimmer to cut separately. A 25-track catalogue of lean rows stays inside the tool
+budget, so the page is never trimmed into disagreeing with its own `shown` count.
 
 **Every page fits before the model sees it.** `filter` returns `{matching, offset,
 returned, results, next_offset}` where `returned` is the number of rows actually there —
