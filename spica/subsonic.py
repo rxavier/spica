@@ -103,10 +103,6 @@ def call(method: str, **params) -> dict:
     return payload
 
 
-def ping() -> dict:
-    return call("ping")
-
-
 def iter_albums(page: int = ALBUM_PAGE):
     """Every album, paged. Album first, because Subsonic has no 'all songs' call."""
     offset = 0

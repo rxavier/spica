@@ -492,13 +492,6 @@ def _member_labels(conn: sqlite3.Connection, label: str,
     return members.get(genre_lib.fold(genre_lib.canonical(label)), [])
 
 
-def genres(conn: sqlite3.Connection) -> list[tuple[str, int]]:
-    """Collapsed labels with track counts — what the station editor picks from."""
-    collapsed = _collapsed(conn)
-    return sorted(((name, e["tracks"]) for name, e in collapsed.items()), key=lambda kv: (-kv[1], kv[0]))
-
-
-
 def genre_report(conn: sqlite3.Connection) -> dict:
     """The operator's vocabulary plus the raw labels behind it — the console's data.
 
@@ -560,16 +553,6 @@ def genre_counts(conn: sqlite3.Connection) -> list[dict]:
         }
         for name, entry in sorted(collapsed.items(), key=lambda kv: (-kv[1]["tracks"], kv[0]))
     ]
-
-
-def label_albums(conn: sqlite3.Connection, label: str) -> list[sqlite3.Row]:
-    return label_queries.album_rows(conn, _member_labels(conn, label) or [label])
-
-
-def label_tracks(conn: sqlite3.Connection, label: str, limit: int = 300) -> list[sqlite3.Row]:
-    return label_queries.track_rows(
-        conn, _member_labels(conn, label) or [label], limit
-    )
 
 
 _SOURCE_WORDS = {

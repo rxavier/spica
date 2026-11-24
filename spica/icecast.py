@@ -91,11 +91,6 @@ def start_refresher() -> None:
     _thread.start()
 
 
-def listeners(states: dict[str, MountState], mount: str) -> int:
-    st = states.get(mount)
-    return st.listeners if st else 0
-
-
 def live_mount(states: dict[str, MountState], station) -> tuple[str, MountState] | None:
     """The first of the station's streams that is actually on air.
 

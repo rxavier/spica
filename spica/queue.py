@@ -102,11 +102,6 @@ def _write_request_lines(station: config.Station, lines: list[dict]) -> None:
     tmp.replace(path)
 
 
-def waiting_requests(station: config.Station) -> int:
-    """How many listener requests are waiting to air, in the order asked."""
-    return len(_request_lines(station))
-
-
 def append_request(station: config.Station, uri: str, label: str = "") -> int:
     """Queue a listener request behind any already waiting. Returns its position."""
     lines = _request_lines(station) + [{"uri": uri, "label": (label or "").strip()}]
