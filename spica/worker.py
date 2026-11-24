@@ -641,7 +641,7 @@ def main() -> int:
             jobs.finish(conn, job_id, result)
             # The rest of the slice goes to the back of the queue, so other job kinds
             # queued in between get a turn instead of waiting behind the whole backfill.
-            if kind in ("analysis", "loudness") and (result or {}).get("remaining"):
+            if kind in jobs.SLICED and (result or {}).get("remaining"):
                 jobs.create(conn, kind)
             print(f"job {job_id} {kind}: done {result}", flush=True)
         except Exception as exc:  # a bad job must not kill the worker
