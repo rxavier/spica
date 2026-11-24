@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from spica import app as application
 from spica import config, genres, icecast, mixer, navidrome, pool, store
-from tests.factories import insert_tracks
+from tests.factories import configure_console, insert_tracks
 
 PASSWORD = "let-me-in"
 
@@ -26,38 +26,13 @@ STATIONS = {
 
 @pytest.fixture
 def console(monkeypatch, tmp_path):
-    cfg = tmp_path / "config"
-    state = tmp_path / "state"
-    cfg.mkdir()
-    state.mkdir()
-    (cfg / "stations.json").write_text(json.dumps(STATIONS), encoding="utf-8")
-
-    monkeypatch.setattr(config, "CONFIG_DIR", cfg)
-    monkeypatch.setattr(config, "STATE_DIR", state)
-    monkeypatch.setattr(config, "SESSION_SECRET_FILE", state / ".session-secret")
-    monkeypatch.setattr(config, "DJ_PERSONA_FILE", cfg / "dj-persona.md")
-    monkeypatch.setattr(config, "ADMIN_PASSWORD", PASSWORD)
-    # the alias file's path is bound at import time, so it has to be moved by hand,
-    # and its cache outlives a test that does not reset it.
-    monkeypatch.setattr(genres, "alias_path", lambda: state / "genre-aliases.json")
-    genres.reset_cache()
-
-    monkeypatch.setattr(mixer, "close", lambda: None)
-    monkeypatch.setattr(mixer, "queued_ids", lambda st: [])
-    monkeypatch.setattr(mixer, "pending_uris", lambda st: [])
-    monkeypatch.setattr(mixer, "now_lines", lambda st: [])
-    monkeypatch.setattr(pool, "write_pools", lambda conn, stations, log=print: {"alt": 2})
-    monkeypatch.setattr(icecast, "listen_states", lambda: {})
-    monkeypatch.setattr(icecast, "total_listeners", lambda states, st: 0)
-    monkeypatch.setattr(icecast, "live_mount", lambda states, st: None)
-
-    store.reset()
+    cfg, state = configure_console(
+        monkeypatch, tmp_path, STATIONS, pool_counts={"alt": 2}, password=PASSWORD
+    )
     seed(store.conn())
-
     client = TestClient(application.app)
     client.post("/admin/login", data={"password": PASSWORD}, follow_redirects=False)
     yield client, cfg, state, store.conn()
-
     store.reset()
 
 
