@@ -341,9 +341,10 @@ def _longest_absent(lib, station, pool: list[dict], k: int) -> list[dict]:
     set — play one and it leaves the top.
     """
     plays = queue.recent(station, ABSENCE * 6)
+    tracks = lib.by_ids(str(entry.get("id") or "") for entry in plays)
     since: dict[str, int] = {}
     for ago, entry in enumerate(reversed(plays)):
-        row = lib.by_id(str(entry.get("id") or ""))
+        row = tracks.get(str(entry.get("id") or ""))
         name = (row.album_artist or row.artist) if row is not None else str(entry.get("artist") or "")
         key = navidrome.name_key(name)
         if key and key not in since:

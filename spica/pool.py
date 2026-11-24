@@ -208,13 +208,17 @@ def _recent_context(conn: sqlite3.Connection, station: config.Station) -> tuple[
     """
     entries = list(reversed(queue.recent(station, max(40, ARTIST_WINDOW))))
     avoid = {str(e.get("id") or "") for e in entries[:40] if e.get("id")}
+    rows = {
+        row["id"]: row
+        for row in track_queries.tracks_by_ids(
+            conn, [str(e.get("id") or "") for e in entries],
+            "id, album_artist, artist, album_id",
+        )
+    }
     artists: list[str] = []
     album = ""
     for entry in entries:
-        track_id = str(entry.get("id") or "")
-        row = track_queries.track_by_id(
-            conn, track_id, "album_artist, artist, album_id"
-        )
+        row = rows.get(str(entry.get("id") or ""))
         name = (row["album_artist"] or row["artist"]) if row is not None else entry.get("artist") or ""
         if name and len(artists) < ARTIST_WINDOW:
             artists.append(name)

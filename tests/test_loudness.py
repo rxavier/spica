@@ -80,13 +80,39 @@ def test_picker_hands_the_mixer_an_annotated_uri(tmp_path, monkeypatch):
             ("t2", "http://navidrome/rest/stream?id=t2", "Second", "Band", "Record", "al1"),
         )
     rows = {r["id"]: r for r in conn.execute("SELECT * FROM tracks")}
+    lib = Library(conn)
 
-    tagged = Library._full(rows["t1"])
+    tagged = lib._full(rows["t1"])
     assert tagged.uri.startswith('annotate:liq_amplify="')
     assert subsonic.song_id(tagged.uri) == "t1"
 
-    untagged = Library._full(rows["t2"])
+    untagged = lib._full(rows["t2"])
     assert untagged.uri == "http://navidrome/rest/stream?id=t2"
+
+
+def test_the_loudness_store_is_read_once_per_picker(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(config, "LOUDNESS", True)
+    (tmp_path / "loudness.db").write_bytes(b"")
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        conn.execute(
+            "INSERT INTO tracks (id, uri, title, artist) VALUES (?,?,?,?)",
+            ("t1", "http://navidrome/stream?id=t1", "First", "Band"),
+        )
+
+    calls = []
+
+    def once():
+        calls.append(1)
+        return {}
+
+    monkeypatch.setattr(loudness, "all_measured", once)
+    lib = Library(conn)
+    lib.by_id("t1")
+    lib.by_id("t1")
+
+    assert len(calls) == 1
 
 
 def test_mixer_applies_the_gain_before_the_crossfade():
