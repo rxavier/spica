@@ -121,20 +121,22 @@ def build(lib, station) -> dict | None:
     artist_coverage = len(known_artists) / len(all_artists) if all_artists else 0.0
     partial = coverage < READY_TRACKS or artist_coverage < READY_ARTISTS
 
-    blocked = _blocked_artists(lib, station)
+    entries = queue.recent(station, ABSENCE * 6)
+    on_air_entry = entries[-1] if entries else {}
+    blocked = _blocked_artists(lib, station, entries=entries)
     played = ledger.recently_out(station)
     try:
         queued = set(mixer.queued_ids(station))
     except Exception:  # liquidsoap down: candidates are still worth drawing
         queued = set()
-    on_air = str((queue.recent(station, 1) or [{}])[-1].get("id") or "")
+    on_air = str(on_air_entry.get("id") or "")
 
     labels = lib.labels_by_track()
     try:
         ranks = lib.popularity_ranks(rows)
     except Exception:
         ranks = {}
-    absence = artist_absence(lib, station)
+    absence = artist_absence(lib, station, entries=entries)
 
     eligible = _eligible(rows, vectors, features, played, queued, on_air, blocked)
     candidates = _candidates(eligible, labels, ranks, absence)
@@ -148,7 +150,7 @@ def build(lib, station) -> dict | None:
     if len(fresh) >= MIN_CANDIDATES:
         candidates = fresh
 
-    anchor = _anchor(lib, station, features, vectors)
+    anchor = _anchor(lib, station, features, vectors, on_air_entry)
     if anchor is None or anchor.get("energy") is None:
         # Without a real anchor the directions are guesses against the station median;
         # the artist candidates are better than that.
@@ -525,18 +527,18 @@ def _public(candidate: dict) -> dict:
 
 # ------------------------------------------------------------------- the context
 
-def _blocked_artists(lib, station) -> set[str]:
+def _blocked_artists(lib, station, *, entries: list[dict] | None = None) -> set[str]:
     """Artists that may not be offered: just played, queued, or in the last candidates.
 
     No sonic distance here — "close to what is on air" is one deliberate direction. The picker's own recent picks are left out, so
     the familiar block stays reachable for a set not anchored to an airing.
     """
-    return blocked_artists(lib, station, recent=6, include_picks=False).keys
+    return blocked_artists(lib, station, recent=6, include_picks=False, entries=entries).keys
 
 
-def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:
+def _anchor(lib, station, features: dict, vectors: dict, entry: dict) -> dict | None:
     """What the set has to sit next to: the on-air track, or its artist's sound."""
-    entry = (queue.recent(station, 1) or [{}])[-1]
+    entry = entry or {}
     track_id = str(entry.get("id") or "")
     vector = vectors.get(track_id)
     feature = features.get(track_id) or {}
