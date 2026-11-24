@@ -37,10 +37,6 @@ from .queries import tracks as track_queries
 POLL_SECONDS = 5
 
 
-def _db():
-    return navidrome.connect(config.STATE_DIR / "index.db")
-
-
 def _artist_labels(conn, artist: str) -> list[str]:
     """Last.fm tags for an artist, cached in `artist_tags` so it is fetched once."""
     cached = enrich_queries.tags_for(conn, artist)
@@ -590,7 +586,7 @@ def queue_followups(conn: sqlite3.Connection, seen: dict[str, int]) -> bool:
 def main() -> int:
     bootstrap.ensure(verbose=False)
     config.ensure_dirs()
-    conn = _db()
+    conn = navidrome.connect(config.STATE_DIR / "index.db")
     jobs.ensure_schema(conn)
     # A job marked running belongs to a process that no longer exists: this one has
     # just started. Leaving it there blocks every future job of that kind, and these

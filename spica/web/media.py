@@ -19,7 +19,6 @@ from .shared import (
     COVER_SIZE,
     ALBUM_ID,
     ART_DIR,
-    stations,
 )
 
 router = APIRouter()
