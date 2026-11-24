@@ -61,9 +61,9 @@ def test_library_behaves_as_before_without_analysis(station, tmp_path):
     conn = seed(tmp_path / "index.db", [track("a", "Band A")])
     lib = Library(conn)
     assert lib.analysis_store() is None
-    assert lib._features() == {}
+    assert lib.features() == {}
     assert lib.sound_line(["Band A"]) == ""
-    assert lib._audio_artists("Band A", k=3) == []
+    assert lib.audio_artists("Band A", k=3) == []
 
 
 def test_a_drifted_store_raises_instead_of_looking_empty(tmp_path):
@@ -248,14 +248,14 @@ def test_rows_gain_fields_only_when_the_track_was_analysed(station, tmp_path):
     row = conn.execute("SELECT * FROM tracks WHERE id = 'a'").fetchone()
     base = {"labels": {}, "ranks": {}, "played": set(), "queued": set(), "analysis": {}}
 
-    plain = lib._row(row, base)
+    plain = lib.row(row, base)
     assert not {"tempo", "key", "sound", "energy"} & set(plain)
 
     heard = {
         "labels": {}, "ranks": {}, "played": set(), "queued": set(),
         "analysis": {"a": {"bpm": 118.4, "key": "A min", "sound": "Funk", "energy": 0.814}},
     }
-    out = lib._row(row, heard)
+    out = lib.row(row, heard)
     assert out["tempo"] == 118
     assert out["key"] == "A min"
     assert out["sound"] == "Funk"

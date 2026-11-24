@@ -105,9 +105,9 @@ def build(lib, station) -> dict | None:
     """The candidate tracks for one set, or None when analysis is off or too thin."""
     if not analysis.enabled():
         return None
-    rows = lib._station_rows(station)
+    rows = lib.station_rows(station)
     vectors = lib.track_vectors()
-    features = lib._features()
+    features = lib.features()
     if not rows or not vectors or not features:
         return None
 

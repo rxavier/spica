@@ -47,6 +47,17 @@ facade plus `picker/context.py` (caches), `picker/rows.py` (row shapes) and
 their scope allows (the remaining items are deliberate: separate availability
 predicates, test-local fakes, and the operator-facing README summary). Suite green.
 
+### Third pass (2026-11-24, cleanup)
+
+- `Library`'s tool forwarders now have real signatures instead of `*args, **kwargs`.
+- `catalog_summary`, `popularity_ranks` and `recent_labels` moved back to `Library`, so
+  `Tools` is only the model tools and album sampling.
+- Cross-module cache helpers are public (`features`, `station_rows`, `audio_artists`,
+  `row`, `full`) instead of underscore names used outside the class.
+- Removed the unused `loudness` import, corrected the `Library` module docstring, and
+  made `on_station` reuse the cached station state instead of building the matcher twice.
+- Suite green (269 tests).
+
 
 ### Fixed in this revision
 

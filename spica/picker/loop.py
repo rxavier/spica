@@ -39,7 +39,7 @@ def _sound_suffix(lib, track_id: str) -> str:
     if not track_id:
         return ""
     try:
-        feature = lib._features().get(track_id) or {}
+        feature = lib.features().get(track_id) or {}
     except Exception:
         return ""
     bits = []

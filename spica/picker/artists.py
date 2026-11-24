@@ -37,7 +37,7 @@ MIN_CANDIDATES = 3     # fewer than this is not a choice, it is a wall: no restr
 
 def build(lib, station) -> list[dict]:
     """The candidate artists for one set, with the reason each one is there."""
-    rows = lib._station_rows(station)
+    rows = lib.station_rows(station)
     if not rows:
         return []
     profiles = _profiles(lib, rows)

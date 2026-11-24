@@ -82,11 +82,11 @@ def test_picker_hands_the_mixer_an_annotated_uri(tmp_path, monkeypatch):
     rows = {r["id"]: r for r in conn.execute("SELECT * FROM tracks")}
     lib = Library(conn)
 
-    tagged = lib._full(rows["t1"])
+    tagged = lib.full(rows["t1"])
     assert tagged.uri.startswith('annotate:liq_amplify="')
     assert subsonic.song_id(tagged.uri) == "t1"
 
-    untagged = lib._full(rows["t2"])
+    untagged = lib.full(rows["t2"])
     assert untagged.uri == "http://navidrome/rest/stream?id=t2"
 
 

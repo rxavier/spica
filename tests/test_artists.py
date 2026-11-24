@@ -126,7 +126,7 @@ def test_a_list_too_small_to_choose_from_is_no_restriction(monkeypatch):
     class Tiny:
         draw_seed = 5
 
-        def _station_rows(self, station):
+        def station_rows(self, station):
             return [object(), object()]
 
     two = [profile("One", "Rock", 1990, 1), profile("Two", "Pop", 2000, 2)]
