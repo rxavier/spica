@@ -1,4 +1,4 @@
-"""One pick: brief, look things up, answer, and make sure the answer is legal.
+"""One pick: prompt context, look things up, answer, and make sure the answer is legal.
 
 The loop is deliberately small — at most MAX_TOOL_ROUNDS lookups, one forced retry
 when a reply cannot be used, and a last ask with the tools switched off — because
@@ -172,7 +172,7 @@ def _timeline_lines(lib, station) -> list[str]:
         The picker only gets a reason when the reason was its own. A track the mixer played
         from the fallback rotation while the picker was offline is labelled as such — it is what
         the room heard, not a choice to build on, and presenting it as one is how the
-        brief ends up disagreeing with the station.
+        prompt context ends up disagreeing with the station.
 
         `repeat` drops the reason for a track that belongs to the set the line above it
         already explained: a set of six would otherwise print one theme six times, and
@@ -474,7 +474,7 @@ def parse_set(
     data = json_object(content)
     if data is None:
         return "", []
-    theme = str(data.get("theme") or "").strip()[:200]
+    set_rationale = str(data.get("rationale") or data.get("theme") or "").strip()[:200]
     raw = data.get("ids") or data.get("tracks") or []
     ids: list[str] = []
     used: set[str] = set()
@@ -501,7 +501,7 @@ def parse_set(
             continue
         used.add(who)
         ids.append(track_id)
-    return theme, ids
+    return set_rationale, ids
 
 
 def already_airing(lib: Library, station: config.Station) -> set[str]:

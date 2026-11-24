@@ -33,7 +33,7 @@ REASONING_EFFORT = "low"
 # The reply contract lives in one place, so the system prompt and both retries
 # state it the same way.
 SET_CONTRACT = (
-    'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
+    'Reply with ONLY a JSON object: {"rationale": "<one line, at most 140 characters: '
     'what this set is and where it is going>", "ids": ["<id from a tool result>", ...]}'
 )
 ANSWER_NOW = (
@@ -42,7 +42,7 @@ ANSWER_NOW = (
 
 # The track-candidate path gives the ids in the prompt context and asks for no lookups at all.
 SET_CONTRACT_TABLE = (
-    'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
+    'Reply with ONLY a JSON object: {"rationale": "<one line, at most 140 characters: '
     'what this set is and where it is going>", "ids": ["<id from the candidates>", ...]}'
 )
 
