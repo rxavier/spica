@@ -156,23 +156,8 @@ def pick_next(
     return plan_pick(lib, station, request_text, avoid, use_table=(mode == "track"))
 
 
-def plan_pick(
-    lib: Library,
-    station: config.Station,
-    request_text: str | None,
-    avoid: set[str],
-    use_table: bool = True,
-) -> Pick | None:
-    """Ask the model for the next set, store it, and hand back its first track."""
-    # A request is answered now; a set can wait for the next record to settle. Planning
-    # against a track that ends mid-call is how a set ends up starting after the pool's
-    # next draw, anchored to a record the listener never heard.
-    if request_text is None and not _enough_runway(lib, station):
-        return None
-    # One seed per set: `filter`'s order must hold still while the DJ is choosing, or
-    # `offset` would page a different list every call. The next set reshuffles.
-    lib.draw_seed = secrets.randbits(32)
-
+def _timeline_lines(lib, station) -> list[str]:
+    """The station's story so far: on air, the plays before it, and what is queued."""
     recent = list(reversed(queue.recent(station, 7)))
     live = icecast.live_mount(icecast.listen_states(), station)
     state = live[1] if live else None
@@ -261,7 +246,13 @@ def plan_pick(
         )
     elif on_air:
         lines.append("Nothing is queued: your set starts right after what is on air.")
+    return lines
 
+
+def _offer_lines(lib, station, request_text: str | None,
+                 use_table: bool) -> tuple[list[str], dict | None, list[str]]:
+    """What the DJ may choose from: a table of records, or the artist shelf."""
+    lines: list[str] = []
     # What the DJ may choose from tonight. The artists that aired, the ones already
     # queued and the ones that sound most like the three tracks either side of this set
     # are not on it — so the brief never has to say what played, and the list cannot be
@@ -293,78 +284,61 @@ def plan_pick(
             "set still has to move — two eras, two genres, one thing changing between "
             "each track. Which of them, in what order, is yours."
         )
+    return lines, table, shelf_names
 
-    # One thought per line. Run together as a paragraph, the on-air line, the queue and
-    # the list of past picks read as one wall of text.
-    recent_lines = "\n".join(lines)
 
-    active_requests = requests_mod.active(station)
-    live_lines = "\n".join(
-        f'- "{r["text"]}" — asked {r["songs_ago"]} song(s) ago'
-        for r in active_requests
-    )
+def _finish(lib: Library, station: config.Station, avoid: set[str], content: str, *,
+            allowed: set[str] | None, allowed_ids: set[str] | None,
+            table: dict | None, shelf_names: list[str], brief: str,
+            called: list[dict]) -> Pick | None:
+    """Turn a reply into a stored set.
 
-    messages: list[dict] = [
-        {"role": "system", "content": system_prompt(station, lib.roster(station), table=bool(table))},
-        {
+    The shelf is the one thing about a set that is checked rather than asked for:
+    every artist has to be on it, and none of them twice. Everything else — how
+    many tracks, which records, the order, the line — is the DJ's.
+    """
+    theme, ids = parse_set(lib, content, avoid, station, allowed=allowed,
+                           allowed_ids=allowed_ids)
+    if not ids:
+        return None
+    # The set is stored before its first track is handed over: the next call finds
+    # it there and plays the second track without asking the model anything.
+    plan.save(station, theme, ids[1:], shelf=shelf_names)
+    track = lib.by_id(ids[0])
+    if track is None or not track.uri:
+        return None
+    pick = Pick(track=track, why=theme, theme=theme)
+    pick.path = ("shelf" if table is None
+                 else ("table-partial" if table.get("partial") else "table"))
+    pick.coverage = table.get("coverage") if table else None
+    # What the set was offered, played or not: the next few sets leave those records
+    # alone, so the same familiar block cannot come back every fifteen minutes.
+    pick.offered = tuple(table["ids"]) if table else ()
+    pick.brief, pick.tools = brief, tuple(called)
+    pick.reply = (content or "")[:500]
+    pick.shelf = tuple(shelf_names)
+    return pick
+
+
+def _table_attempt(messages: list[dict], finish) -> Pick | None:
+    """One call, no tools: the table already carries every id that may air."""
+    msg = chat(messages, [], no_tools=True)
+    pick = finish(msg.get("content") or "")
+    if pick is None:
+        messages.append({"role": "assistant", "content": msg.get("content") or ""})
+        messages.append({
             "role": "user",
-            "content": (
-                (f"Listener request: {request_text}\n" if request_text else "Choose the next set.\n")
-                + (f"What listeners asked for:\n{live_lines}\n" if live_lines else "")
-                + recent_lines
-            ),
-        },
-    ]
+            "content": "That reply could not be used. " + SET_CONTRACT_TABLE
+            + " Every id must be one of the table's, no artist twice, and nothing "
+            "already playing or queued.",
+        })
+        pick = finish(chat(messages, [], no_tools=True).get("content") or "")
+    return pick
 
-    brief = messages[1]["content"] if len(messages) > 1 else ""
-    called: list[dict] = []
-    allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
-    allowed_ids = set(table["ids"]) if table else None
 
-    def finish(content: str) -> Pick | None:
-        """Turn a reply into a stored set.
-
-        The shelf is the one thing about a set that is checked rather than asked for:
-        every artist has to be on it, and none of them twice. Everything else — how
-        many tracks, which records, the order, the line — is the DJ's.
-        """
-        theme, ids = parse_set(lib, content, avoid, station, allowed=allowed,
-                               allowed_ids=allowed_ids)
-        if not ids:
-            return None
-        # The set is stored before its first track is handed over: the next call finds
-        # it there and plays the second track without asking the model anything.
-        plan.save(station, theme, ids[1:], shelf=shelf_names)
-        track = lib.by_id(ids[0])
-        if track is None or not track.uri:
-            return None
-        pick = Pick(track=track, why=theme, theme=theme)
-        pick.path = ("shelf" if table is None
-                     else ("table-partial" if table.get("partial") else "table"))
-        pick.coverage = table.get("coverage") if table else None
-        # What the set was offered, played or not: the next few sets leave those records
-        # alone, so the same familiar block cannot come back every fifteen minutes.
-        pick.offered = tuple(table["ids"]) if table else ()
-        pick.brief, pick.tools = brief, tuple(called)
-        pick.reply = (content or "")[:500]
-        pick.shelf = tuple(shelf_names)
-        return pick
-
-    if table:
-        # One call, no tools: the table already carries every id that may air.
-        msg = chat(messages, [], no_tools=True)
-        pick = finish(msg.get("content") or "")
-        if pick is None:
-            messages.append({"role": "assistant", "content": msg.get("content") or ""})
-            messages.append({
-                "role": "user",
-                "content": "That reply could not be used. " + SET_CONTRACT_TABLE
-                + " Every id must be one of the table's, no artist twice, and nothing "
-                "already playing or queued.",
-            })
-            pick = finish(chat(messages, [], no_tools=True).get("content") or "")
-        return pick
-
+def _tool_rounds(lib: Library, station: config.Station, messages: list[dict],
+                 finish, called: list[dict]) -> Pick | None:
+    """Run the lookup rounds until the model answers with a usable set."""
     for round_no in range(MAX_TOOL_ROUNDS + 1):
         last_round = round_no == MAX_TOOL_ROUNDS
         if last_round:
@@ -442,6 +416,65 @@ def plan_pick(
     final = chat(messages, TOOLS, no_tools=True)
     return finish(final.get("content") or "")
 
+
+def plan_pick(
+    lib: Library,
+    station: config.Station,
+    request_text: str | None,
+    avoid: set[str],
+    use_table: bool = True,
+) -> Pick | None:
+    """Ask the model for the next set, store it, and hand back its first track."""
+    # A request is answered now; a set can wait for the next record to settle. Planning
+    # against a track that ends mid-call is how a set ends up starting after the pool's
+    # next draw, anchored to a record the listener never heard.
+    if request_text is None and not _enough_runway(lib, station):
+        return None
+    # One seed per set: `filter`'s order must hold still while the DJ is choosing, or
+    # `offset` would page a different list every call. The next set reshuffles.
+    lib.draw_seed = secrets.randbits(32)
+
+    lines = _timeline_lines(lib, station)
+    offer_lines, table, shelf_names = _offer_lines(lib, station, request_text, use_table)
+    lines += offer_lines
+
+    # One thought per line. Run together as a paragraph, the on-air line, the queue and
+    # the list of past picks read as one wall of text.
+    recent_lines = "\n".join(lines)
+
+    active_requests = requests_mod.active(station)
+    live_lines = "\n".join(
+        f'- "{r["text"]}" — asked {r["songs_ago"]} song(s) ago'
+        for r in active_requests
+    )
+
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt(station, lib.roster(station), table=bool(table))},
+        {
+            "role": "user",
+            "content": (
+                (f"Listener request: {request_text}\n" if request_text else "Choose the next set.\n")
+                + (f"What listeners asked for:\n{live_lines}\n" if live_lines else "")
+                + recent_lines
+            ),
+        },
+    ]
+
+    brief = messages[1]["content"] if len(messages) > 1 else ""
+    called: list[dict] = []
+    allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
+    allowed_ids = set(table["ids"]) if table else None
+
+    def finish(content: str) -> Pick | None:
+        return _finish(
+            lib, station, avoid, content,
+            allowed=allowed, allowed_ids=allowed_ids,
+            table=table, shelf_names=shelf_names, brief=brief, called=called,
+        )
+
+    if table:
+        return _table_attempt(messages, finish)
+    return _tool_rounds(lib, station, messages, finish, called)
 
 def parse_set(
     lib: Library, content: str, avoid: set[str], station: config.Station,
