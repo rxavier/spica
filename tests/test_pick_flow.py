@@ -194,7 +194,7 @@ def test_a_track_off_the_shelf_is_dropped(flow, station, monkeypatch):
     pick = loop.pick_next(lib, station, None, set())
 
     assert pick is not None and pick.track.id == T
-    assert plan.remaining(station) == 0, "only the artist on the shelf got through"
+    assert not (plan.load(station) or {}).get("ids"), "only the artist on the shelf got through"
 
 
 def test_an_answer_that_ignores_the_prompt_is_still_taken(flow, station):
@@ -205,7 +205,7 @@ def test_an_answer_that_ignores_the_prompt_is_still_taken(flow, station):
     pick = loop.pick_next(lib, station, None, set())
 
     assert pick is not None
-    assert plan.remaining(station) == 1
+    assert len(plan.load(station)["ids"]) == 1
 
 
 def test_the_pick_records_what_it_read(flow, station):

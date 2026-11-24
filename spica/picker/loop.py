@@ -131,7 +131,7 @@ def pick_next(
     # A request is a new decision: the rest of the set was chosen for the mood the
     # listener just asked to leave, so it is dropped rather than played behind them.
     if request_text:
-        plan.clear(station, "listener request")
+        plan.clear(station)
     else:
         # The set is served before anything below looks at the model. A set is already
         # decided: losing the key, the network or the endpoint mid-set must not stop the
