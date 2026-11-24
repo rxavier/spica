@@ -14,8 +14,10 @@ def write_requests(station, lines):
 def test_slot_and_request_temp_files_differ(station):
     """A pick and a request are written in parallel; one temp name would let them
     clobber each other mid-write."""
-    slot_tmp = queue._tmp(station.queue_file)
-    request_tmp = queue._tmp(queue.due_file(station))
+    from spica import atomic
+
+    slot_tmp = atomic.temp_path(station.queue_file)
+    request_tmp = atomic.temp_path(queue.due_file(station))
     assert slot_tmp != request_tmp
 
 

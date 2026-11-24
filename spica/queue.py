@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from . import config, plan, subsonic
+from .atomic import atomic_write
 from .ledger import (
     parse_stamp,
     utc_stamp,
@@ -39,23 +40,12 @@ from .ledger import (
 )
 
 
-def _tmp(path: Path) -> Path:
-    """A temp name unique to the full file name, so the slot (<id>.txt) and the
-    request list (<id>.request) cannot share one temp file."""
-    return path.with_name(path.name + ".tmp")
-
-
 def _write(station: config.Station, uri: str, label: str) -> None:
     """Fill the slot. The label is written first, so the queue file existing means
     its label exists too — the other order left a waiting track with no name after a
     crash, and the page reported nothing queued."""
-    station.queue_file.parent.mkdir(parents=True, exist_ok=True)
-    station.queue_file.with_suffix(".label").write_text(
-        (label or "").strip() + "\n", encoding="utf-8"
-    )
-    tmp = _tmp(station.queue_file)
-    tmp.write_text(uri + "\n", encoding="utf-8")
-    tmp.replace(station.queue_file)
+    atomic_write(station.queue_file.with_suffix(".label"), (label or "").strip() + "\n")
+    atomic_write(station.queue_file, uri + "\n")
 
 
 def push(station: config.Station, uri: str, label: str = "") -> bool:
@@ -97,10 +87,7 @@ def _write_request_lines(station: config.Station, lines: list[dict]) -> None:
     if not lines:
         path.unlink(missing_ok=True)
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _tmp(path)
-    tmp.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write(path, "".join(json.dumps(line) + "\n" for line in lines))
 
 
 def append_request(station: config.Station, uri: str, label: str = "") -> int:
@@ -268,7 +255,7 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
     try:
         if path.stat().st_size > 8_000_000:
             keep = read_tail(path, PICKS_KEPT)
-            path.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
+            atomic_write(path, "".join(line + "\n" for line in keep))
     except OSError:
         pass
 

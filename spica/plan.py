@@ -13,6 +13,7 @@ import json
 import time
 
 from . import config
+from .atomic import atomic_write
 
 
 # A set is good for the night it was chosen for, not for tomorrow. If the DJ is off
@@ -33,14 +34,10 @@ def load(station: config.Station) -> dict | None:
 
 def _write(station: config.Station, theme: str, ids: list[str], made: float,
            shelf: list[str] | None = None) -> None:
-    path = station.plan_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
     body = {"theme": theme, "ids": list(ids), "made": made}
     if shelf:
         body["shelf"] = list(shelf)
-    tmp.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write(station.plan_file, json.dumps(body, ensure_ascii=False))
 
 
 def save(station: config.Station, theme: str, ids: list[str],

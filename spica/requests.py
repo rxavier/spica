@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from . import config, ledger
+from .atomic import atomic_write
 
 # How many plays a request is remembered for. Not how long it is obeyed: after the
 # track it produced, it is context the DJ may follow or leave.
@@ -69,13 +70,10 @@ def _load(station: config.Station) -> list[dict]:
 
 
 def _store(station: config.Station, reqs: list[dict]) -> None:
-    path = _path(station)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in reqs), encoding="utf-8"
+    atomic_write(
+        _path(station),
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in reqs),
     )
-    tmp.replace(path)
 
 
 def record(station: config.Station, text: str, songs: int = DEFAULT_SONGS) -> dict:

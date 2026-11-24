@@ -17,6 +17,7 @@ import sqlite3
 import time
 
 from . import config, loudness, navidrome, queue, subsonic
+from .atomic import atomic_write
 from .queries import enrichment as enrich_queries
 from .queries import tracks as track_queries
 
@@ -121,9 +122,7 @@ def _index_of(lines: list[str], track_id: str) -> int | None:
 
 
 def _rewrite(st: config.Station, lines: list[str]) -> None:
-    tmp = st.pool_file.with_suffix(".tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(st.pool_file)
+    atomic_write(st.pool_file, "\n".join(lines) + "\n")
 
 
 def _rotate_after(st: config.Station, track_id: str) -> bool:
@@ -255,9 +254,7 @@ def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=pr
             seen.add(r["id"])
             body_lines.append(uri)
         body = "\n".join(body_lines)
-        tmp = st.pool_file.with_suffix(".tmp")
-        tmp.write_text(body + "\n", encoding="utf-8")
-        tmp.replace(st.pool_file)
+        atomic_write(st.pool_file, body + "\n")
         counts[st.id] = len(body_lines)
         log(f"pool {st.id}: {len(body_lines)} tracks")
     return counts
