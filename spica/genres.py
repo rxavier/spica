@@ -335,6 +335,28 @@ def _add_alias(source: str, target: str) -> None:
     path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def remove_alias(source: str) -> bool:
+    """Forget the operator rule for `source`, matching the folded key it was stored under."""
+    path = _FILE
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(raw, dict):
+        return False
+    key = fold(source)
+    current = list(raw.get("aliases") or [])
+    aliases = [a for a in current if a.get("from") != key]
+    if len(aliases) == len(current):
+        return False
+    raw["aliases"] = aliases
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return True
+
+
 def merge(conn, labels, into, *, relabel: bool = False) -> int:
     """Fold any number of labels (raw tags or canonical names) into one name.
 
