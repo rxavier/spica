@@ -27,7 +27,7 @@ from .. import presence
 from .. import queue
 from .. import store
 from .. import requests as requests_mod
-from .shared import LOCAL_TZ, now_playing, stations, templates
+from .shared import LOCAL_TZ, now_playing, templates
 
 log = logging.getLogger("radio")
 
@@ -49,7 +49,7 @@ def _local(iso: str) -> str:
 def _stations_view() -> list[dict]:
     states = icecast.listen_states()
     out = []
-    for st in stations():
+    for st in store.stations():
         live = icecast.live_mount(states, st)
         n = live[1].listeners if live else 0
         picks = []

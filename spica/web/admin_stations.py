@@ -21,7 +21,6 @@ from fastapi.responses import (
 
 from .shared import (
     templates,
-    stations,
     station_or_404,
     pool_preview,
     write_stations,
@@ -31,7 +30,6 @@ from .shared import (
     _apply_station_script,
     known_labels,
     _int_or_none,
-    _conn,
 )
 
 router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
@@ -72,7 +70,7 @@ def _station_artist_page(conn, station, q: str = "", page: int = 1) -> dict:
 @router.get("/admin/stations/{station_id}/artists", response_class=HTMLResponse)
 async def admin_station_artists(request: Request, station_id: str, q: str = "", page: int = 1):
     station = station_or_404(station_id)
-    context = await asyncio.to_thread(_station_artist_page, _conn(), station, q, page)
+    context = await asyncio.to_thread(_station_artist_page, store.conn(), station, q, page)
     return templates.TemplateResponse(
         request,
         "_station_artists.html",
@@ -84,18 +82,18 @@ async def admin_station_artists(request: Request, station_id: str, q: str = "", 
 async def admin_stations(request: Request):
     items = await asyncio.to_thread(_raw_stations)
     return templates.TemplateResponse(
-        request, "admin_stations.html", {"items": items, "stations": stations()}
+        request, "admin_stations.html", {"items": items, "stations": store.stations()}
     )
 
 
 def _station_form_context(item: dict, station) -> dict:
     # Most-used first: the genre you want is nearly always near the top, and the
     # counts say how much a station is about to gain.
-    labels = [(row["label"], row["c"]) for row in label_queries.counts_by_tracks(_conn())]
+    labels = [(row["label"], row["c"]) for row in label_queries.counts_by_tracks(store.conn())]
     # The two dropdowns list the record's artists, most recorded first. Any name
     # already selected is kept even if the index no longer has it under that
     # spelling, so saving the form does not silently drop a rule.
-    artists = [row["artist"] for row in track_queries.record_artist_counts(_conn())]
+    artists = [row["artist"] for row in track_queries.record_artist_counts(store.conn())]
     chosen = set(item.get("include_artists") or ()) | set(item.get("exclude_artists") or ())
     have = set(artists)
     artists.extend(sorted(chosen - have, key=str.casefold))
@@ -105,7 +103,7 @@ def _station_form_context(item: dict, station) -> dict:
         "preview": pool_preview(station),
         "all_labels": labels,
         "all_artists": artists,
-        "station_artists_page": _station_artist_page(_conn(), station),
+        "station_artists_page": _station_artist_page(store.conn(), station),
         "codecs": config.CODECS,
         "labels": config.CODEC_LABEL,
         "extensions": config.CODEC_EXT,
@@ -188,7 +186,7 @@ async def admin_station_save(
     write_stations(raw)
 
     def _rebuild_pools() -> dict[str, int]:
-        return pool.write_pools(_conn(), store.reload_stations())
+        return pool.write_pools(store.conn(), store.reload_stations())
 
     counts = await asyncio.to_thread(_rebuild_pools)
     if note or streams_changed:
@@ -245,7 +243,7 @@ async def admin_station_create(
     write_stations(raw)
 
     def _rebuild_pools() -> None:
-        pool.write_pools(_conn(), store.reload_stations())
+        pool.write_pools(store.conn(), store.reload_stations())
 
     await asyncio.to_thread(_rebuild_pools)
     await asyncio.to_thread(_apply_station_script)
@@ -273,7 +271,7 @@ async def admin_station_delete(request: Request, station_id: str):
                   config.STATE_DIR / "queue" / f"{station_id}.txt"):
         stray.unlink(missing_ok=True)
     def _rebuild_pools() -> None:
-        pool.write_pools(_conn(), store.reload_stations())
+        pool.write_pools(store.conn(), store.reload_stations())
 
     await asyncio.to_thread(_rebuild_pools)
     await asyncio.to_thread(_apply_station_script)

@@ -24,7 +24,6 @@ from fastapi.responses import (
 from .shared import (
     templates,
     _restart_mixer,
-    _conn,
 )
 
 router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
@@ -38,27 +37,27 @@ async def admin_home(request: Request):
 
 @router.get("/admin/jobs", response_class=HTMLResponse)
 async def admin_jobs(request: Request):
-    recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
+    recent = await asyncio.to_thread(jobs.recent, store.conn(), 10)
     return templates.TemplateResponse(request, "_jobs.html", {"jobs": recent})
 
 
 @router.post("/admin/jobs", response_class=HTMLResponse)
 async def admin_job_create(request: Request, kind: str = Form(...)):
     try:
-        await asyncio.to_thread(jobs.create, _conn(), kind)
+        await asyncio.to_thread(jobs.create, store.conn(), kind)
     except ValueError as exc:
-        recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
+        recent = await asyncio.to_thread(jobs.recent, store.conn(), 10)
         return templates.TemplateResponse(
             request, "_jobs.html", {"jobs": recent, "error": str(exc)}
         )
-    recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
+    recent = await asyncio.to_thread(jobs.recent, store.conn(), 10)
     return templates.TemplateResponse(
         request, "_jobs.html", {"jobs": recent}
     )
 
 
 def _library_context() -> dict:
-    conn = _conn()
+    conn = store.conn()
     try:
         status = subsonic.scan_status()
         scan = (status.get("lastScan") or "")[:16].replace("T", " ")
@@ -124,7 +123,7 @@ async def admin_library(request: Request):
 async def admin_rebuild(request: Request):
 
     def _run() -> tuple[int, dict]:
-        conn = _conn()
+        conn = store.conn()
         n = navidrome.rebuild_index(conn, log=lambda *_: None)
         store.forget_tracks()
         counts = pool.write_pools(conn, store.reload_stations())

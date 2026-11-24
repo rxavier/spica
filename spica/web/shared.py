@@ -54,12 +54,8 @@ templates.env.globals["thumb"] = THUMB_SIZE
 ART_DIR = config.STATE_DIR / "art"
 
 
-def stations() -> list[config.Station]:
-    return store.stations()
-
-
 def station_or_404(station_id: str) -> config.Station:
-    for st in stations():
+    for st in store.stations():
         if st.id == station_id:
             return st
     raise HTTPException(404, f"unknown station {station_id}")
@@ -221,7 +217,7 @@ def request_rows(st, limit: int = 5) -> list[dict]:
 
 def pool_preview(st) -> dict:
     """What the station's rules actually select, so the admin can see the result."""
-    conn = _conn()
+    conn = store.conn()
     rows = navidrome.rows_for_station(conn, st)
     artists = {(r["album_artist"] or r["artist"] or "?") for r in rows}
     albums = {
@@ -242,7 +238,7 @@ def station_context(st) -> dict:
     now = now_playing(st)
     return {
         "station": st,
-        "stations": stations(),
+        "stations": store.stations(),
         "now": now,
         "labels": config.CODEC_LABEL,
         "history": history_of(st, 15, now),
@@ -323,10 +319,6 @@ def _restart_mixer() -> str:
         return f"mixer restart failed: {exc}"
 
 
-def _conn():
-    return store.conn()
-
-
 def known_labels(names: list[str]) -> list[str]:
     """Only labels the library actually has; a typo would otherwise select nothing.
 
@@ -335,7 +327,7 @@ def known_labels(names: list[str]) -> list[str]:
     any stored label canonicalises to it — otherwise saving a station quietly drops the
     genre whose tracks are only stored fine.
     """
-    conn = _conn()
+    conn = store.conn()
     shelf = {
         genre_lib.fold(genre_lib.canonical(label))
         for label in label_queries.known(conn)

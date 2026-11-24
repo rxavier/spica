@@ -283,7 +283,7 @@ def test_a_station_genre_written_as_the_shelf_name_survives_a_save(db, station, 
     from spica.web import shared
 
     seed(db, [track("1" * 22, "Disco Band")], [label("1" * 22, "Nu Disco")])
-    monkeypatch.setattr(shared, "_conn", lambda: db)
+    monkeypatch.setattr(shared.store, "conn", lambda: db)
     assert shared.known_labels(["Electronic"]) == ["Electronic"]
     assert shared.known_labels(["Nonsense Genre"]) == []
 

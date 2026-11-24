@@ -27,7 +27,6 @@ from fastapi.responses import (
 
 from .shared import (
     templates,
-    stations,
     station_or_404,
     now_playing,
     history_of,
@@ -43,7 +42,7 @@ router = APIRouter()
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """One page: land on the first station, with every other one a click away."""
-    first = stations()[0]
+    first = store.stations()[0]
     return RedirectResponse(f"/s/{first.id}", status_code=303)
 
 

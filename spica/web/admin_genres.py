@@ -22,8 +22,6 @@ from fastapi.responses import (
 from .shared import (
     known_labels,
     templates,
-    stations,
-    _conn,
 )
 
 router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
@@ -32,7 +30,7 @@ router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 @router.get("/admin/genres", response_class=HTMLResponse)
 async def admin_genres(request: Request, msg: str = "", merged: str = "", into: str = ""):
 
-    conn = _conn()
+    conn = store.conn()
     untagged = await asyncio.to_thread(track_queries.untagged_count, conn)
     counts = await asyncio.to_thread(genre_counts, conn)
     operator = await asyncio.to_thread(genre_lib.operator_aliases)
@@ -72,7 +70,7 @@ async def admin_genres_merge(
     relabel: str = Form(""),
 ):
 
-    conn = _conn()
+    conn = store.conn()
     covered = 0
     if labels and into.strip():
         covered = await asyncio.to_thread(
@@ -94,7 +92,7 @@ async def admin_genres_merge(
 @router.post("/admin/genres/add", response_class=HTMLResponse)
 async def admin_genres_add(request: Request, source: str = Form(...), target: str = Form(...)):
 
-    conn = _conn()
+    conn = store.conn()
     await asyncio.to_thread(genre_lib.merge, conn, [source], target)
     return _genres_page(f"Mapped {source} to {genre_lib.pretty(target)}.")
 
@@ -102,7 +100,7 @@ async def admin_genres_add(request: Request, source: str = Form(...), target: st
 @router.post("/admin/genres/delete", response_class=HTMLResponse)
 async def admin_genres_delete(request: Request, source: str = Form(...)):
 
-    conn = _conn()
+    conn = store.conn()
     removed = await asyncio.to_thread(genre_lib.remove_alias, source)
     if removed:
         await asyncio.to_thread(pool.write_pools, conn, store.stations())
@@ -124,7 +122,7 @@ async def admin_genres_unassign(
     """Take a label off the chosen tracks, and remember the refusal so a rebuild
     does not quietly put it back."""
 
-    conn = _conn()
+    conn = store.conn()
     name = genre_lib.pretty(label.strip())
     if tracks and name:
         def _unassign() -> None:
@@ -150,7 +148,7 @@ async def admin_genres_unassign(
 
 @router.get("/admin/genres/tracks", response_class=HTMLResponse)
 async def admin_genres_tracks(request: Request, label: list[str] = Query(default=[])):
-    conn = _conn()
+    conn = store.conn()
     all_labels, explorer = await asyncio.to_thread(
         lambda: (_all_labels(conn), navidrome.label_explorer(conn, label))
     )
@@ -174,7 +172,7 @@ async def admin_genres_assign(
 ):
     """Put a label on the chosen tracks by hand: it outranks every provider."""
 
-    conn = _conn()
+    conn = store.conn()
     name = genre_lib.pretty(label.strip())
     if tracks and name:
         def _assign() -> None:
