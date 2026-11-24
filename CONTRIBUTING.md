@@ -56,6 +56,24 @@ prompt itself is not tested, because it belongs to whoever runs the station.
 A test that cannot fail is not worth its runtime: break the behaviour deliberately and
 watch the test go red before trusting it.
 
+## Code, comments and docs
+
+Source reads like ordinary engineering prose; the radio voice belongs in the README,
+templates and prompts.
+
+1. The first docstring line says what a function returns or does, in the imperative,
+   using the parameter names. No persona, no metaphor.
+2. At most one short paragraph follows, and only for a non-obvious constraint:
+   ordering, a transaction boundary, a retry policy, why a fallback exists.
+3. No changelog. Delete "used to", "the old", "which is why", "for ever" and the rest
+   of the bug archaeology; that belongs in the commit or PR.
+4. A module docstring is one to three sentences: what the module is, what it talks to,
+   and what it deliberately does not do.
+5. Comments explain *why*, not *what*, and never narrate a previous implementation. If
+   a comment does not help a stranger predict behaviour, delete it.
+6. Product words in code have one plain name each. The mapping lives in
+   [`docs/glossary.md`](docs/glossary.md); user-facing copy may keep the radio voice.
+
 ## Running it locally
 
 ```sh
