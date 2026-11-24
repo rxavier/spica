@@ -9,6 +9,7 @@ from .. import navidrome
 from .. import pool
 from .. import store
 from .. import auth
+from ..queries import tracks as track_queries
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import (
     HTMLResponse,
@@ -33,10 +34,7 @@ async def admin_genres(request: Request, msg: str = "", merged: str = "", into: 
     from ..navidrome import genre_counts
 
     conn = _conn()
-    untagged = conn.execute(
-        "SELECT COUNT(*) c FROM tracks t WHERE NOT EXISTS"
-        " (SELECT 1 FROM track_genres g WHERE g.track_id = t.id)"
-    ).fetchone()["c"]
+    untagged = track_queries.untagged_count(conn)
     return templates.TemplateResponse(
         request,
         "admin_genres.html",
@@ -47,7 +45,7 @@ async def admin_genres(request: Request, msg: str = "", merged: str = "", into: 
             "counts": genre_counts(conn),
             "operator": genre_lib.operator_aliases(),
             "builtin_count": len(genre_lib.BUILTIN),
-            "total_tracks": conn.execute("SELECT COUNT(*) c FROM tracks").fetchone()["c"],
+            "total_tracks": track_queries.library_size(conn, playable=False),
         },
     )
 

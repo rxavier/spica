@@ -29,6 +29,7 @@ from pathlib import Path
 from . import bootstrap
 from . import genres as genre_lib
 from . import config, enrich, genres, jobs, loudness, navidrome, pool, queue, subsonic
+from .queries import tracks as track_queries
 
 POLL_SECONDS = 5
 
@@ -58,13 +59,7 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
     # Group by the primary artist: a "feat." credit is the same act for tagging
     # purposes, and Last.fm has no entry for the combination.
     by_artist: dict[str, list[str]] = {}
-    for row in conn.execute(
-        """SELECT id, COALESCE(NULLIF(album_artist, ''), artist) AS artist
-           FROM tracks
-           WHERE COALESCE(NULLIF(album_artist, ''), artist) != '' AND NOT EXISTS
-                 (SELECT 1 FROM track_genres g
-                   WHERE g.track_id = tracks.id AND g.source = 'external')"""
-    ):
+    for row in track_queries.tracks_missing_external_genres(conn):
         by_artist.setdefault(row["artist"], []).append(row["id"])
     # Only names MusicBrainz itself calls genres survive; a provider tag that is not
     # in that vocabulary is somebody's mood, nationality or file-manager debris.
@@ -118,12 +113,7 @@ def run_refresh(conn, job_id: int, log=print) -> dict:
 
 def run_popularity(conn, job_id: int, log=print) -> dict:
     """Fill the popularity table: ListenBrainz in batches, Last.fm for the rest."""
-    todo = conn.execute(
-        """SELECT t.id, COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                  t.title, t.mbz_recording
-           FROM tracks t
-           WHERE NOT EXISTS (SELECT 1 FROM track_popularity p WHERE p.track_id = t.id)"""
-    ).fetchall()
+    todo = track_queries.tracks_missing_popularity(conn)
     total = len(todo)
     jobs.progress(conn, job_id, 0, total)
     if not total:
@@ -190,11 +180,7 @@ def _artists_without_mb_genres(conn) -> list[sqlite3.Row]:
             "SELECT artist_key FROM mb_artist_genres WHERE fetched_at >= ?", (cutoff,)
         )
     }
-    rows = conn.execute(
-        "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS artist, COUNT(*) c"
-        " FROM tracks WHERE COALESCE(NULLIF(album_artist, ''), artist) != ''"
-        " GROUP BY artist ORDER BY c DESC"
-    ).fetchall()
+    rows = track_queries.record_artist_counts(conn)
     return [row for row in rows if genre_lib.fold(row["artist"]) not in fresh]
 
 
@@ -216,10 +202,7 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     todo = _artists_without_mb_genres(conn)
     # Album titles are how a shared name gets settled: the right artist owns them.
     albums: dict[str, list[str]] = {}
-    for row in conn.execute(
-        "SELECT DISTINCT COALESCE(NULLIF(album_artist, ''), artist) AS artist, album"
-        " FROM tracks WHERE album != ''"
-    ):
+    for row in track_queries.record_artist_albums(conn):
         albums.setdefault(row["artist"], []).append(row["album"])
     total = len(todo)
     jobs.progress(conn, job_id, 0, total)
@@ -261,9 +244,7 @@ def run_similarity(conn, job_id: int, log=print) -> dict:
     number: "the three nearest, none below 0.15" is a cut a bare name list cannot make.
     Re-running costs nothing for artists already cached.
     """
-    rows = conn.execute(
-        "SELECT DISTINCT album_artist AS name FROM tracks WHERE album_artist != '' ORDER BY 1"
-    ).fetchall()
+    rows = track_queries.album_artists(conn)
     total = len(rows)
     jobs.progress(conn, job_id, 0, total)
     if not total:
@@ -558,7 +539,7 @@ def stale_reason(conn) -> str:
     status = subsonic.scan_status()
     if status.get("scanning"):
         return ""  # never index a library that is mid-scan
-    have = conn.execute("SELECT count(*) FROM tracks").fetchone()[0]
+    have = track_queries.library_size(conn)
     theirs = int(status.get("count") or 0)
     if theirs and theirs != have:
         return f"library has {theirs} tracks, index has {have}"

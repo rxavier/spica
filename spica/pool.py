@@ -17,6 +17,7 @@ import sqlite3
 import time
 
 from . import config, loudness, navidrome, queue, subsonic
+from .queries import tracks as track_queries
 
 ARTIST_WINDOW = 12
 
@@ -210,9 +211,9 @@ def _recent_context(conn: sqlite3.Connection, station: config.Station) -> tuple[
     album = ""
     for entry in entries:
         track_id = str(entry.get("id") or "")
-        row = conn.execute(
-            "SELECT album_artist, artist, album_id FROM tracks WHERE id = ?", (track_id,)
-        ).fetchone() if track_id else None
+        row = track_queries.track_by_id(
+            conn, track_id, "album_artist, artist, album_id"
+        )
         name = (row["album_artist"] or row["artist"]) if row is not None else entry.get("artist") or ""
         if name and len(artists) < ARTIST_WINDOW:
             artists.append(name)

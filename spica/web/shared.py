@@ -17,6 +17,7 @@ from .. import plays
 from .. import queue
 from .. import store
 from .. import requests as requests_mod
+from ..queries import tracks as track_queries
 from fastapi import HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -73,9 +74,7 @@ def next_up(st) -> str:
     except Exception:
         waiting = []
     if waiting:
-        row = store.conn().execute(
-            "SELECT artist, title FROM tracks WHERE id = ? LIMIT 1", (waiting[0],)
-        ).fetchone()
+        row = track_queries.track_by_id(store.conn(), waiting[0], "artist, title")
         if row:
             return f"{row['artist']} — {row['title']}"
     return queue.queued(st)
@@ -137,10 +136,7 @@ def now_playing(st) -> dict:
     album = ""
     if album_id:
         try:
-            row = store.conn().execute(
-                "SELECT album FROM tracks WHERE album_id = ? LIMIT 1", (album_id,)
-            ).fetchone()
-            album = (row["album"] if row else "") or ""
+            album = track_queries.album_name(store.conn(), album_id)
         except Exception:
             album = ""
 

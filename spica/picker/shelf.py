@@ -19,6 +19,7 @@ import statistics
 from collections import Counter, defaultdict
 
 from .. import analysis, enrich, mixer, navidrome, queue
+from ..queries import tracks as track_queries
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
@@ -116,7 +117,7 @@ def _standing(conn) -> dict[str, float]:
         for r in conn.execute("SELECT track_id, playcount, source FROM track_popularity")
     }
     by_source: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for row in conn.execute("SELECT id, album_artist FROM tracks WHERE album_artist != ''"):
+    for row in track_queries.tracks_with_album_artist(conn):
         hit = stats.get(row["id"])
         if hit:
             by_source[hit[1]][navidrome.name_key(row["album_artist"])].append(hit[0])

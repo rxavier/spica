@@ -13,6 +13,7 @@ from .. import pool
 from .. import store
 from .. import subsonic
 from .. import auth
+from ..queries import tracks as track_queries
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import (
     HTMLResponse,
@@ -111,7 +112,7 @@ async def admin_library(request: Request):
             "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
             "has_model": has_model,
             "jobs": jobs.recent(conn, 10),
-            "index_tracks": conn.execute("SELECT count(*) FROM tracks").fetchone()[0],
+            "index_tracks": track_queries.library_size(conn),
             "library_tracks": library_tracks,
             "library_scan": scan,
             "library_error": library_error,
