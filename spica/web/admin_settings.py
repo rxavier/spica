@@ -12,6 +12,7 @@ from .. import picker
 from .. import plan
 from .. import store
 from .. import auth
+from ..atomic import atomic_write
 from ..picker import prompt as prompt_mod
 from fastapi import APIRouter, Form, HTTPException, Request, Depends
 from fastapi.responses import (
@@ -255,8 +256,7 @@ async def admin_prompt(request: Request):
 
 @router.post("/admin/prompt", response_class=HTMLResponse)
 async def admin_prompt_save(request: Request, text: str = Form("")):
-    config.DJ_PERSONA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    config.DJ_PERSONA_FILE.write_text(text, encoding="utf-8")
+    atomic_write(config.DJ_PERSONA_FILE, text)
     response = templates.TemplateResponse(
         request,
         "_saved.html",
@@ -284,8 +284,7 @@ async def admin_prompt_path(
             pass
         message = f"{kind} path restored to the built-in text"
     else:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text.strip() + "\n", encoding="utf-8")
+        atomic_write(target, text.strip() + "\n")
         message = f"{kind} path saved — the next pick uses it"
     response = templates.TemplateResponse(
         request, "_saved.html", {"message": message, "station_id": ""}
