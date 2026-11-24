@@ -515,7 +515,7 @@ def _analysis_due(conn) -> bool:
             if store is not None:
                 store.close()
 
-    return _due(conn, "analysis", config.ANALYSIS and analysis.installed(), backlog)
+    return _due(conn, "analysis", analysis.worker_enabled(), backlog)
 
 
 def _loudness_due(conn) -> bool:

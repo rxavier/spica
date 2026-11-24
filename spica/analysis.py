@@ -71,6 +71,11 @@ def installed() -> bool:
     )
 
 
+def worker_enabled() -> bool:
+    """The worker can run the optional backfill: feature on and the full extra installed."""
+    return bool(config.ANALYSIS) and installed()
+
+
 def enabled() -> bool:
     """Analysis is on only when the operator asked for it and vectors can be read.
 
