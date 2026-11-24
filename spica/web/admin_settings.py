@@ -89,7 +89,7 @@ async def admin_settings_dj(request: Request, mode: str = Form(...)):
     # A set already waiting was chosen under the old mode; drop it so the next
     # pick reflects what the operator just chose.
     for station in config.load_stations():
-        plan.clear(station, "DJ mode changed")
+        plan.clear(station)
     response = templates.TemplateResponse(
         request,
         "_saved.html",

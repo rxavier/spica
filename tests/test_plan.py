@@ -15,7 +15,7 @@ def test_a_saved_set_comes_back_in_order(station):
     first, held = step
     assert first == "a"
     assert held["theme"] == "a line about the set"
-    assert plan.remaining(station) == 2
+    assert len(plan.load(station)["ids"]) == 2
 
 
 def test_the_last_track_clears_the_file(station):
@@ -30,7 +30,7 @@ def test_a_track_that_can_no_longer_play_is_skipped(station):
     plan.save(station, "t", ["dead", "b", "c"])
     first, _ = plan.take(station, blocked={"dead"})
     assert first == "b"
-    assert plan.remaining(station) == 1
+    assert len(plan.load(station)["ids"]) == 1
 
 
 def test_every_track_blocked_clears_the_set(station):
@@ -59,7 +59,7 @@ def test_a_corrupt_set_is_not_a_crash(station):
 def test_no_set_is_not_an_error(station):
     assert plan.load(station) is None
     assert plan.take(station) is None
-    assert plan.remaining(station) == 0
+    assert plan.load(station) is None
 
 
 def test_stations_do_not_share_a_set(station, other_station):
@@ -71,5 +71,5 @@ def test_stations_do_not_share_a_set(station, other_station):
 
 def test_clear_is_quiet_when_there_is_nothing_to_clear(station):
     plan.clear(station)
-    plan.clear(station, "listener request")
+    plan.clear(station)
     assert plan.load(station) is None

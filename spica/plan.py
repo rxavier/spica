@@ -48,9 +48,8 @@ def save(station: config.Station, theme: str, ids: list[str],
     _write(station, theme, ids, time.time(), shelf=shelf)
 
 
-def clear(station: config.Station, reason: str = "") -> None:
-    """Drop the rest of the set. `reason` is only for the caller's log line."""
-    del reason
+def clear(station: config.Station) -> None:
+    """Drop the rest of the set."""
     try:
         station.plan_file.unlink()
     except OSError:
@@ -84,8 +83,3 @@ def take(station: config.Station, blocked: set[str] | None = None) -> tuple[str,
     else:
         clear(station)
     return first, data
-
-
-def remaining(station: config.Station) -> int:
-    data = load(station)
-    return len(data["ids"]) if data else 0

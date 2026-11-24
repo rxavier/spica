@@ -166,7 +166,7 @@ def promote_requests(station: config.Station) -> int:
     # queue no longer holds the track it was going to play next. Its remaining
     # tracks go with it; the loop asks for a new set with the request in the brief,
     # which is the point of the request.
-    plan.clear(station, "listener request")
+    plan.clear(station)
     for line in lines:
         line["sent"] = True
     _write_request_lines(station, lines)
