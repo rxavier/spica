@@ -534,6 +534,12 @@ def stale_reason(conn) -> str:
 
 
 HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity, "analysis": run_analysis, "loudness": run_loudness}
+# A queued kind without a handler used to be a KeyError at claim time, after the
+# job had waited its turn. Refuse to start instead.
+if set(HANDLERS) != set(jobs.KINDS):
+    raise RuntimeError(
+        f"job handlers and kinds disagree: {sorted(set(HANDLERS) ^ set(jobs.KINDS))}"
+    )
 
 # The follow-ups worth queueing when the index changes, in the order they matter:
 # MusicBrainz decides the genre for anything without a file tag, so it should be
@@ -543,6 +549,11 @@ FOLLOWUPS = (
     ("similarity", missing_similarity, "artist(s) without scored neighbours"),
     ("popularity", missing_popularity, "track(s) without popularity"),
 )
+if not {kind for kind, _counter, _label in FOLLOWUPS} <= set(jobs.KINDS):
+    raise RuntimeError(
+        f"follow-up kinds are not job kinds: "
+        f"{sorted({kind for kind, _c, _l in FOLLOWUPS} - set(jobs.KINDS))}"
+    )
 
 
 def _retry_due(conn: sqlite3.Connection, kind: str, after: float = 3600.0) -> bool:
