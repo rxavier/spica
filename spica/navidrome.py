@@ -329,8 +329,8 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     from .queries import tracks as track_queries
 
     rows = track_queries.record_artists(conn)
-    tagged = 0
-    informed = 0
+    informed_ids: list[str] = []
+    pairs: list[tuple[str, str]] = []
     # No transaction of its own: the rebuild already has one open, and opening a
     # second here committed the caller's half-written index every time it exited.
     for row in rows:
@@ -339,9 +339,17 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
             # No MusicBrainz answer: whatever Last.fm said stands.
             continue
         # MusicBrainz is consulted for every artist it knows, file tag or not.
-        label_queries.replace_non_tag(conn, row["id"], names)
-        informed += 1
-        tagged += int(label_queries.has_tag(conn, row["id"]))
+        informed_ids.append(row["id"])
+        pairs.extend((row["id"], name) for name in names)
+    if informed_ids:
+        # Batched: one DELETE and one executemany for the whole rebuild, and one
+        # grouped query for the file-tag count, instead of three statements per track.
+        label_queries.delete_non_tag(conn, informed_ids)
+        label_queries.insert(conn, pairs, "musicbrainz")
+    informed = len(informed_ids)
+    tagged = (
+        label_queries.count_with_source(conn, "tag", informed_ids) if informed_ids else 0
+    )
     # Vetoes are placed from the console, which offers the collapsed vocabulary, so a
     # refusal has to be compared the same way station matching compares labels —
     # through canonical(). A literal string match stopped biting the moment the stored

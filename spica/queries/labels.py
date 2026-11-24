@@ -201,27 +201,32 @@ def veto(conn: sqlite3.Connection, pairs) -> None:
     )
 
 
-def replace_non_tag(conn: sqlite3.Connection, track_id: str, names: list[str]) -> None:
-    """Drop provider labels for one track, then store the MusicBrainz answer."""
-    conn.execute(
-        "DELETE FROM track_genres WHERE track_id = ? AND source NOT IN ('tag', 'manual')",
-        (track_id,),
-    )
-    conn.executemany(
-        "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
-        " VALUES (?,?, 'musicbrainz')",
-        [(track_id, name) for name in names],
-    )
-
-
-def has_tag(conn: sqlite3.Connection, track_id: str) -> bool:
-    return bool(
+def delete_non_tag(conn: sqlite3.Connection, track_ids: list[str]) -> None:
+    """Drop provider labels for many tracks at once, keeping tags and manual rows."""
+    for start in range(0, len(track_ids), 400):
+        where, args = db.where_in("track_id", track_ids[start : start + 400])
         conn.execute(
-            "SELECT COUNT(*) c FROM track_genres"
-            " WHERE track_id = ? AND source = 'tag'",
-            (track_id,),
-        ).fetchone()["c"]
-    )
+            f"DELETE FROM track_genres WHERE {where}"
+            " AND source NOT IN ('tag', 'manual')",
+            args,
+        )
+
+
+def count_with_source(
+    conn: sqlite3.Connection, source: str, track_ids: list[str]
+) -> int:
+    """How many of these tracks carry a label from `source`, batched."""
+    total = 0
+    for start in range(0, len(track_ids), 400):
+        where, args = db.where_in("track_id", track_ids[start : start + 400])
+        total += int(
+            conn.execute(
+                f"SELECT COUNT(DISTINCT track_id) c FROM track_genres"
+                f" WHERE source = ? AND {where}",
+                [source] + args,
+            ).fetchone()["c"]
+        )
+    return total
 
 
 def relabel(conn: sqlite3.Connection, target: str, source: str) -> None:
