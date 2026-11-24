@@ -1,28 +1,18 @@
 """Optional audio analysis: what a track actually sounds like.
 
-Off unless two things are true: the `analysis` extra is installed (numpy,
-onnxruntime, essentia) and `SPICA_ANALYSIS` is on for the worker. With either
-missing, nothing here runs, no models are downloaded, no jobs are queued, and the
-picker behaves exactly as it did before this module existed.
+Off unless the `analysis` extra is installed (numpy, onnxruntime, essentia) and
+`SPICA_ANALYSIS` is on for the worker. With either missing, nothing runs, no models
+are downloaded, no jobs are queued, and the picker behaves as if the feature did not
+exist.
 
-What it computes, per track, from a 96 kbit/s MP3 streamed out of the Subsonic API:
+Per track, from a 96 kbit/s MP3 streamed out of the Subsonic API: a mean-pooled
+1280-d Discogs-EffNet embedding, the 400 style probabilities that network outputs,
+ten classification heads (moods, danceability, timbre, voice/instrumental), and DSP
+no model can give — tempo with confidence, key and scale, EBU R128 loudness and
+range, dynamic complexity.
 
-- a mean-pooled 1280-d Discogs-EffNet embedding — the "sounds like" vector, used
-  for track and artist similarity;
-- the 400 Discogs style probabilities the same network outputs (the readable
-  vocabulary the DJ gets);
-- ten small classification heads on that embedding (moods, danceability, timbre,
-  voice/instrumental);
-- DSP that no model can give: tempo with confidence, key and scale, EBU R128
-  loudness and range, dynamic complexity.
-
-The ONNX path is verified equal to essentia's own TensorFlow wrapper: same mel
-front-end (TensorflowInputMusiCNN's parameters, reimplemented in numpy), same
-patched input, per-patch cosine 1.0000 against the reference. The TensorFlow
-wheel is only ever needed to re-run that validation, never in production.
-
-Results live in their own `state/analysis.db`: the index is disposable and gets
-rebuilt, the analysis is an hour of CPU and should not be thrown away with it.
+Results live in their own `state/analysis.db`: the index is disposable, the analysis
+is an hour of CPU and must survive a rebuild.
 """
 
 from __future__ import annotations
