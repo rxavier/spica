@@ -18,6 +18,7 @@ from collections import Counter
 from .. import config, ledger, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
 from ..names import seed_key
+from .context import LibraryCaches
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from .memory import recent_artists
@@ -37,18 +38,6 @@ def clamp(value, default: int, high: int) -> int:
     return max(1, min(number, high))
 
 
-# The analysis store is optional, but a schema drift there must not disappear: say it
-# once, then keep picking without it.
-_analysis_warned = False
-
-
-def _analysis_error(exc: Exception) -> None:
-    global _analysis_warned
-    if not _analysis_warned:
-        _analysis_warned = True
-        print(f"analysis: could not read the store: {exc}", flush=True)
-
-
 # How many tracks one artist may contribute to a page of `filter` results.
 PER_ARTIST = 3
 
@@ -66,126 +55,38 @@ class Library:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
-        # The optional analysis store: None means the feature is off, and every
-        # caller below treats that as "behave exactly as before".
-        self._analysis_conn = None
-        self._analysis_at: float | None = None
-        self._analysis_features: dict = {}
-        self._vectors: dict = {}
-        self._vectors_at: float | None = None
+        self.caches = LibraryCaches(conn)
 
+    # Thin views over the caches, kept so query methods do not know how each is keyed.
     def analysis_store(self):
-        """The read-only analysis store, reopened at most once a minute.
-
-        A separate file from the index on purpose: the index is disposable and the
-        analysis is an hour of CPU. Absent means analysis never ran here.
-        """
-        from .. import analysis
-
-        if not analysis.enabled():
-            return None
-        now = time.monotonic()
-        if self._analysis_at is None or now - self._analysis_at > 60:
-            try:
-                if self._analysis_conn is not None:
-                    self._analysis_conn.close()
-            except Exception:
-                pass
-            self._analysis_conn = analysis.connect(readonly=True)
-            self._analysis_at = now
-            try:
-                self._analysis_features = analysis.feature_map(self._analysis_conn)
-            except Exception as exc:
-                _analysis_error(exc)
-                self._analysis_features = {}
-        return self._analysis_conn
+        return self.caches.analysis_store()
 
     def _features(self) -> dict:
-        self.analysis_store()
-        return self._analysis_features
+        return self.caches.features()
 
     def track_vectors(self) -> dict:
-        """Every analysed track's unit embedding, cached until the store changes.
-
-        ~5 KB per track, which is the price of being able to ask "what sounds like
-        this" locally. Reloaded only when analysis.db is written to.
-        """
-        store = self.analysis_store()
-        if store is None:
-            return {}
-        from .. import analysis
-
-        try:
-            stamp = analysis.store_path().stat().st_mtime
-        except OSError:
-            return {}
-        if self._vectors_at != stamp:
-            try:
-                self._vectors = analysis.vector_map(store)
-            except Exception as exc:
-                _analysis_error(exc)
-                self._vectors = {}
-            self._vectors_at = stamp
-        return self._vectors
+        return self.caches.track_vectors()
 
     def sound_line(self, names: list[str]) -> str:
-        """One compact line on how the candidate artists sound, or "" when analysis is off."""
-        if not names or self.analysis_store() is None:
-            return ""
-        from .. import analysis
-
-        try:
-            return analysis.style_summary(self._analysis_conn, names)
-        except Exception as exc:
-            _analysis_error(exc)
-            return ""
+        return self.caches.sound_line(names)
 
     def _audio_artists(self, name: str, k: int) -> list[str]:
-        store = self.analysis_store()
-        if store is None:
-            return []
-        from .. import analysis
-
-        try:
-            return analysis.nearest_artists(store, name, k=k)
-        except Exception as exc:
-            _analysis_error(exc)
-            return []
-
-    def _index_stamp(self) -> int | None:
-        """When the index was last written, to key the caches that read it."""
-        try:
-            return (config.STATE_DIR / "index.db").stat().st_mtime_ns
-        except OSError:
-            return None
+        return self.caches.audio_artists(name, k)
 
     def labels_by_track(self) -> dict[str, list[str]]:
-        """The stored label of every track, cached until the index changes.
-
-        Building it canonicalises every label in the library, so a cached copy is
-        kept until the index changes.
-        """
-        stamp = self._index_stamp()
-        cached = getattr(self, "_labels_cache", None)
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
-        data = navidrome.labels_by_track(self.conn)
-        self._labels_cache = (stamp, data)
-        return data
+        return self.caches.labels_by_track()
 
     def _matcher(self, station: config.Station):
-        """This station's rule predicate, cached until the index or aliases change."""
-        try:
-            aliases = genres_module.alias_path().stat().st_mtime_ns
-        except OSError:
-            aliases = None
-        key = (station.id, self._index_stamp(), aliases)
-        cached = getattr(self, "_matcher_cache", None)
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        ok = navidrome.station_matcher(self.conn, station, self.labels_by_track())
-        self._matcher_cache = (key, ok)
-        return ok
+        return self.caches.matcher(station)
+
+    def _station_state(self, station: config.Station | None) -> tuple[list, bool]:
+        return self.caches.station_state(station)
+
+    def _station_rows(self, station: config.Station | None) -> list:
+        return self.caches.station_rows(station)
+
+    def _measured(self) -> dict:
+        return self.caches.measured()
 
     def rows_on_station(self, rows: list, station: config.Station | None) -> list:
         """Drop whatever the station's rules would not let on air.
@@ -835,30 +736,6 @@ class Library:
         except Exception as exc:  # a tool must never take the pick down with it
             return {"error": f"{name} failed: {exc}"}
 
-    def _station_state(self, station: config.Station | None) -> tuple[list, bool]:
-        """The station's playable rows and whether its rules matched nothing."""
-        if station is None:
-            return track_queries.playable_tracks(self.conn), False
-        cached = getattr(self, "_rows_cache", None)
-        now = time.monotonic()
-        if cached and cached[0] is station and now - cached[1] < 5.0:
-            return cached[2], cached[3]
-        rows, fallback = navidrome.station_match(
-            self.conn, station, matcher=self._matcher(station)
-        )
-        self._rows_cache = (station, now, rows, fallback)
-        return rows, fallback
-
-    def _station_rows(self, station: config.Station | None) -> list:
-        """The station's playable rows, remembered for a few seconds.
-
-        `station_match` runs the station's rules over every track — 47 ms on this
-        library — and a single pick asks for it in every tool call. The rules only
-        change on a rebuild, so a short memo turns four calls into one without ever
-        serving a stale index for long.
-        """
-        return self._station_state(station)[0]
-
     def _context(self, station: config.Station | None) -> dict:
         """Everything a track row needs, gathered once per call rather than per row.
 
@@ -952,21 +829,6 @@ class Library:
             "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
             "played": row["id"] in ctx["played"],
         }
-
-    def _measured(self) -> dict:
-        """The loudness store as id -> (lufs, peak), refreshed when the file changes."""
-        if not config.LOUDNESS:
-            return {}
-        try:
-            stamp = loudness.store_path().stat().st_mtime_ns
-        except OSError:
-            return {}
-        cached = getattr(self, "_measured_cache", None)
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
-        data = loudness.all_measured()
-        self._measured_cache = (stamp, data)
-        return data
 
     def _full(self, row: sqlite3.Row) -> navidrome.Track:
         measured = self._measured()
