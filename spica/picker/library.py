@@ -36,6 +36,18 @@ def clamp(value, default: int, high: int) -> int:
     return max(1, min(number, high))
 
 
+# The analysis store is optional, but a schema drift there must not disappear: say it
+# once, then keep picking without it.
+_analysis_warned = False
+
+
+def _analysis_error(exc: Exception) -> None:
+    global _analysis_warned
+    if not _analysis_warned:
+        _analysis_warned = True
+        print(f"analysis: could not read the store: {exc}", flush=True)
+
+
 # How many tracks one artist may contribute to a page of `filter` results.
 PER_ARTIST = 3
 
@@ -80,7 +92,11 @@ class Library:
                 pass
             self._analysis_conn = analysis.connect(readonly=True)
             self._analysis_at = now
-            self._analysis_features = analysis.feature_map(self._analysis_conn)
+            try:
+                self._analysis_features = analysis.feature_map(self._analysis_conn)
+            except Exception as exc:
+                _analysis_error(exc)
+                self._analysis_features = {}
         return self._analysis_conn
 
     def _features(self) -> dict:
@@ -103,7 +119,11 @@ class Library:
         except OSError:
             return {}
         if self._vectors_at != stamp:
-            self._vectors = analysis.vector_map(store)
+            try:
+                self._vectors = analysis.vector_map(store)
+            except Exception as exc:
+                _analysis_error(exc)
+                self._vectors = {}
             self._vectors_at = stamp
         return self._vectors
 
@@ -115,7 +135,8 @@ class Library:
 
         try:
             return analysis.shelf_sound(self._analysis_conn, names)
-        except Exception:
+        except Exception as exc:
+            _analysis_error(exc)
             return ""
 
     def _audio_artists(self, name: str, k: int) -> list[str]:
@@ -126,7 +147,8 @@ class Library:
 
         try:
             return analysis.nearest_artists(store, name, k=k)
-        except Exception:
+        except Exception as exc:
+            _analysis_error(exc)
             return []
 
     def rows_on_station(self, rows: list, station: config.Station | None) -> list:

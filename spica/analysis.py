@@ -612,10 +612,7 @@ def feature_map(store: sqlite3.Connection | None) -> dict[str, dict]:
     """Per-track scalars for tool rows — no embedding blobs, so it stays small."""
     if store is None:
         return {}
-    try:
-        rows = analysis_queries.feature_rows(store, MODEL_VERSION)
-    except sqlite3.Error:
-        return {}
+    rows = analysis_queries.feature_rows(store, MODEL_VERSION)
     out = {}
     for row in rows:
         styles = json.loads(row["styles"] or "[]")
@@ -641,10 +638,7 @@ def vector_map(store: sqlite3.Connection | None) -> dict:
     """
     if store is None or np is None:
         return {}
-    try:
-        rows = analysis_queries.vector_rows(store, MODEL_VERSION)
-    except sqlite3.Error:
-        return {}
+    rows = analysis_queries.vector_rows(store, MODEL_VERSION)
     out = {}
     for row in rows:
         vector = np.frombuffer(row["vec"], np.float32)
@@ -714,10 +708,7 @@ def audio_neighbours(index_conn: sqlite3.Connection, store: sqlite3.Connection |
     """
     if store is None or np is None:
         return set()
-    try:
-        rows = analysis_queries.artist_vector_rows(store)
-    except sqlite3.Error:
-        return set()
+    rows = analysis_queries.artist_vector_rows(store)
     vectors = {
         row["artist_key"]: np.frombuffer(row["vec"], np.float32)
         for row in rows if row["vec"] and row["artist_key"] in wanted
@@ -751,10 +742,7 @@ def shelf_sound(store: sqlite3.Connection | None, names: list[str]) -> str:
     """
     if store is None or not names:
         return ""
-    try:
-        rows = analysis_queries.artist_profile_rows(store)
-    except sqlite3.Error:
-        return ""
+    rows = analysis_queries.artist_profile_rows(store)
     by_key = {row["artist_key"]: row for row in rows}
     bits = []
     for name in names:
@@ -784,10 +772,7 @@ def nearest_artists(store: sqlite3.Connection | None, name: str, k: int = 8) -> 
     """Artists whose sound sits closest to this one, excluding itself."""
     if store is None or np is None:
         return []
-    try:
-        rows = analysis_queries.artist_pool_rows(store)
-    except sqlite3.Error:
-        return []
+    rows = analysis_queries.artist_pool_rows(store)
     target = navidrome.name_key(name)
     pool = [(row["artist_key"], row["name"], np.frombuffer(row["vec"], np.float32))
             for row in rows if row["vec"]]

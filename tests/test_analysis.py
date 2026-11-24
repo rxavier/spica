@@ -9,6 +9,7 @@ TensorFlow wrapper.
 from __future__ import annotations
 
 import json
+import sqlite3
 import struct
 
 import pytest
@@ -67,6 +68,15 @@ def test_library_behaves_as_before_without_analysis(station, tmp_path):
     assert lib._features() == {}
     assert lib.sound_line(["Band A"]) == ""
     assert lib._audio_artists("Band A", k=3) == []
+
+
+def test_a_drifted_store_raises_instead_of_looking_empty(tmp_path):
+    conn = sqlite3.connect(tmp_path / "analysis.db")
+    with conn:
+        conn.execute("CREATE TABLE track_analysis (track_id TEXT)")
+
+    with pytest.raises(sqlite3.Error):
+        analysis.feature_map(conn)
 
 
 def test_the_picker_needs_only_vectors(station, monkeypatch):
