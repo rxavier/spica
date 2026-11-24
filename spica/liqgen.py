@@ -134,6 +134,13 @@ def render(stations: list[config.Station], password: str) -> str:
     return "\n".join(out)
 
 
+def write(stations, password: str) -> Path:
+    """Render and atomically replace the Liquidsoap script. Returns its path."""
+    target = Path(os.environ.get("SPICA_LIQ", str(config.CONFIG_DIR / "spica.liq")))
+    atomic_write(target, render(stations, password))
+    return target
+
+
 def main() -> int:
     password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
     if not password:
@@ -141,8 +148,7 @@ def main() -> int:
               file=sys.stderr)
         return 2
     stations = config.load_stations()
-    target = Path(os.environ.get("SPICA_LIQ", str(config.CONFIG_DIR / "spica.liq")))
-    atomic_write(target, render(stations, password))
+    target = write(stations, password)
     print(f"wrote {target} with {len(stations)} station(s): {', '.join(s.id for s in stations)}")
     return 0
 

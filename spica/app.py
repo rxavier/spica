@@ -347,9 +347,7 @@ async def render_liq() -> dict:
         password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
         if not password:
             raise HTTPException(500, "ICECAST_SOURCE_PASSWORD not set in the picker env")
-        target = config.CONFIG_DIR / "spica.liq"
-        target.write_text(liqgen.render(store.stations(), password), encoding="utf-8")
-        return str(target)
+        return str(liqgen.write(store.stations(), password))
 
     path = await asyncio.to_thread(_run)
     return {"ok": True, "path": path, "stations": [s.id for s in store.stations()]}
