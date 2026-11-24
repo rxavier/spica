@@ -52,7 +52,7 @@ def a_pool():
     return pool
 
 
-def test_the_shelf_is_a_small_version_of_the_pool():
+def test_the_artist_candidates_are_a_small_version_of_the_pool():
     drawn = artists._stratified(a_pool(), artists.CANDIDATES, seed=7)
 
     assert len(drawn) == artists.CANDIDATES
@@ -81,7 +81,7 @@ def test_a_thin_pool_comes_back_whole():
     assert len(drawn) == 4
 
 
-def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
+def test_artist_candidates_from_a_set_ago_are_not_shown_again(monkeypatch, tmp_path):
     """Rotation memory: offered once, not again next set, played or not."""
     from spica import config
 
@@ -95,7 +95,7 @@ def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
     assert ledger.last_candidate_artists(station) == ["Old One", "Old Two"]
 
 
-def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_path):
+def test_an_artist_the_picker_just_chose_is_not_a_candidate(monkeypatch, station, tmp_path):
     """The ledger is airings, and on a quiet station those are the fallback rotation.
 
     So the shelf reads the pick log too: an artist chosen an hour ago is exactly what
@@ -121,7 +121,7 @@ def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_
     assert navidrome.name_key("Just Played") in blocked
 
 
-def test_a_shelf_too_small_to_choose_from_is_no_shelf_at_all(monkeypatch):
+def test_a_list_too_small_to_choose_from_is_no_restriction(monkeypatch):
     """Two names is a wall, not a choice: the restriction is dropped, not tightened."""
     class Tiny:
         draw_seed = 5
@@ -170,7 +170,7 @@ def a_set(*artists_ids):
     return json.dumps({"theme": "a line", "ids": [i for i, _ in artists_ids]})
 
 
-def test_a_set_may_not_leave_the_shelf(station):
+def test_a_set_may_not_leave_the_candidate_artists(station):
     lib = FakeLibrary([
         FakeTrack("a" * 22, "On The Shelf"),
         FakeTrack("b" * 22, "Off The Shelf"),
@@ -201,7 +201,7 @@ def test_no_artist_twice_in_one_set(station):
     assert ids == ["a" * 22, "c" * 22]
 
 
-def test_without_a_shelf_nothing_is_restricted(station):
+def test_without_candidate_artists_nothing_is_restricted(station):
     """A listener request does not go through the shelf at all."""
     lib = FakeLibrary([
         FakeTrack("a" * 22, "One Artist"),
@@ -213,6 +213,6 @@ def test_without_a_shelf_nothing_is_restricted(station):
     assert ids == ["a" * 22, "b" * 22]
 
 
-def test_the_pick_carries_the_shelf_it_was_given():
+def test_the_pick_carries_the_candidate_artists_it_was_given():
     pick = Pick(track=FakeTrack("a" * 22, "One Artist"), reason="line")
     assert pick.candidate_artists == ()

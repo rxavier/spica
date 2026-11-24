@@ -89,7 +89,7 @@ def rig(station, tmp_path, monkeypatch):
     return Library(conn), store, rows
 
 
-def test_the_table_has_four_directions_and_no_repeats(rig):
+def test_the_track_candidates_have_four_directions_and_no_repeats(rig):
     lib, _store, rows = rig
     built = tracks.build(lib, config.Station(id="t", name="T"))
     assert built is not None
@@ -107,7 +107,7 @@ def test_the_table_has_four_directions_and_no_repeats(rig):
         assert track_id in rendered
 
 
-def test_played_and_queued_are_not_offered(rig):
+def test_played_and_queued_are_not_candidates(rig):
     lib, _store, rows = rig
     played = rows[0][0]           # on air
     queued = rows[3][0]
@@ -139,7 +139,7 @@ def test_too_little_analysis_falls_back(station, tmp_path, monkeypatch):
     assert tracks.build(Library(conn), config.Station(id="t", name="T")) is None
 
 
-def test_a_direction_with_nothing_to_offer_is_dropped(rig):
+def test_a_direction_with_nothing_to_show_is_dropped(rig):
     lib, store, rows = rig
     # Every track is hot and the anchor is hottest: there is nothing calmer to land
     # on, so "land" must disappear rather than become a relabelled random block.
@@ -183,7 +183,7 @@ def test_a_pick_stays_out_of_the_table_when_nobody_was_listening(rig, monkeypatc
     assert victim not in built["ids"]
 
 
-def test_a_record_offered_a_set_ago_is_not_offered_again(rig, monkeypatch):
+def test_a_record_shown_a_set_ago_is_not_shown_again(rig, monkeypatch):
     """Being offered is having had a turn, played or not.
 
     A record only left the table by airing, so the familiar block handed over the same
@@ -199,7 +199,7 @@ def test_a_record_offered_a_set_ago_is_not_offered_again(rig, monkeypatch):
     assert victim not in built["ids"]
 
 
-def test_the_offer_memory_gives_way_before_the_table_does(rig, monkeypatch):
+def test_the_candidate_memory_gives_way_before_the_rest(rig, monkeypatch):
     """On a station narrower than four tables' worth, a repeated offer beats no offer."""
     lib, _store, rows = rig
     monkeypatch.setattr(ledger, "candidate_ids", lambda st, sets=4: {row[0] for row in rows},
@@ -312,7 +312,7 @@ def test_popularity_tier_is_always_spelled_out(rig):
             assert tag in {"high", "mid", "low", "unknown"}, line
 
 
-def test_unlabelled_tracks_do_not_cap_the_table(rig, monkeypatch):
+def test_unlabelled_tracks_do_not_cap_the_candidates(rig, monkeypatch):
     lib, _store, _rows = rig
     monkeypatch.setattr(navidrome, "labels_by_track", lambda conn: {})
     built = tracks.build(lib, config.Station(id="t", name="T"))
@@ -343,7 +343,7 @@ def test_a_ready_station_has_no_not_measured_group(rig):
     assert "unmeasured" not in {g["name"] for g in built["groups"]}
 
 
-def test_no_anchor_means_the_shelf_instead_of_medians(rig):
+def test_no_anchor_means_artist_candidates_instead_of_medians(rig):
     lib, store, rows = rig
     with store:  # the whole on-air artist is unanalysed
         store.executemany("DELETE FROM track_analysis WHERE track_id = ?",
