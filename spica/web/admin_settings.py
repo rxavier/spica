@@ -119,31 +119,23 @@ async def admin_settings_providers(
     return response
 
 
-@router.post("/admin/settings/test", response_class=HTMLResponse)
-async def admin_settings_test(
-    request: Request,
-    base: str = Form(""),
-    key: str = Form(""),
-    model: str = Form(""),
-    headers: str = Form(""),
-):
-    """Ask the endpoint for one tiny completion, with a tool, and report what came back.
-
-    The fields come from the form beside the button, so this tests what is on screen
-    rather than what was last saved — testing the old values is how a typo in a base
-    URL survives a green tick.
-    """
+def _llm_from_form(base: str, key: str, model: str, headers: str) -> dict:
+    """What is on screen, falling back to what is saved for empty fields."""
     saved = config.llm_settings()
-    llm = {
+    return {
         "base": (base or "").strip().rstrip("/") or saved["base"],
         "key": (key or "").strip() or saved["key"],
         "model": (model or "").strip() or saved["model"],
         "headers": _parse_headers(headers) if headers.strip() else saved["headers"],
     }
+
+
+async def _llm_probe(llm: dict) -> dict:
+    """One tiny tool-calling completion, reported as a result the fragment can render."""
     result = {"ok": False, "base": llm["base"], "model": llm["model"], "detail": "", "tools": None}
     if not llm["base"] or not llm["key"]:
         result["detail"] = "No endpoint or key to test — fill them in or save them first."
-        return templates.TemplateResponse(request, "_llm_test.html", {"result": result})
+        return result
     headers = {
         "Authorization": f"Bearer {llm['key']}",
         "content-type": "application/json",
@@ -192,6 +184,24 @@ async def admin_settings_test(
     except Exception as exc:  # network, DNS, timeout, bad JSON
         result["ms"] = int((time.monotonic() - started) * 1000)
         result["detail"] = f"{type(exc).__name__}: {exc}"[:300]
+    return result
+
+
+@router.post("/admin/settings/test", response_class=HTMLResponse)
+async def admin_settings_test(
+    request: Request,
+    base: str = Form(""),
+    key: str = Form(""),
+    model: str = Form(""),
+    headers: str = Form(""),
+):
+    """Ask the endpoint for one tiny completion, with a tool, and report what came back.
+
+    The fields come from the form beside the button, so this tests what is on screen
+    rather than what was last saved — testing the old values is how a typo in a base
+    URL survives a green tick.
+    """
+    result = await _llm_probe(_llm_from_form(base, key, model, headers))
     return templates.TemplateResponse(request, "_llm_test.html", {"result": result})
 
 
