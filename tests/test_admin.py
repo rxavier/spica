@@ -114,6 +114,13 @@ def test_every_page_renders(console, url):
     assert response.text, "a page that renders empty is a broken template"
 
 
+def test_the_coverage_endpoint_answers(console):
+    client, _, _ = console
+    response = client.get("/coverage")
+    assert response.status_code == 200
+    assert {"genres", "popularity", "similarity"} <= set(response.json())
+
+
 def test_an_empty_requests_fragment_is_empty_on_purpose(console):
     """A fragment with nothing to say answers 200 and no body; htmx leaves it alone."""
     client, _, _ = console
