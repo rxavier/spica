@@ -358,14 +358,14 @@ class Analyzer:
             try:
                 complexity, _loudness = self._complexity(sampleRate=44100)(mono44)
                 out["dyn_complexity"] = float(complexity)
-            except Exception:
-                pass
+            except Exception as exc:
+                out["dyn_complexity_error"] = str(exc)[:120]
 
             try:
                 dance, _dfa = self._dance()(mono44)
                 out["danceability"] = float(dance)
-            except Exception:
-                pass
+            except Exception as exc:
+                out["danceability_error"] = str(exc)[:120]
 
         patches = mel_patches(audio16)
         if len(patches):
