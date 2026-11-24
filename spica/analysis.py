@@ -481,8 +481,7 @@ def backlog(index_conn: sqlite3.Connection, store: sqlite3.Connection | None) ->
     if store is None:
         return analysis_queries.playable_count(index_conn)
     analysed = analysis_queries.track_ids(store, MODEL_VERSION)
-    present = analysis_queries.playable_ids(index_conn)
-    return analysis_queries.playable_count(index_conn) - len(analysed & present)
+    return analysis_queries.backlog(index_conn, analysed)
 
 
 def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:

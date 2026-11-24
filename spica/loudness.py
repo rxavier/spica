@@ -196,13 +196,7 @@ def pending(index_conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
 
 def backlog(index_conn: sqlite3.Connection) -> int:
     """How many playable tracks still need a measurement."""
-    done = _done_ids()
-    total = 0
-    for row in loudness_queries.gain_rows(index_conn):
-        if row["id"] in done or row["replaygain_gain"] is not None:
-            continue
-        total += 1
-    return total
+    return loudness_queries.backlog(index_conn, _done_ids())
 
 
 def coverage(index_conn: sqlite3.Connection) -> dict | None:
