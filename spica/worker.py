@@ -29,6 +29,7 @@ from pathlib import Path
 from . import bootstrap
 from . import genres as genre_lib
 from . import config, enrich, genres, jobs, loudness, navidrome, pool, queue, subsonic
+from .queries import jobs as job_queries
 from .queries import labels as label_queries
 from .queries import tracks as track_queries
 
@@ -481,9 +482,7 @@ def _analysis_due(conn) -> bool:
 
     if not config.ANALYSIS or not analysis.installed():
         return False
-    if conn.execute(
-        "SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued','running')"
-    ).fetchone():
+    if job_queries.pending(conn, "analysis"):
         return False
     last = jobs.last(conn, "analysis")
     if last is not None and last["status"] == "failed":
@@ -505,9 +504,7 @@ def _loudness_due(conn) -> bool:
     """
     if not (config.LOUDNESS and config.LOUDNESS_MEASURE and loudness.measure_available()):
         return False
-    if conn.execute(
-        "SELECT 1 FROM jobs WHERE kind = 'loudness' AND status IN ('queued','running')"
-    ).fetchone():
+    if job_queries.pending(conn, "loudness"):
         return False
     last = jobs.last(conn, "loudness")
     if last is not None and last["status"] == "failed":
@@ -608,9 +605,7 @@ def main() -> int:
     # jobs are resumable by construction — each one recomputes what is still missing
     # when it starts — so it goes back in the queue rather than being called failed.
     with conn:
-        stale = conn.execute(
-            "UPDATE jobs SET status = 'queued', started_at = NULL WHERE status = 'running'"
-        ).rowcount
+        stale = job_queries.requeue_running(conn)
     if stale:
         print(f"{stale} interrupted job(s) queued again", flush=True)
     print(f"worker ready — polling for jobs every {POLL_SECONDS}s", flush=True)

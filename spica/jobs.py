@@ -16,6 +16,8 @@ import math
 import sqlite3
 import time
 
+from .queries import jobs as job_queries
+
 KINDS = ("genre_tags", "refresh", "popularity", "musicbrainz", "similarity", "analysis", "loudness")
 
 # What the operator calls each job. The raw kind stays visible beside it, because
@@ -32,83 +34,48 @@ KIND_LABELS = {
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS jobs (
-               id         INTEGER PRIMARY KEY AUTOINCREMENT,
-               kind       TEXT NOT NULL,
-               status     TEXT NOT NULL DEFAULT 'queued',
-               total      INTEGER NOT NULL DEFAULT 0,
-               done       INTEGER NOT NULL DEFAULT 0,
-               message    TEXT NOT NULL DEFAULT '',
-               result     TEXT NOT NULL DEFAULT '',
-               created_at INTEGER NOT NULL,
-               started_at INTEGER,
-               finished_at INTEGER
-           )"""
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status)")
-    conn.commit()
+    job_queries.ensure_schema(conn)
 
 
 def create(conn: sqlite3.Connection, kind: str) -> int:
     """Queue a job. Re-queues instead of stacking duplicates of the same kind."""
     if kind not in KINDS:
         raise ValueError(f"unknown job kind {kind!r}; expected one of {KINDS}")
-    row = conn.execute(
-        "SELECT id FROM jobs WHERE kind = ? AND status IN ('queued','running') LIMIT 1", (kind,)
-    ).fetchone()
+    row = job_queries.pending(conn, kind)
     if row:
         return row["id"]
     with conn:
-        cur = conn.execute(
-            "INSERT INTO jobs (kind, status, created_at) VALUES (?, 'queued', ?)",
-            (kind, int(time.time())),
-        )
-    return int(cur.lastrowid)
+        return job_queries.insert(conn, kind, int(time.time()))
 
 
 def claim(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """Atomically take the oldest queued job, so two workers never share one."""
     with conn:
-        return conn.execute(
-            """UPDATE jobs SET status = 'running', started_at = ?
-               WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1)
-                 AND status = 'queued'
-               RETURNING *""",
-            (int(time.time()),),
-        ).fetchone()
+        return job_queries.claim(conn, int(time.time()))
 
 
 def progress(conn: sqlite3.Connection, job_id: int, done: int, total: int) -> None:
     with conn:
-        conn.execute("UPDATE jobs SET done = ?, total = ? WHERE id = ?", (done, total, job_id))
+        job_queries.progress(conn, job_id, done, total)
 
 
 def finish(conn: sqlite3.Connection, job_id: int, result: dict | None = None) -> None:
     with conn:
-        conn.execute(
-            "UPDATE jobs SET status = 'done', finished_at = ?, message = '', result = ? WHERE id = ?",
-            (int(time.time()), json.dumps(result or {}), job_id),
-        )
+        job_queries.finish(conn, job_id, int(time.time()), json.dumps(result or {}))
 
 
 def fail(conn: sqlite3.Connection, job_id: int, message: str) -> None:
     with conn:
-        conn.execute(
-            "UPDATE jobs SET status = 'failed', finished_at = ?, message = ? WHERE id = ?",
-            (int(time.time()), str(message)[:500], job_id),
-        )
+        job_queries.fail(conn, job_id, int(time.time()), str(message)[:500])
 
 
 def last(conn: sqlite3.Connection, kind: str) -> sqlite3.Row | None:
     """The most recent job of this kind, whatever became of it."""
-    return conn.execute(
-        "SELECT * FROM jobs WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)
-    ).fetchone()
+    return job_queries.last(conn, kind)
 
 
 def get(conn: sqlite3.Connection, job_id: int) -> dict | None:
-    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    row = job_queries.get(conn, job_id)
     return dict(row) if row else None
 
 
@@ -168,7 +135,7 @@ def _note(row: dict) -> str:
 
 
 def recent(conn: sqlite3.Connection, limit: int = 10) -> list[dict]:
-    rows = conn.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    rows = job_queries.recent(conn, limit)
     out = []
     for row in rows:
         item = dict(row)
@@ -183,25 +150,12 @@ def recent(conn: sqlite3.Connection, limit: int = 10) -> list[dict]:
 
 def coverage(conn: sqlite3.Connection) -> dict:
     """What the DJ actually knows — the numbers the library page acts on."""
-    total = conn.execute("SELECT COUNT(*) c FROM tracks").fetchone()["c"]
-    genre_known = conn.execute(
-        "SELECT COUNT(DISTINCT track_id) c FROM track_genres"
-    ).fetchone()["c"]
-    # Join back to the index: the enrichment tables outlive a rebuild, and a stale
-    # row is not a track this library can play.
-    popularity_known = conn.execute(
-        """SELECT COUNT(DISTINCT p.track_id) c FROM track_popularity p
-           JOIN tracks t ON t.id = p.track_id"""
-    ).fetchone()["c"]
-    artists_total = conn.execute(
-        "SELECT COUNT(DISTINCT album_artist) c FROM tracks WHERE album_artist != ''"
-    ).fetchone()["c"]
-    similarity_known = conn.execute(
-        """SELECT COUNT(*) c FROM (
-             SELECT DISTINCT s.name FROM artist_similarity s
-             WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.album_artist = s.name)
-           )"""
-    ).fetchone()["c"]
+    counts = job_queries.coverage_counts(conn)
+    total = counts["total"]
+    genre_known = counts["genre_known"]
+    popularity_known = counts["popularity_known"]
+    artists_total = counts["artists_total"]
+    similarity_known = counts["similarity_known"]
 
     def pack(known: int, of: int = 0) -> dict:
         of = of or total

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from spica import db, navidrome
-from spica.queries import labels, tracks
+from spica.queries import jobs, labels, tracks
 
 
 def test_artist_expr_follows_the_alias():
@@ -59,3 +59,18 @@ def test_label_queries_relabel_and_delete(tmp_path):
     with conn:
         labels.delete_for_tracks(conn, ["a"], "electronic")
     assert labels.by_track(conn) == {}
+
+
+def test_job_lifecycle(tmp_path):
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        job_id = jobs.insert(conn, "refresh", 0)
+
+    assert jobs.pending(conn, "refresh")["id"] == job_id
+    with conn:
+        claimed = jobs.claim(conn, 1)
+    assert (claimed["id"], claimed["status"]) == (job_id, "running")
+    with conn:
+        jobs.finish(conn, job_id, 2, "{}")
+    assert jobs.get(conn, job_id)["status"] == "done"
+    assert jobs.recent(conn, 1)[0]["id"] == job_id
