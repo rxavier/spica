@@ -51,16 +51,14 @@ def console(monkeypatch, tmp_path):
     monkeypatch.setattr(icecast, "total_listeners", lambda states, st: 0)
     monkeypatch.setattr(icecast, "live_mount", lambda states, st: None)
 
-    store._conn = None
-    store._stations = None
+    store.reset()
     seed(store.conn())
 
     client = TestClient(application.app)
     client.post("/admin/login", data={"password": PASSWORD}, follow_redirects=False)
     yield client, cfg, state, store.conn()
 
-    store._conn = None
-    store._stations = None
+    store.reset()
 
 
 def seed(conn):
