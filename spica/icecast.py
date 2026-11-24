@@ -36,6 +36,7 @@ STALE_S = max(6.0, config.ICECAST_POLL_S * 3)
 _snapshot: dict[str, MountState] = {}
 _fetched_at = 0.0
 _thread: threading.Thread | None = None
+_start_lock = threading.Lock()
 
 
 def _as_list(source) -> list[dict]:
@@ -83,16 +84,17 @@ def listen_states() -> dict[str, MountState]:
 def start_refresher() -> None:
     """Keep the snapshot current from a daemon thread. Idempotent."""
     global _thread
-    if _thread is not None and _thread.is_alive():
-        return
+    with _start_lock:
+        if _thread is not None and _thread.is_alive():
+            return
 
-    def run() -> None:
-        while True:
-            refresh()
-            time.sleep(config.ICECAST_POLL_S)
+        def run() -> None:
+            while True:
+                refresh()
+                time.sleep(config.ICECAST_POLL_S)
 
-    _thread = threading.Thread(target=run, name="icecast-status", daemon=True)
-    _thread.start()
+        _thread = threading.Thread(target=run, name="icecast-status", daemon=True)
+        _thread.start()
 
 
 def live_mount(states: dict[str, MountState], station) -> tuple[str, MountState] | None:

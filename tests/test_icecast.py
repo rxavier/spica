@@ -33,3 +33,27 @@ def test_a_bad_listener_count_does_not_drop_the_snapshot(monkeypatch):
     assert states["/alt"].listeners == 0
     assert states["/alt"].title == "Artist - Song"
     assert states["/all"].listeners == 3
+
+
+def test_starting_the_refresher_twice_starts_one_thread(monkeypatch):
+    started: list[object] = []
+
+    class _Thread:
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.alive = False
+            started.append(self)
+
+        def start(self) -> None:
+            self.alive = True
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+    monkeypatch.setattr(icecast, "_thread", None)
+    monkeypatch.setattr(icecast.threading, "Thread", _Thread)
+
+    icecast.start_refresher()
+    icecast.start_refresher()
+
+    assert len(started) == 1
