@@ -13,7 +13,7 @@ from .. import store
 from .. import auth
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request, Depends
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -34,7 +34,7 @@ from .shared import (
     _conn,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 STATION_ARTISTS_PER_PAGE = 30
 
@@ -71,8 +71,6 @@ def _station_artist_page(conn, station, q: str = "", page: int = 1) -> dict:
 
 @router.get("/admin/stations/{station_id}/artists", response_class=HTMLResponse)
 async def admin_station_artists(request: Request, station_id: str, q: str = "", page: int = 1):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     station = station_or_404(station_id)
     context = await asyncio.to_thread(_station_artist_page, _conn(), station, q, page)
     return templates.TemplateResponse(
@@ -84,8 +82,6 @@ async def admin_station_artists(request: Request, station_id: str, q: str = "", 
 
 @router.get("/admin/stations", response_class=HTMLResponse)
 async def admin_stations(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     items = await asyncio.to_thread(_raw_stations)
     return templates.TemplateResponse(
         request, "admin_stations.html", {"items": items, "stations": stations()}
@@ -118,8 +114,6 @@ def _station_form_context(item: dict, station) -> dict:
 
 @router.get("/admin/stations/{station_id}", response_class=HTMLResponse)
 async def admin_station_form(request: Request, station_id: str):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     items = {item.get("id"): item for item in _raw_stations()}
     item = items.get(station_id)
     if item is None:
@@ -149,7 +143,6 @@ async def admin_station_save(
     new_id: str = Form(""),
     stream_codec: list[str] = Form(default=[]),
 ):
-    auth.require_admin(request)
     raw = _raw_stations()
     wanted_id = _slug(new_id) or station_id
     renamed = wanted_id != station_id
@@ -222,7 +215,6 @@ async def admin_station_create(
     new_id: str = Form(""),
 ):
     """Add a station. It needs a new spica.liq, so the mixer is restarted."""
-    auth.require_admin(request)
     raw = _raw_stations()
     station_id = _slug(new_id) or _slug(name)
     if not station_id:
@@ -263,7 +255,6 @@ async def admin_station_create(
 @router.post("/admin/stations/{station_id}/delete", response_class=HTMLResponse)
 async def admin_station_delete(request: Request, station_id: str):
     """Remove a station. Its history stays on disk, so re-creating the id brings it back."""
-    auth.require_admin(request)
     raw = [item for item in _raw_stations() if item.get("id") != station_id]
     if len(raw) == len(_raw_stations()):
         return RedirectResponse(

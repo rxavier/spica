@@ -12,7 +12,7 @@ from .. import store
 from .. import auth
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
-from fastapi import APIRouter, Form, Query, Request
+from fastapi import APIRouter, Form, Query, Request, Depends
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -25,13 +25,11 @@ from .shared import (
     _conn,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 
 @router.get("/admin/genres", response_class=HTMLResponse)
 async def admin_genres(request: Request, msg: str = "", merged: str = "", into: str = ""):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     from .. import genres as genre_lib
     from ..navidrome import genre_counts
 
@@ -74,7 +72,6 @@ async def admin_genres_merge(
     into: str = Form(""),
     relabel: str = Form(""),
 ):
-    auth.require_admin(request)
     from .. import genres as genre_lib
 
     conn = _conn()
@@ -98,7 +95,6 @@ async def admin_genres_merge(
 
 @router.post("/admin/genres/add", response_class=HTMLResponse)
 async def admin_genres_add(request: Request, source: str = Form(...), target: str = Form(...)):
-    auth.require_admin(request)
     from .. import genres as genre_lib
 
     conn = _conn()
@@ -108,7 +104,6 @@ async def admin_genres_add(request: Request, source: str = Form(...), target: st
 
 @router.post("/admin/genres/delete", response_class=HTMLResponse)
 async def admin_genres_delete(request: Request, source: str = Form(...)):
-    auth.require_admin(request)
     from .. import genres as genre_lib
 
     path = genre_lib._FILE
@@ -134,7 +129,6 @@ async def admin_genres_unassign(
 ):
     """Take a label off the chosen tracks, and remember the refusal so a rebuild
     does not quietly put it back."""
-    auth.require_admin(request)
     from .. import genres as genre_lib
 
     conn = _conn()
@@ -163,8 +157,6 @@ async def admin_genres_unassign(
 
 @router.get("/admin/genres/tracks", response_class=HTMLResponse)
 async def admin_genres_tracks(request: Request, label: list[str] = Query(default=[])):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
     conn = _conn()
     all_labels, explorer = await asyncio.to_thread(
         lambda: (_all_labels(conn), navidrome.label_explorer(conn, label))
@@ -188,7 +180,6 @@ async def admin_genres_assign(
     labels: list[str] = Form(default=[]),
 ):
     """Put a label on the chosen tracks by hand: it outranks every provider."""
-    auth.require_admin(request)
     from .. import genres as genre_lib
 
     conn = _conn()

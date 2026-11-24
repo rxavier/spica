@@ -79,3 +79,17 @@ def require_admin(request: Request) -> None:
     """Dependency for write endpoints: 401 instead of leaking a redirect to htmx."""
     if not is_admin(request):
         raise HTTPException(401, "admin login required")
+
+
+def require_admin_page(request: Request) -> None:
+    """Dependency for the whole admin router.
+
+    A page load goes to the login screen; an htmx write gets a 401 so the fragment
+    is not replaced by a login form. Attached once per admin router, so a handler
+    cannot forget the check.
+    """
+    if is_admin(request):
+        return
+    if request.method in ("GET", "HEAD"):
+        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
+    raise HTTPException(401, "admin login required")
