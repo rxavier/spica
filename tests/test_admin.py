@@ -149,6 +149,7 @@ def test_the_ledger_groups_a_dj_set_and_labels_rotation(console):
     assert "One line" in page
     assert "Rotation" in page
     assert "DJ pick" in page
+    assert "on air · DJ pick" in page
 
 
 def test_an_unknown_station_is_404_not_a_traceback(console):

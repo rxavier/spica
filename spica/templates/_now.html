@@ -16,11 +16,10 @@
   </div>
 
   <div class="info">
-    {% if now.artist %}<div class="artist">{{ now.artist }}</div>{% endif %}
+    {% if now.artist %}<div class="artist">{{ now.artist }}{% if now.source_label %} <span class="source-tag">{{ now.source_label }}</span>{% endif %}</div>{% endif %}
     <h1 class="song{% if not (now.song or now.title) %} quiet{% endif %}">{{ now.song or now.title or "Off air" }}</h1>
     <div class="meta">
       {{ now.listeners }} listener{{ "" if now.listeners == 1 else "s" }}
-      {%- if now.source_label %} · <span class="source-tag">{{ now.source_label }}</span>{% endif %}
       {%- if now.queued %} · next up {{ now.queued }}{% endif %}
       {%- if not (now.song or now.title) %} · press play to tune in{% endif %}
     </div>

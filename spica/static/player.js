@@ -407,18 +407,18 @@
 
   /* ---- DJ sets in the ledger keep their open state across the ten-second refresh ---- */
 
-  const SETS_KEY = "spica.openSets";
+  const SETS_KEY = "spica.closedSets";
 
-  function restoreOpenSets() {
-    let open = [];
+  function restoreSetState() {
+    let closed = [];
     try {
-      open = JSON.parse(sessionStorage.getItem(SETS_KEY) || "[]");
+      closed = JSON.parse(sessionStorage.getItem(SETS_KEY) || "[]");
     } catch {
       return;
     }
-    const wanted = new Set(open);
+    const hidden = new Set(closed);
     document.querySelectorAll("#hist details.set-details").forEach((el) => {
-      if (wanted.has(el.dataset.set)) el.open = true;
+      el.open = !hidden.has(el.dataset.set);
     });
   }
 
@@ -426,19 +426,19 @@
 
   document.body.addEventListener("htmx:beforeSwap", (event) => {
     if (swapTarget(event).id !== "hist") return;
-    const open = [...document.querySelectorAll("#hist details.set-details[open]")]
+    const closed = [...document.querySelectorAll("#hist details.set-details:not([open])")]
       .map((el) => el.dataset.set);
     try {
-      sessionStorage.setItem(SETS_KEY, JSON.stringify(open));
+      sessionStorage.setItem(SETS_KEY, JSON.stringify(closed));
     } catch {
       /* private mode: open state is a nicety, not a requirement */
     }
   });
   document.body.addEventListener("htmx:afterSwap", (event) => {
-    if (swapTarget(event).id === "hist") restoreOpenSets();
+    if (swapTarget(event).id === "hist") restoreSetState();
   });
-  document.body.addEventListener("htmx:afterSettle", restoreOpenSets);
+  document.body.addEventListener("htmx:afterSettle", restoreSetState);
 
   init();
-  restoreOpenSets();
+  restoreSetState();
 })();

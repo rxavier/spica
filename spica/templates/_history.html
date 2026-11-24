@@ -2,7 +2,7 @@
   {% for block in history_blocks(history) %}
     {% if block.kind == "set" %}
       <li class="set{% if block.current %} is-current{% endif %}">
-        <details class="set-details" data-set="{{ block.key }}">
+        <details class="set-details" data-set="{{ block.key }}" open>
           <summary class="set-summary">
             <span class="set-label">DJ set · {{ block.count }} tracks</span>
             <span class="set-span">{{ block.start }}{% if block.end and block.end != block.start %}–{{ block.end }}{% endif %}</span>
