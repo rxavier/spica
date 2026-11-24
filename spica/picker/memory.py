@@ -15,9 +15,10 @@ from .. import ledger, mixer, navidrome, queue
 ABSENCE = 40
 
 
-def artist_absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
+def artist_absence(lib, station, look: int = ABSENCE * 6,
+                   entries: list[dict] | None = None) -> dict[str, int]:
     """For each artist, how many songs ago it last aired (absent from the map = never)."""
-    plays = queue.recent(station, look)
+    plays = queue.recent(station, look) if entries is None else entries[-look:]
     artists = lib.artists_by_ids(str(entry.get("id") or "") for entry in plays)
     since: dict[str, int] = {}
     for ago, entry in enumerate(reversed(plays)):
@@ -28,9 +29,12 @@ def artist_absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
     return since
 
 
-def recent_artists(lib, station, n: int) -> list[str]:
+def recent_artists(lib, station, n: int, entries: list[dict] | None = None) -> list[str]:
     """The artists behind the last n plays, oldest first."""
-    entries = queue.recent(station, n)
+    if entries is None:
+        entries = queue.recent(station, n)
+    else:
+        entries = entries[-n:]
     names = lib.artists_by_ids(str(entry.get("id") or "") for entry in entries)
     out: list[str] = []
     for entry in entries:
@@ -91,7 +95,8 @@ class Blocklist:
 
 
 def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = None,
-                    include_picks: bool = False) -> Blocklist:
+                    include_picks: bool = False,
+                    entries: list[dict] | None = None) -> Blocklist:
     """Artists that may not be offered: just played, queued, or in the last candidates.
 
     ``include_picks`` adds the picker's own recent choices. The artist candidates set it
@@ -99,7 +104,7 @@ def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = Non
     chosen an hour ago could come straight back; the track candidates leave it off because their
     familiar block is meant to be reachable.
     """
-    played = recent_artists(lib, station, recent)
+    played = recent_artists(lib, station, recent, entries=entries)
     queued = queued_artists(lib, station, queued_limit)
     names = list(played) + list(queued) + list(ledger.last_candidate_artists(station))
     if include_picks:
