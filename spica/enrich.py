@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -44,10 +45,46 @@ def _throttle(bucket: str, min_interval: float) -> None:
     _last_call[bucket] = time.time()
 
 
+# The rate limiters answer these while they recover; anything else is an answer.
+_RETRYABLE = {429, 500, 502, 503, 504}
+
+
+def _http_json(url: str, *, headers: dict | None = None, data: bytes | None = None,
+               timeout: float = 20.0, attempts: int = 1):
+    """One provider HTTP call: JSON out, retries only on transient failures.
+
+    Retryable statuses and network errors wait 2s, then 6s, then give up with the
+    last exception. Throttling stays with the caller, because each provider has its
+    own rate.
+    """
+    last: Exception | None = None
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, data=data, headers=headers or {})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in _RETRYABLE:
+                raise
+        except Exception as exc:  # timeout, DNS, reset
+            last = exc
+        if attempt + 1 < attempts:
+            time.sleep(2 + attempt * 4)
+    raise last if last is not None else RuntimeError("no provider response")
+
+
 def _get_json(url: str, headers: dict | None = None, timeout: float = 20.0):
-    req = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    return _http_json(url, headers=headers, timeout=timeout)
+
+
+def _post_json(url: str, payload, headers: dict | None = None, timeout: float = 40.0):
+    return _http_json(
+        url,
+        headers={"Content-Type": "application/json", **(headers or {})},
+        data=json.dumps(payload).encode(),
+        timeout=timeout,
+    )
 
 
 # ---------------------------------------------------------------- providers
@@ -60,7 +97,7 @@ def mb_release_artist(mbz_album_id: str) -> tuple[str | None, str | None]:
     _throttle("mb", 1.1)  # MusicBrainz asks for <= 1 req/s
     url = f"{MB}/release/{mbz_album_id}?inc=artist-credits&fmt=json"
     try:
-        d = _get_json(url, {"User-Agent": config.provider_settings()["mb_user_agent"]})
+        d = _mb_get(url)
         credits = d.get("artist-credit") or []
         for c in credits:
             artist = c.get("artist") or {}
@@ -246,11 +283,10 @@ def navidrome_artist_mbid(artist_id: str) -> str:
 
 def lfm_track(artist: str, title: str) -> dict | None:
     """Last.fm play counts for one track."""
-    from . import config
-
     key = config.provider_settings()["lastfm_key"]
     if not key or not artist or not title:
         return None
+    _throttle("lfm", 0.2)
     params = {
         "method": "track.getInfo",
         "api_key": key,
@@ -260,10 +296,7 @@ def lfm_track(artist: str, title: str) -> dict | None:
         "autocorrect": 1,
     }
     try:
-        with urllib.request.urlopen(
-            f"https://ws.audioscrobbler.com/2.0/?{urllib.parse.urlencode(params)}", timeout=15
-        ) as response:
-            data = json.loads(response.read())
+        data = _get_json(f"{LF}/?{urllib.parse.urlencode(params)}", timeout=15)
     except Exception:
         return None
     track = (data or {}).get("track") or {}
@@ -280,14 +313,11 @@ def lb_popularity(mbids: list[str]) -> dict[str, dict]:
     """
     if not mbids:
         return {}
-    request = urllib.request.Request(
-        "https://api.listenbrainz.org/1/popularity/recording",
-        data=json.dumps({"recording_mbids": mbids}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=40) as response:
-            rows = json.loads(response.read())
+        rows = _post_json(
+            "https://api.listenbrainz.org/1/popularity/recording",
+            {"recording_mbids": mbids},
+        )
     except Exception:
         return {}
     return {
@@ -304,22 +334,12 @@ def lb_popularity(mbids: list[str]) -> dict[str, dict]:
 def _mb_get(url: str, attempts: int = 3) -> dict:
     """One MusicBrainz GET, with patience: the limiter answers 503 under load and the
     call is otherwise fine a few seconds later."""
-    from . import config
-
-    last: Exception | None = None
-    for attempt in range(attempts):
-        request = urllib.request.Request(url, headers={"User-Agent": config.provider_settings()["mb_user_agent"]})
-        try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                return json.loads(response.read())
-        except urllib.error.HTTPError as exc:
-            last = exc
-            if exc.code not in (429, 500, 502, 503, 504):
-                raise
-        except Exception as exc:  # timeout, DNS, reset
-            last = exc
-        time.sleep(2 + attempt * 4)
-    raise last if last else RuntimeError("musicbrainz: no response")
+    return _http_json(
+        url,
+        headers={"User-Agent": config.provider_settings()["mb_user_agent"]},
+        timeout=25,
+        attempts=attempts,
+    )
 
 
 _ARTIST_IDS = "artist-mbids.json"
