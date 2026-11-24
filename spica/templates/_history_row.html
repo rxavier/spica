@@ -11,5 +11,5 @@
     <span class="artist">{{ h.artist }}</span>
     <span class="title">{{ h.title }}</span>
   </span>
-  <span class="src">{% if h.current %}on air{% else %}{{ h.source }}{% endif %}</span>
+  <span class="src">{% if h.current %}on air · {{ h.source }}{% else %}{{ h.source }}{% endif %}</span>
 </li>
