@@ -85,7 +85,7 @@ def _stations_view() -> list[dict]:
                 "slot": queue.queued(st),
                 "ahead": mixer.pending(st),
                 "requests": requests_mod.active(st),
-                "set_theme": str(held.get("set_rationale") or ""),
+                "set_rationale": str(held.get("set_rationale") or ""),
                 "set_remaining": len(held.get("ids") or []),
                 "picks": picks,
             }

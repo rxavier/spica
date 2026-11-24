@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
+
 import httpx
 
 from .. import config
@@ -219,11 +221,15 @@ async def admin_prompt(request: Request):
     selected = next((st for st in stations if st.id == wanted), stations[0] if stations else None)
     track_prompt = artist_prompt = ""
     if selected is not None:
-        try:
-
+        def build_prompts():
             catalog = store.library().catalog_summary(selected)
-            track_prompt = prompt_mod.system_prompt(selected, catalog, track_candidates=True)
-            artist_prompt = prompt_mod.system_prompt(selected, catalog, track_candidates=False)
+            return (
+                prompt_mod.system_prompt(selected, catalog, track_candidates=True),
+                prompt_mod.system_prompt(selected, catalog, track_candidates=False),
+            )
+
+        try:
+            track_prompt, artist_prompt = await asyncio.to_thread(build_prompts)
         except Exception:
             pass
     return templates.TemplateResponse(
@@ -239,8 +245,8 @@ async def admin_prompt(request: Request):
             "artist_prompt": artist_prompt,
             "dj_mode": config.dj_mode(),
             "mode_label": config.DJ_MODE_LABELS.get(config.dj_mode(), config.dj_mode()),
-            "shelf_text": prompt_mod.artist_guidance(),
-            "table_text": prompt_mod.track_guidance(),
+            "artist_text": prompt_mod.artist_guidance(),
+            "track_text": prompt_mod.track_guidance(),
             "artist_custom": config.dj_artists_file().exists(),
             "track_custom": config.dj_tracks_file().exists(),
         },

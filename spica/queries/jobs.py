@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from .. import db
+from . import tracks as track_queries
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
@@ -102,24 +105,27 @@ def requeue_running(conn: sqlite3.Connection) -> int:
 
 def coverage_counts(conn: sqlite3.Connection) -> dict:
     """The raw counts behind the library page's coverage bars."""
-    total = conn.execute("SELECT COUNT(*) c FROM tracks").fetchone()["c"]
+    total = track_queries.library_size(conn, playable=True)
+    artist = db.artist_expr()
     genre_known = conn.execute(
-        "SELECT COUNT(DISTINCT track_id) c FROM track_genres"
+        "SELECT COUNT(DISTINCT g.track_id) c FROM track_genres g"
+        f" JOIN tracks t ON t.id = g.track_id WHERE t.{db.PLAYABLE}"
     ).fetchone()["c"]
     # Join back to the index: the enrichment tables outlive a rebuild, and a stale
     # row is not a track this library can play.
     popularity_known = conn.execute(
-        """SELECT COUNT(DISTINCT p.track_id) c FROM track_popularity p
-           JOIN tracks t ON t.id = p.track_id"""
+        "SELECT COUNT(DISTINCT p.track_id) c FROM track_popularity p"
+        f" JOIN tracks t ON t.id = p.track_id WHERE t.{db.PLAYABLE}"
     ).fetchone()["c"]
     artists_total = conn.execute(
-        "SELECT COUNT(DISTINCT album_artist) c FROM tracks WHERE album_artist != ''"
+        f"SELECT COUNT(DISTINCT {artist}) c FROM tracks"
+        f" WHERE {db.PLAYABLE} AND {artist} != ''"
     ).fetchone()["c"]
     similarity_known = conn.execute(
-        """SELECT COUNT(*) c FROM (
-             SELECT DISTINCT s.name FROM artist_similarity s
-             WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.album_artist = s.name)
-           )"""
+        "SELECT COUNT(*) c FROM ("
+        "  SELECT DISTINCT s.name FROM artist_similarity s"
+        f"  WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.{db.PLAYABLE} AND {artist} = s.name)"
+        ")"
     ).fetchone()["c"]
     return {
         "total": total,

@@ -101,8 +101,8 @@ tracks by one act distinguishable, and the shelf used artists precisely because 
 here could do that.
 
 One call returns about thirty-two records in five directions, each row carrying its id,
-year, style, tempo, key, energy and how well its artist's audience knows it (`known`,
-`mid`, `deep cut`, or `unknown` when no provider has a count — always one of the four,
+year, style, tempo, key, energy and how well its artist's audience knows it (`high`,
+`mid`, `low`, or `unknown` when no provider has a count — always one of the four,
 never blank):
 
 - **Continue the flow** — closest to the on-air track's vector, within 0.2 energy, 20 bpm
@@ -145,7 +145,7 @@ new import is unanalysed until the worker catches up. Readiness is judged per st
 (90% of its tracks and 80% of its artists). Below that, the table is drawn from the
 measured records and gains one more group, **Not measured yet** — up to four unanalysed
 records (recent arrivals first, one per artist, no sonic numbers, only the metadata and
-the known/deep-cut tag), so new music is not invisible until analysis reaches it. The
+the popularity tier), so new music is not invisible until analysis reaches it. The
 anchor must be a real one: the on-air track's vector or its artist's centroid. Without
 it the shelf takes over rather than the table guessing against station medians. The
 analysis backlog is ordered one track per artist first (newest arrivals first within
@@ -267,8 +267,8 @@ needs:
 - `duration` is clock time, so a 40-second interlude and a 9-minute epic are distinguishable.
 - `popularity` is the track's standing **among its own artist's tracks**, 0 = their deepest
   cut, 1 = the one everybody knows. Absolute play counts would only measure how big the artist
-  is; this asks which of their songs people actually know. It is the number the crates
-  turn into *a hit / mid / a deep cut*.
+  is; this asks which of their songs people actually know. The popularity tier turns it
+  into *high / mid / low*.
 - `played` means the station should not play it again yet — inside the last forty airings,
   among the last sixty picks, or aired within eight hours. The same answer the table draws
   its offer from, so a row and an offer never disagree about what has had its turn. `queued`

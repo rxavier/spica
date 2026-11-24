@@ -18,7 +18,6 @@ call for.
 from __future__ import annotations
 
 import multiprocessing
-import os
 import sqlite3
 import sys
 import tempfile
@@ -270,9 +269,47 @@ def _fetch_and_analyze(analyzer, track_id: str) -> dict:
         return analyzer.analyze(path)
 
 
-def _analysis_task(track_id: str) -> tuple[str, dict]:
+def _analysis_task(track_id: str, artist: str) -> tuple[str, str, dict]:
     """One track in a worker process: fetch the audio, analyse it, hand it back."""
-    return track_id, _fetch_and_analyze(_ANALYZER, track_id)
+    return track_id, artist, _fetch_and_analyze(_ANALYZER, track_id)
+
+
+def _measure_task(track_id: str, url: str) -> tuple[str, tuple]:
+    """One loudness measurement, in a pool thread or the worker's own loop."""
+    return track_id, loudness.measure(url)
+
+
+def _run_tasks(tasks, submit, on_result, on_error, workers, conn, job_id, total,
+               *, process_pool: bool = False, initializer=None, initargs=()):
+    """Run one slice item by item, serial or pooled, reporting progress after each."""
+    pooled = workers > 1 and (
+        not process_pool or "fork" in multiprocessing.get_all_start_methods()
+    )
+    if pooled:
+        executor = ProcessPoolExecutor if process_pool else ThreadPoolExecutor
+        kwargs = {"max_workers": workers}
+        if process_pool:
+            kwargs.update(
+                mp_context=multiprocessing.get_context("fork"),
+                initializer=initializer,
+                initargs=initargs,
+            )
+        with executor(**kwargs) as pool:
+            futures = {pool.submit(submit, *args): args for args in tasks}
+            for i, future in enumerate(as_completed(futures), 1):
+                args = futures[future]
+                try:
+                    on_result(args, future.result())
+                except Exception as exc:
+                    on_error(args, exc)
+                jobs.progress(conn, job_id, i, total)
+        return
+    for i, args in enumerate(tasks, 1):
+        try:
+            on_result(args, submit(*args))
+        except Exception as exc:
+            on_error(args, exc)
+        jobs.progress(conn, job_id, i, total)
 
 
 def run_analysis(conn, job_id: int, log=print) -> dict:
@@ -314,38 +351,38 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
             analysis.save(store, track_id, navidrome.name_key(artist), features)
             done += 1
 
+        def on_result(_args, value) -> None:
+            track_id, artist, features = value
+            take(track_id, artist, features)
+
+        def on_error(args, exc) -> None:
+            nonlocal failed
+            track_id, artist = args
+            failed += 1
+            errors.append(str(exc))
+            log(f"analysis: {artist or track_id}: {exc}")
+
         if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
-            context = multiprocessing.get_context("fork")
-            with ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=context,
+            _run_tasks(
+                tasks, _analysis_task, on_result, on_error, workers, conn, job_id, total,
+                process_pool=True,
                 initializer=_analysis_init,
-                initargs=(str(config.ANALYSIS_MODELS_DIR), max(1, config.ANALYSIS_THREADS)),
-            ) as pool:
-                futures = {pool.submit(_analysis_task, track_id): (track_id, artist)
-                           for track_id, artist in tasks}
-                for i, future in enumerate(as_completed(futures), 1):
-                    track_id, artist = futures[future]
-                    try:
-                        _id, features = future.result()
-                        take(track_id, artist, features)
-                    except Exception as exc:
-                        failed += 1
-                        errors.append(str(exc))
-                        log(f"analysis: {artist or track_id}: {exc}")
-                    jobs.progress(conn, job_id, i, total)
+                initargs=(str(config.ANALYSIS_MODELS_DIR),
+                          max(1, config.ANALYSIS_THREADS)),
+            )
         else:
             from .analysis import Analyzer
 
-            analyzer = Analyzer(config.ANALYSIS_MODELS_DIR, threads=min(4, os.cpu_count() or 1))
-            for i, (track_id, artist) in enumerate(tasks, 1):
-                try:
-                    take(track_id, artist, _fetch_and_analyze(analyzer, track_id))
-                except Exception as exc:
-                    failed += 1
-                    errors.append(str(exc))
-                    log(f"analysis: {artist or track_id}: {exc}")
-                jobs.progress(conn, job_id, i, total)
+            analyzer = Analyzer(
+                config.ANALYSIS_MODELS_DIR, threads=max(1, config.ANALYSIS_THREADS)
+            )
+            _run_tasks(
+                tasks,
+                lambda track_id, artist: (
+                    track_id, artist, _fetch_and_analyze(analyzer, track_id)
+                ),
+                on_result, on_error, 1, conn, job_id, total,
+            )
 
         if done:
             analysis.refresh_artists(conn, store)
@@ -379,80 +416,69 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
                 "note": "this worker image has no ffmpeg; run the -worker image"}
 
     store = loudness.connect(create=True)
-    rows = loudness.pending(conn, config.LOUDNESS_SLICE)
-    total = len(rows)
-    jobs.progress(conn, job_id, 0, total)
-    if not total:
-        store.close()
-        return {"tracks": 0, "note": "every playable track already has a level"}
+    if store is None:
+        return {"tracks": 0, "note": "could not open the loudness store"}
+    try:
+        rows = loudness.pending(conn, config.LOUDNESS_SLICE)
+        total = len(rows)
+        jobs.progress(conn, job_id, 0, total)
+        if not total:
+            return {"tracks": 0, "note": "every playable track already has a level"}
 
-    # Mint the URLs here, on one thread, so the salted token is not built by
-    # several ffmpeg workers at once.
-    tasks = [(row["id"], subsonic.stream_url(row["id"])) for row in rows]
-    workers = max(1, config.LOUDNESS_WORKERS)
-    done = failed = 0
-    errors: list[str] = []
-    started = time.time()
+        # Mint the URLs here, on one thread, so the salted token is not built by
+        # several ffmpeg workers at once.
+        tasks = [(row["id"], subsonic.stream_url(row["id"])) for row in rows]
+        workers = max(1, config.LOUDNESS_WORKERS)
+        done = failed = 0
+        errors: list[str] = []
+        started = time.time()
 
-    def measure_one(track_id: str, url: str) -> tuple[str, tuple]:
-        return track_id, loudness.measure(url)
+        def take(track_id: str, result: tuple) -> None:
+            nonlocal done
+            lufs, peak = result
+            loudness.save(store, track_id, lufs, peak)
+            done += 1
 
-    def take(track_id: str, result: tuple) -> None:
-        nonlocal done
-        lufs, peak = result
-        loudness.save(store, track_id, lufs, peak)
-        done += 1
+        def fail(track_id: str, exc: Exception) -> None:
+            nonlocal failed
+            failed += 1
+            errors.append(str(exc))
+            loudness.save(store, track_id, None, None, str(exc))
+            log(f"loudness: {track_id}: {exc}")
 
-    def fail(track_id: str, exc: Exception) -> None:
-        nonlocal failed
-        failed += 1
-        errors.append(str(exc))
-        loudness.save(store, track_id, None, None, str(exc))
-        log(f"loudness: {track_id}: {exc}")
+        def on_result(_args, value) -> None:
+            track_id, result = value
+            take(track_id, result)
 
-    if workers > 1:
-        # Not named `pool`: that is the module this function calls at the end.
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(measure_one, track_id, url): track_id
-                       for track_id, url in tasks}
-            for i, future in enumerate(as_completed(futures), 1):
-                track_id = futures[future]
-                try:
-                    _id, result = future.result()
-                    take(track_id, result)
-                except Exception as exc:
-                    fail(track_id, exc)
-                jobs.progress(conn, job_id, i, total)
-    else:
-        for i, (track_id, url) in enumerate(tasks, 1):
+        def on_error(args, exc) -> None:
+            fail(args[0], exc)
+
+        _run_tasks(
+            tasks, _measure_task, on_result, on_error, workers, conn, job_id, total
+        )
+
+        if total and not done:
+            # The per-track errors are in the log; the first one in the summary is what
+            # makes "the whole slice failed" diagnosable from the admin page.
+            detail = errors[0] if errors else "no track could be measured"
+            raise RuntimeError(f"no track could be measured ({failed} failed): {detail}")
+        remaining = loudness.backlog(conn)
+        if done and not remaining:
+            # The pool is written once, at rebuild time. Now that the last untagged
+            # tracks have a level, rewrite it so the fallback rotation is levelled too.
             try:
-                _id, result = measure_one(track_id, url)
-                take(track_id, result)
-            except Exception as exc:
-                fail(track_id, exc)
-            jobs.progress(conn, job_id, i, total)
-
-    store.close()
-    if total and not done:
-        # The per-track errors are in the log; the first one in the summary is what
-        # makes "the whole slice failed" diagnosable from the admin page.
-        detail = errors[0] if errors else "no track could be measured"
-        raise RuntimeError(f"no track could be measured ({failed} failed): {detail}")
-    remaining = loudness.backlog(conn)
-    if done and not remaining:
-        # The pool is written once, at rebuild time. Now that the last untagged
-        # tracks have a level, rewrite it so the fallback rotation is levelled too.
-        try:
-            stations = config.load_stations()
-            counts = pool.write_pools(conn, stations, log=log)
-            pool.resume_after_last_played(
-                stations, lambda st: (queue.recent(st, 1) or [{}])[-1], log=log
-            )
-            log(f"loudness: pools rewritten {counts}")
-        except Exception as exc:  # a pool rewrite must not fail the measurement
-            log(f"loudness: pools not rewritten: {exc}")
-    return {"tracks": done, "failed": failed, "remaining": remaining,
-            "seconds": int(time.time() - started)}
+                stations = config.load_stations()
+                counts = pool.write_pools(conn, stations, log=log)
+                pool.resume_after_last_played(
+                    stations, lambda st: (queue.recent(st, 1) or [{}])[-1], log=log
+                )
+                log(f"loudness: pools rewritten {counts}")
+            except Exception as exc:  # a pool rewrite must not fail the measurement
+                log(f"loudness: pools not rewritten: {exc}")
+        return {"tracks": done, "failed": failed, "remaining": remaining,
+                "seconds": int(time.time() - started)}
+    finally:
+        store.close()
 
 
 def _due(conn, kind: str, enabled: bool, backlog) -> bool:

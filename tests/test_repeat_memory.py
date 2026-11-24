@@ -43,19 +43,28 @@ def test_aired_within_walks_back_only_as_far_as_the_window(station):
     assert ids == {f"{hours:03d}" + "x" * 19 for hours in range(8)}
 
 
+def test_a_restart_reannounce_is_collapsed(station):
+    write(station, ".jsonl", [
+        {"t": stamp(30), "id": "a" * 22, "artist": "A", "title": "same", "source": "dj"},
+        {"t": stamp(5), "id": "a" * 22, "artist": "A", "title": "same", "source": "dj"},
+    ])
+    assert [entry["id"] for entry in queue.recent(station, 2)] == ["a" * 22]
+
+
 def test_recent_picks_are_not_airings(station):
     write(station, ".picks.jsonl", [
-        {"t": stamp(9000), "id": "a" * 22, "artist": "One", "title": "x", "why": "w"},
-        {"t": stamp(6000), "id": "b" * 22, "artist": "Two", "title": "y", "why": "w"},
-        {"t": stamp(60), "id": "c" * 22, "artist": "One", "title": "z", "why": "w"},
+        {"t": stamp(9000), "id": "a" * 22, "artist": "One", "title": "x", "reason": "w"},
+        {"t": stamp(6000), "id": "b" * 22, "artist": "Two", "title": "y", "reason": "w"},
+        {"t": stamp(60), "id": "c" * 22, "artist": "One", "title": "z", "reason": "w"},
     ])
     assert queue.recent_pick_ids(station, 2) == {"b" * 22, "c" * 22}
     assert queue.recent_pick_artists(station, 3) == ["One", "Two"]
+    assert queue.reason_for(station, "z") == "w"
 
 
 def test_the_offer_is_remembered_with_the_pick(station):
     """A record offered and refused still had its turn, so the pick carries the offer."""
-    now = {"t": stamp(60), "id": "a" * 22, "title": "x", "artist": "One", "why": "w"}
+    now = {"t": stamp(60), "id": "a" * 22, "title": "x", "artist": "One", "reason": "w"}
     write(station, ".picks.jsonl", [
         {**now, "candidate_ids": ["a" * 22, "b" * 22]},
         {**now, "id": "c" * 22},
@@ -72,7 +81,7 @@ def test_recently_out_unions_the_ledger_and_the_picks(station):
     ])
     write(station, ".picks.jsonl", [
         # Chosen four hours ago and never aired: only the pick log knows about it.
-        {"t": stamp(4 * 3600), "id": "picked" * 3, "artist": "B", "title": "y", "why": "w"},
+        {"t": stamp(4 * 3600), "id": "picked" * 3, "artist": "B", "title": "y", "reason": "w"},
     ])
     assert queue.recently_out(station) == {"aired" * 4, "picked" * 3}
     # A pick nobody heard is still a pick: the ledger alone would let it come straight

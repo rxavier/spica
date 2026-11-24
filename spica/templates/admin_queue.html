@@ -56,11 +56,11 @@
   </div>
 </div>
 
-{% if view.set_remaining or view.set_theme %}
+{% if view.set_remaining or view.set_rationale %}
 <div class="notice">
   <div class="muted">The set in play</div>
   {% if view.set_remaining %}<div class="track">{{ view.set_remaining }} track{{ "" if view.set_remaining == 1 else "s" }} left after this one</div>{% endif %}
-  {% if view.set_theme %}<p class="why">“{{ view.set_theme }}”</p>{% endif %}
+  {% if view.set_rationale %}<p class="why">“{{ view.set_rationale }}”</p>{% endif %}
   <div class="sub">A listener request drops the rest of the set; a track that leaves the library is skipped and the set continues.</div>
 </div>
 {% endif %}
