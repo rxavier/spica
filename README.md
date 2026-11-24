@@ -316,10 +316,10 @@ are in the file, not compiled in.
 this repo                code, Dockerfile, deploy/
 deployment dir           compose.yaml, .env, optional compose.override.yaml
 config/                  stations.json, spica.liq (generated), icecast.xml,
-                         dj-persona.md, llm.json, artist-mbids.json
+                         dj-persona.md, dj.json, dj-shelf.md, dj-table.md,
+                         llm.json, providers.json, artist-mbids.json
 state/                   index.db, analysis.db, loudness.db, models/, pools/, plans/,
-                         queue/, history/, now/, requests/, art/, genre-aliases.json,
-                         logs/
+                         queue/, history/, now/, art/, genre-aliases.json, logs/
 ```
 
 `config/` is the part worth backing up: it is your stations and your DJ. Everything in
@@ -915,7 +915,7 @@ a rebuild also re-canonicalises every genre.
   (`table`, `table-partial` or `shelf`) with the analysis coverage it saw, and — for
   picks recorded from here on — the brief it read, the tools it called and the reply it
   gave. The last 500 are kept.
-- `requests/<station>.jsonl`: live listener requests.
+- `history/requests/<station>.jsonl`: live listener requests.
 - `art/<albumId>`: cached cover art, one file per album.
 - `mb-genres.json`: MusicBrainz's own genre vocabulary — the list a provider tag has to
   be on to become a genre. Cached for a month; deleting it costs twenty-three throttled
