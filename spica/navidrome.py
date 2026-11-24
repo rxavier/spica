@@ -469,39 +469,6 @@ def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None)
     return station_match(conn, st, matcher)[0]
 
 
-def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
-    """Stored labels grouped the way the operator builds stations: one name per rollup.
-
-    The index keeps the library's fine vocabulary ("Nu Disco", "Post-Disco", …) so the
-    picker's tools can match it; the admin console and station matching work on the
-    operator's rollup instead, because ticking one rollup beats ticking twelve. This is
-    the console's view: `{collapsed name: {tracks, members}}`.
-    """
-    out: dict[str, dict] = {}
-    for row in label_queries.counts(conn):
-        name = genre_lib.pretty(genre_lib.canonical(row["label"]))
-        entry = out.setdefault(name, {"tracks": 0, "members": {}})
-        entry["tracks"] += row["c"]
-        entry["members"][row["label"]] = row["c"]
-    return out
-
-
-def _members_by_shelf(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Folded rollup name -> every stored label under it, built in one scan."""
-    out: dict[str, list[str]] = {}
-    for label in label_queries.distinct(conn):
-        out.setdefault(genre_lib.fold(genre_lib.canonical(label)), []).append(label)
-    return out
-
-
-def _member_labels(conn: sqlite3.Connection, label: str,
-                   members: dict[str, list[str]] | None = None) -> list[str]:
-    """Every stored label that the console shows under `label`."""
-    if members is None:
-        members = _members_by_shelf(conn)
-    return members.get(genre_lib.fold(genre_lib.canonical(label)), [])
-
-
 def genre_report(conn: sqlite3.Connection) -> dict:
     """The operator's vocabulary plus the raw labels behind it — the console's data.
 
@@ -510,7 +477,7 @@ def genre_report(conn: sqlite3.Connection) -> dict:
     the library's own words, which is what a merge rule is written against.
     """
     raw = label_queries.raw_counts(conn)
-    collapsed = _collapsed(conn)
+    collapsed = label_queries.collapsed(conn)
     unmapped = [
         {"raw": r["genre"], "tracks": r["c"], "canonical": genre_lib.canonical(r["genre"])}
         for r in raw
@@ -535,36 +502,6 @@ def genre_report(conn: sqlite3.Connection) -> dict:
     }
 
 
-def genre_counts(conn: sqlite3.Connection) -> list[dict]:
-    """One row per collapsed label: tracks, albums, sources, and its fine labels.
-
-    Collapsed because this view is how the operator builds stations — one row per
-    rollup, with the library's own labels nested underneath. The index still stores the
-    fine ones; grouping is a view, not a rewrite.
-    """
-    collapsed = _collapsed(conn)
-    albums: dict[str, set] = {}
-    sources: dict[str, set] = {}
-    for row in label_queries.album_genre_sources(conn):
-        name = genre_lib.pretty(genre_lib.canonical(row["label"]))
-        albums.setdefault(name, set()).add(row["album_id"])
-        sources.setdefault(name, set()).add(row["source"])
-    return [
-        {
-            "label": name,
-            "tracks": entry["tracks"],
-            "albums": len(albums.get(name, ())),
-            "sources": sorted(sources.get(name, ())),
-            "members": [
-                {"label": m, "tracks": c}
-                for m, c in sorted(entry["members"].items(), key=lambda kv: (-kv[1], kv[0]))
-                if m != name
-            ],
-        }
-        for name, entry in sorted(collapsed.items(), key=lambda kv: (-kv[1]["tracks"], kv[0]))
-    ]
-
-
 _SOURCE_WORDS = {
     "tag": "file",
     "manual": "by hand",
@@ -583,10 +520,10 @@ def label_explorer(conn: sqlite3.Connection, labels: list[str], limit: int = 500
         return {"tracks": [], "total": 0, "albums": 0}
     # The console offers collapsed names ("Electronic"), the index stores fine ones
     # ("Nu Disco"): expand what was asked for into the labels actually on the rows.
-    members = _members_by_shelf(conn)
+    members = label_queries.members_by_rollup(conn)
     expanded: list[str] = []
     for name in labels:
-        for found in _member_labels(conn, name, members) or [name]:
+        for found in label_queries.member_labels(conn, name, members) or [name]:
             if found not in expanded:
                 expanded.append(found)
     labels = expanded

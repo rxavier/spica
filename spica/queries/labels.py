@@ -34,6 +34,67 @@ def counts_by_tracks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+
+
+def collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
+    """Stored labels grouped by the operator's rollup name: tracks and member labels."""
+    from .. import genres as genre_lib
+
+    out: dict[str, dict] = {}
+    for row in counts(conn):
+        name = genre_lib.pretty(genre_lib.canonical(row["label"]))
+        entry = out.setdefault(name, {"tracks": 0, "members": {}})
+        entry["tracks"] += row["c"]
+        entry["members"][row["label"]] = row["c"]
+    return out
+
+
+def members_by_rollup(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Folded rollup name -> every stored label under it, built in one scan."""
+    from .. import genres as genre_lib
+
+    out: dict[str, list[str]] = {}
+    for label in distinct(conn):
+        out.setdefault(genre_lib.fold(genre_lib.canonical(label)), []).append(label)
+    return out
+
+
+def member_labels(conn: sqlite3.Connection, label: str,
+                  members: dict[str, list[str]] | None = None) -> list[str]:
+    """Every stored label the console shows under `label`."""
+    from .. import genres as genre_lib
+
+    members = members if members is not None else members_by_rollup(conn)
+    return members.get(genre_lib.fold(genre_lib.canonical(label)), [])
+
+
+def genre_counts(conn: sqlite3.Connection) -> list[dict]:
+    """One row per collapsed label: tracks, albums, sources and nested fine labels."""
+    from .. import genres as genre_lib
+
+    rolled = collapsed(conn)
+    albums: dict[str, set] = {}
+    sources: dict[str, set] = {}
+    for row in album_genre_sources(conn):
+        name = genre_lib.pretty(genre_lib.canonical(row["label"]))
+        albums.setdefault(name, set()).add(row["album_id"])
+        sources.setdefault(name, set()).add(row["source"])
+    return [
+        {
+            "label": name,
+            "tracks": entry["tracks"],
+            "albums": len(albums.get(name, ())),
+            "sources": sorted(sources.get(name, ())),
+            "members": [
+                {"label": m, "tracks": c}
+                for m, c in sorted(entry["members"].items(), key=lambda kv: (-kv[1], kv[0]))
+                if m != name
+            ],
+        }
+        for name, entry in sorted(rolled.items(), key=lambda kv: (-kv[1]["tracks"], kv[0]))
+    ]
+
+
 def distinct(conn: sqlite3.Connection) -> list[str]:
     return [
         row["label"]
