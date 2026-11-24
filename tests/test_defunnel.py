@@ -51,8 +51,8 @@ def db(station, tmp_path, monkeypatch):
     """A real index in the temporary state directory, and the alias file beside it."""
     alias_file = tmp_path / "genre-aliases.json"
     alias_file.write_text(json.dumps(ALIAS), encoding="utf-8")
-    monkeypatch.setattr(genres, "_FILE", alias_file)
-    monkeypatch.setattr(genres, "_cache", (-1.0, {}))
+    monkeypatch.setattr(genres, "alias_path", lambda: alias_file)
+    genres.reset_cache()
     monkeypatch.setattr(mixer, "queued_ids", lambda st=None: [])
     monkeypatch.setattr(enrich, "lfm_similar", lambda name, limit=100: [])
     conn = navidrome.connect(tmp_path / "index.db")

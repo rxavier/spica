@@ -175,7 +175,7 @@ class Library:
     def _matcher(self, station: config.Station):
         """This station's rule predicate, cached until the index or aliases change."""
         try:
-            aliases = genres_module._FILE.stat().st_mtime_ns
+            aliases = genres_module.alias_path().stat().st_mtime_ns
         except OSError:
             aliases = None
         key = (station.id, self._index_stamp(), aliases)

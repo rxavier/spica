@@ -46,8 +46,8 @@ def console(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DJ_PERSONA_FILE", cfg / "dj-persona.md")
     monkeypatch.setattr(config, "ADMIN_PASSWORD", PASSWORD)
     # The alias file's path is bound at import, and its cache outlives a test.
-    monkeypatch.setattr(genres, "_FILE", state / "genre-aliases.json")
-    monkeypatch.setattr(genres, "_cache", (-1.0, {}))
+    monkeypatch.setattr(genres, "alias_path", lambda: state / "genre-aliases.json")
+    genres.reset_cache()
 
     # nothing in here may talk to the stack
     monkeypatch.setattr(mixer, "close", lambda: None)
