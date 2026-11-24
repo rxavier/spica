@@ -77,7 +77,6 @@ def test_recently_out_unions_the_ledger_and_the_picks(station):
     assert queue.recently_out(station) == {"aired" * 4, "picked" * 3}
     # A pick nobody heard is still a pick: the ledger alone would let it come straight
     # back, which is the failure the union is here to stop.
-    assert queue.recently_out(station, hours=0) == {"aired" * 4, "picked" * 3}
 
 
 def test_record_pick_keeps_what_was_offered(station):

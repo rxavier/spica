@@ -151,14 +151,17 @@ def offered_ids(station: config.Station, sets: int = 4) -> set[str]:
     return out
 
 
-def recently_out(station: config.Station, picks: int = PICK_MEMORY,
-                 hours: float = AIR_HOURS) -> set[str]:
-    """Ids that should not play again yet: what aired, and what the DJ chose."""
+def recently_out(station: config.Station) -> set[str]:
+    """Ids that should not play again yet: what aired, and what the DJ chose.
+
+    The windows are the constants above — every caller wants the same memory, so
+    there is no per-call tuning to get wrong.
+    """
     from . import queue
 
     return (queue.recent_ids(station, PLAY_MEMORY)
-            | recent_pick_ids(station, picks)
-            | aired_within(station, hours * 3600))
+            | recent_pick_ids(station, PICK_MEMORY)
+            | aired_within(station, AIR_HOURS * 3600))
 
 
 def why_for(station: config.Station, title: str) -> str:
