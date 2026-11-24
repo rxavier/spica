@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spica import app as application
-from spica import auth, config, icecast, mixer, pool, queue, store
+from spica import auth, config, genres, icecast, mixer, pool, queue, store
 from tests.factories import insert_track, insert_tracks
 
 PASSWORD = "let-me-in"
@@ -45,6 +45,9 @@ def console(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SESSION_SECRET_FILE", state / ".session-secret")
     monkeypatch.setattr(config, "DJ_PERSONA_FILE", cfg / "dj-persona.md")
     monkeypatch.setattr(config, "ADMIN_PASSWORD", PASSWORD)
+    # The alias file's path is bound at import, and its cache outlives a test.
+    monkeypatch.setattr(genres, "_FILE", state / "genre-aliases.json")
+    monkeypatch.setattr(genres, "_cache", (-1.0, {}))
 
     # nothing in here may talk to the stack
     monkeypatch.setattr(mixer, "close", lambda: None)
