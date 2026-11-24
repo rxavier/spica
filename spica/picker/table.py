@@ -144,8 +144,8 @@ def build(lib, station) -> dict | None:
         ranks = {}
     absence = artist_absence(lib, station)
 
-    candidates = _candidates(rows, vectors, features, played, queued, on_air,
-                             blocked, labels, ranks, absence)
+    eligible = _eligible(rows, vectors, features, played, queued, on_air, blocked)
+    candidates = _candidates(eligible, labels, ranks, absence)
     if len(candidates) < MIN_TABLE:
         return None
     # A record the last few sets offered has had its turn, played or not — that is what
@@ -177,9 +177,8 @@ def build(lib, station) -> dict | None:
                 artists.append(track["artist"])
 
     if partial:
-        unknown = _unmeasured(rows, vectors, features, played, queued, on_air,
-                              blocked, set(navidrome.name_key(a) for a in artists),
-                              ranks, labels, UNMEASURED)
+        unknown = _unmeasured(eligible, set(navidrome.name_key(a) for a in artists),
+                              ranks, UNMEASURED)
         if unknown:
             groups.append({"name": "unmeasured", "label": LABELS["unmeasured"][0],
                            "note": LABELS["unmeasured"][1], "tracks": unknown})
@@ -232,22 +231,32 @@ def render(table: dict) -> str:
 
 # ------------------------------------------------------------------ the directions
 
-def _candidates(rows, vectors, features, played, queued, on_air, blocked,
-                labels, ranks, absence) -> list[dict]:
-    """Every record a set may be built from, with what it sounds like and how known."""
+def _eligible(rows, vectors, features, played, queued, on_air, blocked):
+    """Rows a set may draw from at all, split into measured/unmeasured by the caller.
+
+    Played, queued, on-air and blocked artists are dropped once here. The two callers
+    used to run this same filter separately, so a new exclusion had to be added twice.
+    """
     out = []
     for row in rows:
         track_id = row["id"]
         if track_id in played or track_id in queued or track_id == on_air:
             continue
-        vector = vectors.get(track_id)
-        feature = features.get(track_id)
-        if vector is None or not feature:
-            continue
         artist = (row["album_artist"] or row["artist"] or "").strip()
         key = navidrome.name_key(artist)
         if not key or key in blocked:
             continue
+        out.append((row, artist, key, vectors.get(track_id), features.get(track_id)))
+    return out
+
+
+def _candidates(eligible, labels, ranks, absence) -> list[dict]:
+    """Every measured record a set may be built from, with what it sounds like and how known."""
+    out = []
+    for row, artist, key, vector, feature in eligible:
+        if vector is None or not feature:
+            continue
+        track_id = row["id"]
         year = int(row["year"] or 0)
         out.append({
             "id": track_id,
@@ -476,24 +485,19 @@ def _prominence(popularity: float, known: bool = True) -> str:
     return "mid"
 
 
-def _unmeasured(rows, vectors, features, played, queued, on_air, blocked,
-                used_artists, ranks, labels, limit) -> list[dict]:
+def _unmeasured(eligible, used_artists, ranks, limit) -> list[dict]:
     """A few unanalysed records so a new import is not invisible until the worker runs.
 
     They carry what metadata exists and no sonic numbers: the group's label says why.
     """
     out = []
     seen = set(used_artists)
-    ordered = sorted(rows, key=lambda r: (-(int(r["fetched_at"] or 0)), r["id"]))
-    for row in ordered:
+    ordered = sorted(eligible, key=lambda item: (-(int(item[0]["fetched_at"] or 0)), item[0]["id"]))
+    for row, artist, key, vector, feature in ordered:
         track_id = row["id"]
-        if track_id in played or track_id in queued or track_id == on_air:
+        if vector is not None and feature:
             continue
-        if track_id in vectors and track_id in features:
-            continue
-        artist = (row["album_artist"] or row["artist"] or "").strip()
-        key = navidrome.name_key(artist)
-        if not key or key in blocked or key in seen:
+        if key in seen:
             continue
         seen.add(key)
         year = int(row["year"] or 0)
