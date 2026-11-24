@@ -380,6 +380,12 @@ class FakeLibrary:
     def by_ids(self, track_ids):
         return {track_id: self.tracks[track_id] for track_id in track_ids if track_id in self.tracks}
 
+    def artists_by_ids(self, track_ids):
+        return {
+            track_id: (self.tracks[track_id].album_artist or self.tracks[track_id].artist)
+            for track_id in track_ids if track_id in self.tracks
+        }
+
     def on_station(self, station, track_id):
         return track_id in self.tracks
 

@@ -279,14 +279,12 @@ def _offered_artists(lib, offered: set[str]) -> set[str]:
     familiar block by serving a different one each time, which is why the same five names
     came back table after table while every individual record was rotated out.
     """
-    out: set[str] = set()
-    tracks = lib.by_ids(offered)
-    for track_id in offered:
-        track = tracks.get(track_id)
-        name = (getattr(track, "album_artist", "") or getattr(track, "artist", "")) if track else ""
-        if name:
-            out.add(navidrome.name_key(name))
-    return out
+    artists = lib.artists_by_ids(offered)
+    return {
+        navidrome.name_key(name)
+        for name in artists.values()
+        if name
+    }
 
 
 def _absent(candidate: dict) -> float:
@@ -557,11 +555,10 @@ def _blocked_artists(lib, station) -> set[str]:
 def _absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
     """For each artist, how many songs ago it last aired (large when it never did)."""
     plays = queue.recent(station, look)
-    tracks = lib.by_ids(str(entry.get("id") or "") for entry in plays)
+    artists = lib.artists_by_ids(str(entry.get("id") or "") for entry in plays)
     since: dict[str, int] = {}
     for ago, entry in enumerate(reversed(plays)):
-        row = tracks.get(str(entry.get("id") or ""))
-        name = (row.album_artist or row.artist) if row is not None else str(entry.get("artist") or "")
+        name = artists.get(str(entry.get("id") or "")) or str(entry.get("artist") or "")
         key = navidrome.name_key(name)
         if key and key not in since:
             since[key] = ago
