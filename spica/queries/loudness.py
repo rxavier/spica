@@ -54,16 +54,23 @@ def measured_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT track_id, lufs FROM track_loudness").fetchall()
 
 
-def candidates(index_conn: sqlite3.Connection, limit: int | None = None) -> list[sqlite3.Row]:
-    """Untagged playable tracks in album order, optionally only the first `limit`."""
-    sql = (
+def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite3.Row]:
+    """Untagged playable tracks with no attempt in `done_ids`, in album order."""
+    with index_conn:
+        index_conn.execute("CREATE TEMP TABLE IF NOT EXISTS _done_ids (id TEXT PRIMARY KEY)")
+        index_conn.execute("DELETE FROM _done_ids")
+        index_conn.executemany(
+            "INSERT OR IGNORE INTO _done_ids (id) VALUES (?)",
+            ((track_id,) for track_id in done_ids),
+        )
+    return index_conn.execute(
         "SELECT id, uri, replaygain_gain FROM tracks"
         " WHERE uri != '' AND replaygain_gain IS NULL"
+        " AND id NOT IN (SELECT id FROM _done_ids)"
         " ORDER BY album_artist, album, track_no, id"
-    )
-    if limit is not None:
-        return index_conn.execute(sql + " LIMIT ?", (limit,)).fetchall()
-    return index_conn.execute(sql).fetchall()
+        " LIMIT ?",
+        (limit,),
+    ).fetchall()
 
 
 def gain_rows(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:
