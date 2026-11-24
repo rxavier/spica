@@ -15,6 +15,12 @@ from . import config, ledger, queue, store
 _played: dict[str, str] = {}
 _played_at: dict[str, float] = {}
 
+# A track cannot legitimately come round again inside this window, so the same
+# title still on air is the poll loop, not a second play. This is much longer than
+# queue.DUPE_ANNOUNCE_S: that one only collapses a restart's re-announce, while a
+# normal track can stay on air for several minutes.
+REPEAT_WINDOW_S = 15 * 60
+
 
 def _stamp(row: dict) -> float:
     return ledger.parse_stamp(row.get("t")) or 0.0
@@ -30,26 +36,25 @@ def note(st: config.Station, raw_title: str) -> None:
     if not raw:
         return
 
-    # A restart must not look like a new play, so start from the last entry on
-    # disk — but remember when it was, because an old entry means the station has
-    # been off air since and the same title now is a fresh play.
-    if st.id not in _played:
-        last = queue.recent(st, 1)
-        if last:
-            _played[st.id] = _key(last[-1].get("artist", ""), last[-1].get("title", ""))
-            _played_at[st.id] = _stamp(last[-1])
-        else:
-            _played[st.id] = ""
-            _played_at[st.id] = 0.0
-
     artist, song = queue.split_title(raw)
     key = _key(artist, song)
-    # The same window queue.recent uses to collapse a restart's re-announce: a
-    # repeated title inside it is the poll loop seeing the same airing, not a new play.
-    if _played.get(st.id) == key and time.time() - _played_at.get(st.id, 0.0) < queue.DUPE_ANNOUNCE_S:
+    now = time.time()
+    # This process already noted the same airing and it is still inside the window.
+    if _played.get(st.id) == key and now - _played_at.get(st.id, 0.0) < REPEAT_WINDOW_S:
         return
+    # The in-memory key can be missing or stale after a restart, or while an old
+    # process is shutting down. Ask the ledger before writing a second copy.
+    last = queue.recent(st, 1)
+    if last:
+        entry = last[-1]
+        if _key(entry.get("artist", ""), entry.get("title", "")) == key:
+            at = _stamp(entry)
+            if at and now - at < REPEAT_WINDOW_S:
+                _played[st.id] = key
+                _played_at[st.id] = at
+                return
     _played[st.id] = key
-    _played_at[st.id] = time.time()
+    _played_at[st.id] = now
 
     row = store.find_track(artist, song or raw)
     why = ledger.reason_for(st, song or raw)
