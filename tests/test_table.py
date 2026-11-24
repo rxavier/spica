@@ -226,7 +226,7 @@ def test_the_familiar_block_comes_from_whoever_was_off_the_air_longest(rig, monk
         },
     )
     monkeypatch.setattr(
-        table, "_absence",
+        table, "artist_absence",
         lambda lib, station, look=240: {
             navidrome.name_key(f"Artist {a:02d}"): (200 if a == 2 else 1 if a == 1 else 60)
             for a in range(12)

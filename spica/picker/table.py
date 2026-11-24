@@ -23,7 +23,7 @@ from collections import Counter
 from .. import analysis, mixer, navidrome, queue
 from ..names import seed_key
 from ..queries import tracks as track_queries
-from .memory import blocked_artists
+from .memory import ABSENCE, artist_absence, blocked_artists
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
 # still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
@@ -32,7 +32,6 @@ from .memory import blocked_artists
 TARGETS = (("continue", 7), ("shift", 6), ("contrast", 6), ("land", 6), ("known", 7))
 MIN_TABLE = 8
 PER_LABEL = 3  # one label cannot own the table
-ABSENCE = 40   # plays that count as "off the air"
 KNOWN = 0.66   # within-artist percentile that counts as "the one everyone knows"
 # A record *offered* this many sets ago has had its turn whether or not it played: the
 # play ledger alone let the familiar block hand over the same records it kept refusing.
@@ -143,7 +142,7 @@ def build(lib, station) -> dict | None:
         ranks = lib.popularity_ranks(rows)
     except Exception:
         ranks = {}
-    absence = _absence(lib, station)
+    absence = artist_absence(lib, station)
 
     candidates = _candidates(rows, vectors, features, played, queued, on_air,
                              blocked, labels, ranks, absence)
@@ -534,19 +533,6 @@ def _blocked_artists(lib, station) -> set[str]:
     the familiar block stays reachable for a set not anchored to an airing.
     """
     return blocked_artists(lib, station, recent=6, include_picks=False).keys
-
-
-def _absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
-    """For each artist, how many songs ago it last aired (large when it never did)."""
-    plays = queue.recent(station, look)
-    artists = lib.artists_by_ids(str(entry.get("id") or "") for entry in plays)
-    since: dict[str, int] = {}
-    for ago, entry in enumerate(reversed(plays)):
-        name = artists.get(str(entry.get("id") or "")) or str(entry.get("artist") or "")
-        key = navidrome.name_key(name)
-        if key and key not in since:
-            since[key] = ago
-    return since
 
 
 def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:

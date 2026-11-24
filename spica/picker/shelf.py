@@ -21,7 +21,7 @@ from .. import analysis, enrich, navidrome, queue
 from ..queries import enrichment as enrich_queries
 from ..names import seed_key
 from ..queries import tracks as track_queries
-from .memory import blocked_artists
+from .memory import ABSENCE, artist_absence, blocked_artists
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
@@ -36,7 +36,6 @@ SIMILAR_FLOOR = 0.15
 # excluded by a stratification that never thinks about time.
 SHELF = 10
 ABSENT = 2
-ABSENCE = 40      # plays that count as "off the air"
 PER_LABEL = 3     # one label cannot own the shelf
 MIN_SHELF = 3     # fewer than this is not a shelf, it is a wall: no restriction at all
 
@@ -306,14 +305,7 @@ def _longest_absent(lib, station, pool: list[dict], k: int) -> list[dict]:
     names off the pile. Ranking by how long ago they last aired re-ranks itself every
     set — play one and it leaves the top.
     """
-    plays = queue.recent(station, ABSENCE * 6)
-    artists = lib.artists_by_ids(str(entry.get("id") or "") for entry in plays)
-    since: dict[str, int] = {}
-    for ago, entry in enumerate(reversed(plays)):
-        name = artists.get(str(entry.get("id") or "")) or str(entry.get("artist") or "")
-        key = navidrome.name_key(name)
-        if key and key not in since:
-            since[key] = ago
+    since = artist_absence(lib, station)
 
     never = ABSENCE * 6
     scored = []

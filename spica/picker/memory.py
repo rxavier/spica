@@ -12,6 +12,9 @@ from dataclasses import dataclass
 
 from .. import mixer, navidrome, queue
 
+# How many plays count as "off the air" when an offer is scoring absence.
+ABSENCE = 40
+
 
 def artist_of(lib, track_id: str, fallback: str = "") -> str:
     """The record's artist for a ledger id, or the ledger's own name when it is gone."""
@@ -19,6 +22,19 @@ def artist_of(lib, track_id: str, fallback: str = "") -> str:
     if row is not None:
         return row.album_artist or row.artist or ""
     return fallback
+
+
+def artist_absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
+    """For each artist, how many songs ago it last aired (absent from the map = never)."""
+    plays = queue.recent(station, look)
+    artists = lib.artists_by_ids(str(entry.get("id") or "") for entry in plays)
+    since: dict[str, int] = {}
+    for ago, entry in enumerate(reversed(plays)):
+        name = artists.get(str(entry.get("id") or "")) or str(entry.get("artist") or "")
+        key = navidrome.name_key(name)
+        if key and key not in since:
+            since[key] = ago
+    return since
 
 
 def recent_artists(lib, station, n: int) -> list[str]:
