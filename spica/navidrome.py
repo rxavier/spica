@@ -68,7 +68,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     # The API runs picks in worker threads (asyncio.to_thread), so the handle must
     # be usable across them. Reads dominate; writes happen only on /rebuild.
     conn = db.open_db(db_path, timeout=5.0, check_same_thread=False)
-    index_queries.ensure_schema(conn)
+    index_queries.ensure_schema(conn, db_path)
     from . import enrich, jobs
 
     enrich.ensure_schema(conn)
