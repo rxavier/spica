@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spica import app as application
-from spica import auth, config, genres, icecast, mixer, pool, queue, store
+from spica import auth, config, genres, icecast, ledger, mixer, pool, queue, store
 from tests.factories import configure_console, insert_track, insert_tracks
 
 PASSWORD = "let-me-in"
@@ -241,7 +241,7 @@ def test_the_queue_has_station_tabs_a_date_and_the_whole_brief(console):
 def test_a_long_brief_survives_the_pick_log(station):
     queue.record_pick(station, "t1", "T", "A", "why",
                       detail={"prompt_context": "x" * 3000 + "-END"})
-    assert queue.recent_picks(station, 1)[-1]["prompt_context"].endswith("-END")
+    assert ledger.recent_picks(station, 1)[-1]["prompt_context"].endswith("-END")
 
 
 def test_the_library_names_each_job_and_the_current_offer(console):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import time
 
-from spica import queue
+from spica import ledger, queue
 
 
 def write(station, name: str, rows: list[dict]) -> None:
@@ -29,8 +29,8 @@ def test_aired_within_counts_hours_not_airings(station):
         {"t": stamp(5 * 3600), "id": "middle" * 4, "artist": "B", "title": "two", "source": "fallback_rotation"},
         {"t": stamp(600), "id": "fresh" * 5, "artist": "C", "title": "three", "source": "dj"},
     ])
-    assert queue.aired_within(station, 8 * 3600) == {"middle" * 4, "fresh" * 5}
-    assert queue.aired_within(station, 3600) == {"fresh" * 5}
+    assert ledger.aired_within(station, 8 * 3600) == {"middle" * 4, "fresh" * 5}
+    assert ledger.aired_within(station, 3600) == {"fresh" * 5}
 
 
 def test_aired_within_walks_back_only_as_far_as_the_window(station):
@@ -39,7 +39,7 @@ def test_aired_within_walks_back_only_as_far_as_the_window(station):
              "artist": "A", "title": f"{hours}", "source": "fallback_rotation"}
             for hours in reversed(range(12))]  # the ledger is append-only: oldest first
     write(station, ".jsonl", rows)
-    ids = queue.aired_within(station, 8 * 3600)
+    ids = ledger.aired_within(station, 8 * 3600)
     assert ids == {f"{hours:03d}" + "x" * 19 for hours in range(8)}
 
 
@@ -57,9 +57,9 @@ def test_recent_picks_are_not_airings(station):
         {"t": stamp(6000), "id": "b" * 22, "artist": "Two", "title": "y", "reason": "w"},
         {"t": stamp(60), "id": "c" * 22, "artist": "One", "title": "z", "reason": "w"},
     ])
-    assert queue.recent_pick_ids(station, 2) == {"b" * 22, "c" * 22}
-    assert queue.recent_pick_artists(station, 3) == ["One", "Two"]
-    assert queue.reason_for(station, "z") == "w"
+    assert ledger.recent_pick_ids(station, 2) == {"b" * 22, "c" * 22}
+    assert ledger.recent_pick_artists(station, 3) == ["One", "Two"]
+    assert ledger.reason_for(station, "z") == "w"
 
 
 def test_the_offer_is_remembered_with_the_pick(station):
@@ -71,7 +71,7 @@ def test_the_offer_is_remembered_with_the_pick(station):
         {**now, "id": "d" * 22, "candidate_ids": ["d" * 22, "e" * 22]},
     ])
     # The newest two offers, and a pick without one is skipped rather than counted.
-    assert queue.candidate_ids(station, 2) == {"a" * 22, "b" * 22, "d" * 22, "e" * 22}
+    assert ledger.candidate_ids(station, 2) == {"a" * 22, "b" * 22, "d" * 22, "e" * 22}
 
 
 def test_recently_out_unions_the_ledger_and_the_picks(station):
@@ -83,7 +83,7 @@ def test_recently_out_unions_the_ledger_and_the_picks(station):
         # Chosen four hours ago and never aired: only the pick log knows about it.
         {"t": stamp(4 * 3600), "id": "picked" * 3, "artist": "B", "title": "y", "reason": "w"},
     ])
-    assert queue.recently_out(station) == {"aired" * 4, "picked" * 3}
+    assert ledger.recently_out(station) == {"aired" * 4, "picked" * 3}
     # A pick nobody heard is still a pick: the ledger alone would let it come straight
     # back, which is the failure the union is here to stop.
 

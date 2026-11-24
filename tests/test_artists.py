@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from spica import config, navidrome
+from spica import config, ledger, navidrome
 from spica.picker import artists, loop, memory
 from spica.picker.schemas import Pick
 
@@ -127,7 +127,7 @@ def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
         json.dumps({"t": "2026-11-14T00:00:00Z", "id": "x", "candidate_artists": ["Old One", "Old Two"]}) + "\n",
         encoding="utf-8",
     )
-    assert artists.queue.last_candidate_artists(station) == ["Old One", "Old Two"]
+    assert ledger.last_candidate_artists(station) == ["Old One", "Old Two"]
 
 
 def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_path):
@@ -149,8 +149,8 @@ def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_
             return {}
 
     monkeypatch.setattr(artists.queue, "recent", lambda st, n=20: [])
-    monkeypatch.setattr(artists.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
-    monkeypatch.setattr(artists.queue, "last_candidate_artists", lambda st, look=6: [])
+    monkeypatch.setattr(ledger, "recent_pick_artists", lambda st, n=12: ["Just Played"])
+    monkeypatch.setattr(ledger, "last_candidate_artists", lambda st, look=6: [])
     monkeypatch.setattr(memory.mixer, "queued_ids", lambda st=None: [])
     blocked = artists._blocked(IndexOnly(navidrome.connect(tmp_path / "index.db")), station, {})
     assert navidrome.name_key("Just Played") in blocked

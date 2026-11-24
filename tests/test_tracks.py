@@ -83,7 +83,7 @@ def rig(station, tmp_path, monkeypatch):
     monkeypatch.setattr(queue, "recent",
                         lambda st, n=20: [{"id": rows[0][0], "artist": rows[0][3]}])
     monkeypatch.setattr(queue, "recent_ids", lambda st, n=40: {rows[0][0]})
-    monkeypatch.setattr(queue, "last_candidate_artists", lambda st: [])
+    monkeypatch.setattr(ledger, "last_candidate_artists", lambda st: [])
     monkeypatch.setattr(mixer, "queued_ids", lambda st=None: [])
     return Library(conn), store, rows
 
@@ -113,7 +113,7 @@ def test_played_and_queued_are_not_offered(rig):
     lib.by_id = lambda track_id: None  # artist fallback must not invent one
     queue.recent = lambda st, n=20: [{"id": played, "artist": "Artist 00"}]
     queue.recent_ids = lambda st, n=40: {played}
-    queue.last_candidate_artists = lambda st: ["Artist 05"]
+    ledger.last_candidate_artists = lambda st: ["Artist 05"]
     mixer.queued_ids = lambda st=None: [queued]
     built = tracks.build(lib, config.Station(id="t", name="T"))
     assert built is not None
@@ -133,7 +133,7 @@ def test_too_little_analysis_falls_back(station, tmp_path, monkeypatch):
     monkeypatch.setattr(queue, "recent",
                         lambda st, n=20: [{"id": _rows[0][0], "artist": _rows[0][3]}])
     monkeypatch.setattr(queue, "recent_ids", lambda st, n=40: {_rows[0][0]})
-    monkeypatch.setattr(queue, "last_candidate_artists", lambda st: [])
+    monkeypatch.setattr(ledger, "last_candidate_artists", lambda st: [])
     monkeypatch.setattr(mixer, "queued_ids", lambda st=None: [])
     assert tracks.build(Library(conn), config.Station(id="t", name="T")) is None
 
@@ -192,7 +192,7 @@ def test_a_record_offered_a_set_ago_is_not_offered_again(rig, monkeypatch):
     baseline = tracks.build(lib, config.Station(id="t", name="T"))
     assert baseline is not None
     victim = baseline["ids"][0]
-    monkeypatch.setattr(queue, "candidate_ids", lambda st, sets=4: {victim}, raising=False)
+    monkeypatch.setattr(ledger, "candidate_ids", lambda st, sets=4: {victim}, raising=False)
     built = tracks.build(lib, config.Station(id="t", name="T"))
     assert built is not None
     assert victim not in built["ids"]
@@ -201,7 +201,7 @@ def test_a_record_offered_a_set_ago_is_not_offered_again(rig, monkeypatch):
 def test_the_offer_memory_gives_way_before_the_table_does(rig, monkeypatch):
     """On a station narrower than four tables' worth, a repeated offer beats no offer."""
     lib, _store, rows = rig
-    monkeypatch.setattr(queue, "candidate_ids", lambda st, sets=4: {row[0] for row in rows},
+    monkeypatch.setattr(ledger, "candidate_ids", lambda st, sets=4: {row[0] for row in rows},
                         raising=False)
     built = tracks.build(lib, config.Station(id="t", name="T"))
     assert built is not None
