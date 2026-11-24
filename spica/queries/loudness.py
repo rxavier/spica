@@ -57,8 +57,7 @@ def measured_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT track_id, lufs FROM track_loudness").fetchall()
 
 
-def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite3.Row]:
-    """Untagged playable tracks with no attempt in `done_ids`, in album order."""
+def _fill_done(index_conn: sqlite3.Connection, done_ids) -> None:
     with index_conn:
         index_conn.execute("CREATE TEMP TABLE IF NOT EXISTS _done_ids (id TEXT PRIMARY KEY)")
         index_conn.execute("DELETE FROM _done_ids")
@@ -66,6 +65,20 @@ def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite
             "INSERT OR IGNORE INTO _done_ids (id) VALUES (?)",
             ((track_id,) for track_id in done_ids),
         )
+
+
+def backlog(index_conn: sqlite3.Connection, done_ids) -> int:
+    """Untagged playable tracks with no attempt, counted in SQL."""
+    _fill_done(index_conn, done_ids)
+    return int(index_conn.execute(
+        f"SELECT COUNT(*) c FROM tracks WHERE {db.PLAYABLE}"
+        " AND replaygain_gain IS NULL AND id NOT IN (SELECT id FROM _done_ids)"
+    ).fetchone()["c"])
+
+
+def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite3.Row]:
+    """Untagged playable tracks with no attempt in `done_ids`, in album order."""
+    _fill_done(index_conn, done_ids)
     return index_conn.execute(
         f"SELECT id, uri, replaygain_gain FROM tracks"
         f" WHERE {db.PLAYABLE} AND replaygain_gain IS NULL"

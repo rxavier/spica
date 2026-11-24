@@ -134,6 +134,21 @@ def candidate_rows(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def backlog(index_conn: sqlite3.Connection, analysed_ids) -> int:
+    """Playable tracks not in `analysed_ids`, counted in SQL."""
+    with index_conn:
+        index_conn.execute("CREATE TEMP TABLE IF NOT EXISTS _analysed_ids (id TEXT PRIMARY KEY)")
+        index_conn.execute("DELETE FROM _analysed_ids")
+        index_conn.executemany(
+            "INSERT OR IGNORE INTO _analysed_ids (id) VALUES (?)",
+            ((track_id,) for track_id in analysed_ids),
+        )
+    return int(index_conn.execute(
+        f"SELECT COUNT(*) c FROM tracks WHERE {db.PLAYABLE}"
+        " AND id NOT IN (SELECT id FROM _analysed_ids)"
+    ).fetchone()["c"])
+
+
 def playable_count(index_conn: sqlite3.Connection) -> int:
     return track_queries.library_size(index_conn)
 
