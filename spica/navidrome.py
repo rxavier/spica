@@ -12,13 +12,13 @@ so a schema or API change breaks a rebuild, not the data.
 from __future__ import annotations
 
 import sqlite3
-import unicodedata
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import config, db
+from .names import name_key
 from . import genres as genre_lib
 from . import subsonic
 from .queries import enrichment as enrich_queries
@@ -44,23 +44,6 @@ class Track:
 
     def as_line(self) -> str:
         return f"{self.title} — {self.artist} ({self.year or '?'})"
-
-
-def name_key(name: str) -> str:
-    """A name reduced to what it says, not how it was typed.
-
-    "L’Impératrice", "L'Impératrice" and "l’imperatrice" are one artist; a model typing
-    an ASCII apostrophe used to get nothing back from a library that stores the
-    typographic one.
-    """
-    text = unicodedata.normalize("NFKD", str(name or ""))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    for quote in "’‘`´":
-        text = text.replace(quote, "'")
-    # "blink‐182" uses a typographic hyphen; nobody types one of those.
-    for dash in "‐‑‒–—−":
-        text = text.replace(dash, "-")
-    return " ".join(text.casefold().split())
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
