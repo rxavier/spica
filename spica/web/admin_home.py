@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 from .. import analysis
 from .. import config
@@ -23,7 +22,8 @@ from fastapi.responses import (
 
 from .shared import (
     templates,
-    _restart_mixer,
+    _apply_station_script,
+    coverage_context,
 )
 
 router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
@@ -65,13 +65,8 @@ def _library_context() -> dict:
     except Exception as exc:  # Navidrome down, or the credentials are wrong
         scan, library_tracks = "", None
         library_error = f"Navidrome did not answer: {exc}"
-    coverage = jobs.coverage(conn)
-    analysis_coverage = analysis.coverage_for(conn)
-    if analysis_coverage is not None:
-        coverage["analysis"] = analysis_coverage
-    loudness_coverage = loudness.coverage(conn)
-    if loudness_coverage is not None:
-        coverage["loudness"] = loudness_coverage
+    coverage = coverage_context(conn)
+    analysis_coverage = coverage.get("analysis")
     analysis_stations = (analysis_coverage or {}).get("stations") or {}
     analysis_on = analysis.enabled()
     mode = config.dj_mode()
@@ -142,15 +137,7 @@ async def admin_rebuild(request: Request):
 
 @router.post("/admin/reload", response_class=HTMLResponse)
 async def admin_reload(request: Request):
-
-    from .. import liqgen
-
-    def _run() -> str:
-        password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
-        liqgen.write(store.reload_stations(), password)
-        return _restart_mixer()
-
-    message = await asyncio.to_thread(_run)
+    message = await asyncio.to_thread(_apply_station_script)
     return templates.TemplateResponse(
         request, "_saved.html", {"message": message, "station_id": ""}
     )

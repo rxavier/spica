@@ -16,14 +16,12 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import air
-from . import analysis
 from . import bootstrap
 from . import config, icecast, mixer, navidrome, picker, plays, pool, presence, queue, store, web
 from . import enrich as enrich_mod
 from . import genres as genre_lib
 from . import jobs
 from . import liqgen
-from . import loudness
 from . import requests as requests_mod
 from .queries import tracks as track_queries
 
@@ -382,17 +380,7 @@ async def aliases() -> dict:
 @app.get("/coverage")
 async def coverage() -> dict:
     """What the picker knows: genre coverage, plus analysis and loudness when on."""
-    def _run() -> dict:
-        out = jobs.coverage(store.library().conn)
-        extra = analysis.coverage_for(store.library().conn)
-        if extra is not None:
-            out["analysis"] = extra
-        levels = loudness.coverage(store.library().conn)
-        if levels is not None:
-            out["loudness"] = levels
-        return out
-
-    return await asyncio.to_thread(_run)
+    return await asyncio.to_thread(web.coverage_context, store.library().conn)
 
 
 @app.post("/jobs")
