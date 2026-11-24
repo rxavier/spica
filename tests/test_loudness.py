@@ -211,7 +211,7 @@ def test_measured_store_round_trip_and_backlog(tmp_path, monkeypatch):
     store = loudness.connect(create=True)
     loudness.save(store, "t2", -20.0, -3.0)
     store.close()
-    assert loudness.measured("t2") == (-20.0, -3.0)
+    assert loudness.all_measured()["t2"] == (-20.0, -3.0)
     assert loudness.all_measured()["t2"] == (-20.0, -3.0)
     assert [r["id"] for r in loudness.pending(conn, 10)] == ["t3"]
 
@@ -275,8 +275,8 @@ def test_loudness_job_measures_untagged_tracks_and_marks_failures(tmp_path, monk
     assert result["failed"] == 1
     assert result["remaining"] == 0
     assert rewritten == [True]
-    assert loudness.measured("t2") == (-20.0, -3.0)
-    assert loudness.measured("t3") is None
+    assert loudness.all_measured()["t2"] == (-20.0, -3.0)
+    assert "t3" not in loudness.all_measured()
     store = loudness.connect()
     try:
         measured_ids = {row["track_id"] for row in store.execute("SELECT track_id FROM track_loudness")}

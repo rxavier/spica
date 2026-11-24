@@ -16,10 +16,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
-from pathlib import Path
 
 from . import config
-from .atomic import atomic_write
 
 ICECAST_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <icecast>

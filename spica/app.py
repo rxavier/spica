@@ -11,7 +11,6 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel

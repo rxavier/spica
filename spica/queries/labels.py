@@ -54,15 +54,6 @@ def all_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT track_id, label FROM track_genres").fetchall()
 
 
-def labels_for_track(conn: sqlite3.Connection, track_id: str) -> list[str]:
-    return [
-        row["label"]
-        for row in conn.execute(
-            "SELECT label FROM track_genres WHERE track_id = ?", (track_id,)
-        )
-    ]
-
-
 def raw_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT raw AS genre, COUNT(*) c FROM track_raw_genres"
@@ -86,38 +77,6 @@ def album_genre_sources(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT g.label AS label, t.album_id AS album_id, g.source AS source"
         " FROM track_genres g JOIN tracks t ON t.id = g.track_id"
-    ).fetchall()
-
-
-def album_rows(
-    conn: sqlite3.Connection, labels: list[str]
-) -> list[sqlite3.Row]:
-    where, args = db.where_in("g.label", labels)
-    artist = db.artist_expr("t")
-    return conn.execute(
-        f"""SELECT {artist} AS artist, t.album AS album,
-                   COUNT(*) AS tracks, MIN(t.year) AS year
-            FROM track_genres g JOIN tracks t ON t.id = g.track_id
-            WHERE {where}
-            GROUP BY {artist}, t.album
-            ORDER BY {artist}, t.album""",
-        args,
-    ).fetchall()
-
-
-def track_rows(
-    conn: sqlite3.Connection, labels: list[str], limit: int
-) -> list[sqlite3.Row]:
-    where, args = db.where_in("g.label", labels)
-    artist = db.artist_expr("t")
-    return conn.execute(
-        f"""SELECT {artist} AS artist, t.album AS album,
-                   t.title AS title, t.year AS year
-            FROM track_genres g JOIN tracks t ON t.id = g.track_id
-            WHERE {where}
-            ORDER BY {artist}, t.album, t.track_no
-            LIMIT ?""",
-        args + [limit],
     ).fetchall()
 
 

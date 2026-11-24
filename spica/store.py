@@ -165,10 +165,3 @@ def library():
 
             _state.library = picker.Library(connection)
         return _state.library
-
-
-def station(station_id: str) -> config.Station | None:
-    for st in stations():
-        if st.id == station_id:
-            return st
-    return None
