@@ -626,9 +626,6 @@ class Library:
             for row in rows
         }
 
-    def count(self, station: config.Station) -> int:
-        return len(navidrome.rows_for_station(self.conn, station))
-
     def on_station(self, station: config.Station, track_id: str) -> bool:
         """Whether this station's own rules let that track play.
 

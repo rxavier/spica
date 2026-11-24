@@ -276,7 +276,7 @@ def test_the_console_shows_one_row_per_shelf(db, station):
     assert "Electronic" in counts
     assert counts["Electronic"]["members"], "the fine labels are nested under the shelf"
     assert {m["label"] for m in counts["Electronic"]["members"]} == {"Nu Disco"}
-    assert navidrome.genres(db)[0][0] in {"Electronic", "Jazz Fusion"}
+    assert navidrome.genre_counts(db)[0]["label"] in {"Electronic", "Jazz Fusion"}
 
 
 def test_a_station_genre_written_as_the_shelf_name_survives_a_save(db, station, monkeypatch):
@@ -304,10 +304,12 @@ def test_similar_matches_the_album_artist_not_the_guest_credit(db, station, monk
 
 
 def test_label_albums_group_by_album_artist(db):
+    from spica.queries import labels as label_queries
+
     seed(db, [track("1" * 22, "Band & Guest", album_artist="Band"),
               track("2" * 22, "Band", album_artist="Band")],
          [label("1" * 22, "Rock"), label("2" * 22, "Rock")])
-    rows = navidrome.label_albums(db, "Rock")
+    rows = label_queries.album_rows(db, ["Rock"])
     assert len(rows) == 1
     assert rows[0]["artist"] == "Band"
     assert rows[0]["tracks"] == 2
