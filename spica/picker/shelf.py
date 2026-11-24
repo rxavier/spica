@@ -21,7 +21,7 @@ from .. import analysis, enrich, navidrome, queue
 from ..queries import enrichment as enrich_queries
 from ..names import seed_key
 from ..queries import tracks as track_queries
-from .memory import ABSENCE, artist_absence, blocked_artists
+from .memory import ABSENCE, artist_absence, blocked_artists, spread_decades
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
@@ -281,20 +281,17 @@ def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
 
 def _spread_decades(order: list[dict], chosen: list[dict]) -> None:
     """Two decades on the shelf when the pool can pay for it."""
-    if len({p["decade"] for p in chosen if p["decade"]}) >= 2:
-        return
-    taken = {p["key"] for p in chosen}
-    seen = {p["decade"] for p in chosen}
-    for item in order:
-        if not item["decade"] or item["key"] in taken or item["decade"] in seen:
-            continue
-        # Replace the newest pick whose label keeps another representative behind it,
-        # so the era swap does not empty a quota.
-        for i in range(len(chosen) - 1, -1, -1):
-            label = chosen[i]["label"]
-            if sum(1 for c in chosen if c["label"] == label) > 1:
-                chosen[i] = dict(item, why="shelf")
-                return
+    def replaceable(i: int, items: list[dict]) -> bool:
+        # Keep the last record of a label, so the era swap does not empty a quota.
+        label = items[i]["label"]
+        return sum(1 for item in items if item["label"] == label) > 1
+
+    spread_decades(
+        chosen, order,
+        key=lambda item: item["key"],
+        decade=lambda item: item["decade"],
+        replaceable=replaceable,
+    )
 
 
 def _longest_absent(lib, station, pool: list[dict], k: int) -> list[dict]:

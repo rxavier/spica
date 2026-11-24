@@ -63,6 +63,37 @@ def queued_artists(lib, station, limit: int | None = None) -> list[str]:
     return out
 
 
+def spread_decades(chosen, candidates, *, key, decade, decades=None,
+                   accept=None, replaceable=None):
+    """Put two eras in an offer when the candidates can pay for it.
+
+    Replaces one item from `chosen` with the first candidate from a different era,
+    returning `(index, previous, replacement)` or None. `accept` can veto a candidate
+    (the table excludes ids and artists already used); `replaceable` can veto the slot
+    (the shelf keeps the last record of a label). `decades` is the eras already on the
+    offer when it spans more than one list.
+    """
+    seen = set(decades) if decades is not None else {
+        decade(item) for item in chosen if decade(item)
+    }
+    if len(seen) >= 2:
+        return None
+    taken = {key(item) for item in chosen}
+    for candidate in candidates:
+        era = decade(candidate)
+        if not era or key(candidate) in taken or era in seen:
+            continue
+        if accept is not None and not accept(candidate):
+            continue
+        for i in range(len(chosen) - 1, -1, -1):
+            if replaceable is not None and not replaceable(i, chosen):
+                continue
+            previous = chosen[i]
+            chosen[i] = candidate
+            return i, previous, candidate
+    return None
+
+
 @dataclass(frozen=True)
 class Blocklist:
     keys: set[str]          # folded artist keys that may not be offered

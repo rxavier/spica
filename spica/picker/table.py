@@ -23,7 +23,7 @@ from collections import Counter
 from .. import analysis, mixer, navidrome, queue
 from ..names import seed_key
 from ..queries import tracks as track_queries
-from .memory import ABSENCE, artist_absence, blocked_artists
+from .memory import ABSENCE, artist_absence, blocked_artists, spread_decades
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
 # still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
@@ -440,19 +440,24 @@ def _spread_decades(groups, plans, used_ids, used_artists, seed) -> None:
     if len(decades) >= 2:
         return
     for group in sorted(groups, key=lambda g: -len(g["tracks"])):
-        for candidate in sorted(plans[group["name"]], key=lambda c: seed_key(seed, c["id"])):
-            if (candidate["id"] in used_ids or candidate["artist_key"] in used_artists
-                    or not candidate["decade"] or candidate["decade"] in decades):
-                continue
-            if not group["tracks"]:
-                continue
-            dropped = group["tracks"][-1]
-            group["tracks"][-1] = candidate
-            used_ids.discard(dropped["id"])
-            used_ids.add(candidate["id"])
-            used_artists.discard(dropped["artist_key"])
-            used_artists.add(candidate["artist_key"])
-            return
+        if not group["tracks"]:
+            continue
+        candidates = sorted(plans[group["name"]], key=lambda c: seed_key(seed, c["id"]))
+        replaced = spread_decades(
+            group["tracks"], candidates,
+            key=lambda c: c["id"],
+            decade=lambda c: c["decade"],
+            decades=decades,
+            accept=lambda c: not (c["id"] in used_ids or c["artist_key"] in used_artists),
+        )
+        if replaced is None:
+            continue
+        _index, previous, candidate = replaced
+        used_ids.discard(previous["id"])
+        used_ids.add(candidate["id"])
+        used_artists.discard(previous["artist_key"])
+        used_artists.add(candidate["artist_key"])
+        return
 
 
 def _prominence(popularity: float, known: bool = True) -> str:
