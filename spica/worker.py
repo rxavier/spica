@@ -29,6 +29,7 @@ from pathlib import Path
 from . import bootstrap
 from . import genres as genre_lib
 from . import config, enrich, genres, jobs, loudness, navidrome, pool, queue, subsonic
+from .queries import enrichment as enrich_queries
 from .queries import jobs as job_queries
 from .queries import labels as label_queries
 from .queries import tracks as track_queries
@@ -42,7 +43,7 @@ def _db():
 
 def _artist_labels(conn, artist: str) -> list[str]:
     """Last.fm tags for an artist, cached in `artist_tags` so it is fetched once."""
-    cached = [r["tag"] for r in conn.execute("SELECT tag FROM artist_tags WHERE name = ?", (artist,))]
+    cached = enrich_queries.tags_for(conn, artist)
     if cached:
         return cached
     tags = enrich.lfm_tags(artist)
@@ -50,10 +51,7 @@ def _artist_labels(conn, artist: str) -> list[str]:
         return []
     now = int(time.time())
     with conn:
-        conn.executemany(
-            "INSERT OR IGNORE INTO artist_tags (name, tag, source, fetched_at) VALUES (?,?,?,?)",
-            [(artist, t, "lastfm", now) for t in tags],
-        )
+        enrich_queries.remember_tags(conn, artist, tags, "lastfm", now)
     return tags
 
 
@@ -138,11 +136,7 @@ def run_popularity(conn, job_id: int, log=print) -> dict:
         ]
         if rows:
             with conn:
-                conn.executemany(
-                    "INSERT OR REPLACE INTO track_popularity"
-                    " (track_id, playcount, users, source, fetched_at) VALUES (?,?,?,?,?)",
-                    rows,
-                )
+                enrich_queries.replace_popularity(conn, rows)
             stored += len(rows)
         done += len(batch)
         jobs.progress(conn, job_id, done, total)
@@ -154,10 +148,9 @@ def run_popularity(conn, job_id: int, log=print) -> dict:
         info = enrich.lfm_track(row["artist"], row["title"])
         if info:
             with conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO track_popularity"
-                    " (track_id, playcount, users, source, fetched_at) VALUES (?,?,?,?,?)",
-                    (row["id"], info["playcount"], info["users"], "lastfm", int(time.time())),
+                enrich_queries.replace_popularity(
+                    conn,
+                    [(row["id"], info["playcount"], info["users"], "lastfm", int(time.time()))],
                 )
             stored += 1
         if i % 20 == 0 or i == len(rest):
@@ -177,12 +170,7 @@ def _artists_without_mb_genres(conn) -> list[sqlite3.Row]:
     The TTL brings a miss back in case the artist was edited upstream.
     """
     cutoff = int(time.time()) - config.MB_GENRES_TTL_S
-    fresh = {
-        row["artist_key"]
-        for row in conn.execute(
-            "SELECT artist_key FROM mb_artist_genres WHERE fetched_at >= ?", (cutoff,)
-        )
-    }
+    fresh = enrich_queries.fresh_mb_genre_keys(conn, cutoff)
     rows = track_queries.record_artist_counts(conn)
     return [row for row in rows if genre_lib.fold(row["artist"]) not in fresh]
 
@@ -194,10 +182,7 @@ def missing_musicbrainz(conn) -> int:
 
 def missing_popularity(conn) -> int:
     """Tracks the stations could lean on but have no figure for yet."""
-    return conn.execute(
-        """SELECT count(*) FROM tracks t
-           WHERE NOT EXISTS (SELECT 1 FROM track_popularity p WHERE p.track_id = t.id)"""
-    ).fetchone()[0]
+    return enrich_queries.missing_popularity(conn)
 
 
 def run_musicbrainz(conn, job_id: int, log=print) -> dict:
@@ -222,15 +207,12 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
             import json as _json
 
             with conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO mb_artist_genres (artist_key, mbid, genres, fetched_at)"
-                    " VALUES (?,?,?,?)",
-                    (
-                        genre_lib.fold(artist),
-                        info.get("mbid") or "",
-                        _json.dumps(info.get("genres") or []),
-                        int(time.time()),
-                    ),
+                enrich_queries.remember_mb_genres(
+                    conn,
+                    genre_lib.fold(artist),
+                    info.get("mbid") or "",
+                    _json.dumps(info.get("genres") or []),
+                    int(time.time()),
                 )
             if info.get("genres"):
                 found += 1
@@ -522,13 +504,7 @@ def missing_similarity(conn) -> int:
     to ask, and a job queued for it would retry forever."""
     if not config.provider_settings()["lastfm_key"]:
         return 0
-    row = conn.execute(
-        """SELECT count(*) FROM (
-             SELECT DISTINCT album_artist AS name FROM tracks WHERE album_artist != ''
-           ) a
-           WHERE NOT EXISTS (SELECT 1 FROM artist_similarity s WHERE s.name = a.name)"""
-    ).fetchone()
-    return int(row[0] or 0)
+    return enrich_queries.missing_similarity(conn)
 
 
 def stale_reason(conn) -> str:

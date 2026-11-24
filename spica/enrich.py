@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 
 from . import config, subsonic
+from .queries import enrichment as enrich_queries
 
 MB = "https://musicbrainz.org/ws/2"
 LB = "https://labs.api.listenbrainz.org"
@@ -149,73 +150,26 @@ def lfm_tags(name: str) -> list[str]:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS artist_mbids (
-            name TEXT PRIMARY KEY,
-            mbid TEXT NOT NULL,
-            source TEXT NOT NULL,
-            fetched_at INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS similar_artists (
-            name TEXT NOT NULL,
-            similar TEXT NOT NULL,
-            source TEXT NOT NULL,
-            fetched_at INTEGER,
-            PRIMARY KEY (name, similar)
-        );
-        CREATE TABLE IF NOT EXISTS artist_tags (
-            name TEXT NOT NULL,
-            tag TEXT NOT NULL,
-            source TEXT NOT NULL,
-            fetched_at INTEGER,
-            PRIMARY KEY (name, tag)
-        );
-        -- Scored similarity. `similar_artists` answers "who sounds like this" for the
-        -- tools and keeps whatever a provider returned; this one keeps the match, so a
-        -- caller can say "the three nearest" and mean it.
-        CREATE TABLE IF NOT EXISTS artist_similarity (
-            name TEXT NOT NULL,
-            similar TEXT NOT NULL,
-            match REAL NOT NULL DEFAULT 0,
-            source TEXT NOT NULL,
-            fetched_at INTEGER,
-            PRIMARY KEY (name, similar)
-        );
-        CREATE INDEX IF NOT EXISTS similar_by_name ON similar_artists(name);
-        CREATE INDEX IF NOT EXISTS similarity_by_name ON artist_similarity(name);
-        """
-    )
-    conn.commit()
+    enrich_queries.ensure_schema(conn)
 
 
 def cached_mbid(conn: sqlite3.Connection, name: str) -> str | None:
-    row = conn.execute("SELECT mbid FROM artist_mbids WHERE name = ?", (name,)).fetchone()
-    return row["mbid"] if row else None
+    return enrich_queries.cached_mbid(conn, name)
 
 
 def remember_mbid(conn: sqlite3.Connection, name: str, mbid: str, source: str) -> None:
     with conn:
-        conn.execute(
-            "INSERT INTO artist_mbids (name, mbid, source, fetched_at) VALUES (?,?,?,?)"
-            " ON CONFLICT(name) DO UPDATE SET mbid=excluded.mbid, source=excluded.source,"
-            " fetched_at=excluded.fetched_at",
-            (name, mbid, source, int(time.time())),
-        )
+        enrich_queries.remember_mbid(conn, name, mbid, source, int(time.time()))
 
 
 def cached_similar(conn: sqlite3.Connection, name: str) -> list[str]:
-    rows = conn.execute("SELECT similar FROM similar_artists WHERE name = ?", (name,)).fetchall()
-    return [r["similar"] for r in rows]
+    return enrich_queries.cached_similar(conn, name)
 
 
 def remember_similar(conn: sqlite3.Connection, name: str, names: list[str], source: str) -> None:
     now = int(time.time())
     with conn:
-        conn.executemany(
-            "INSERT OR IGNORE INTO similar_artists (name, similar, source, fetched_at) VALUES (?,?,?,?)",
-            [(name, s, source, now) for s in names],
-        )
+        enrich_queries.remember_similar(conn, name, names, source, now)
 
 
 def similar_artists(conn: sqlite3.Connection, name: str, limit: int = 25) -> tuple[list[str], str]:
@@ -267,22 +221,11 @@ def remember_scores(conn: sqlite3.Connection, name: str, pairs: list[tuple[str, 
                     source: str = "lastfm") -> None:
     now = int(time.time())
     with conn:
-        conn.executemany(
-            "INSERT INTO artist_similarity (name, similar, match, source, fetched_at)"
-            " VALUES (?,?,?,?,?) ON CONFLICT(name, similar) DO UPDATE SET"
-            " match=excluded.match, source=excluded.source, fetched_at=excluded.fetched_at",
-            [(name, s, float(m), source, now) for s, m in pairs],
-        )
+        enrich_queries.remember_scores(conn, name, pairs, source, now)
 
 
 def cached_scores(conn: sqlite3.Connection, name: str) -> list[tuple[str, float]]:
-    return [
-        (r["similar"], float(r["match"] or 0.0))
-        for r in conn.execute(
-            "SELECT similar, match FROM artist_similarity WHERE name = ? ORDER BY match DESC",
-            (name,),
-        )
-    ]
+    return enrich_queries.cached_scores(conn, name)
 
 
 def navidrome_artist_mbid(artist_id: str) -> str:
