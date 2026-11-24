@@ -443,7 +443,7 @@ def plan_pick(
         },
     ]
 
-    brief = messages[1]["content"] if len(messages) > 1 else ""
+    brief = messages[1]["content"]
     called: list[dict] = []
     allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
     allowed_ids = set(table["ids"]) if table else None
