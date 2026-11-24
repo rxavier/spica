@@ -176,10 +176,15 @@ def now_tail(station) -> str:
             chunk = fh.read()
     except OSError:
         return ""
-    lines = [line.decode("utf-8", "replace").strip() for line in chunk.split(b"\n")]
+    lines = chunk.split(b"\n")
+    if start > 0 and lines:
+        lines = lines[1:]  # the window cut the first line, so it is not a whole one
+    if lines and not chunk.endswith(b"\n"):
+        lines = lines[:-1]  # the last line is still being written
     for line in reversed(lines):
-        if line:
-            return line
+        text = line.decode("utf-8", "replace").strip()
+        if text:
+            return text
     return ""
 
 
