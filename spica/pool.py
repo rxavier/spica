@@ -89,9 +89,11 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
     # not open on the artist or album that just finished.
     recent_artists = list(seed_artists or [])[-ARTIST_WINDOW:]
     recent_albums = [seed_album] if seed_album else []
-    pool = scored[:]
+    # A dict keeps the scan order while allowing O(1) removal: popping from a list
+    # copied the rest of the pool on every placement.
+    pool = dict(enumerate(scored))
     while pool:
-        for i, row in enumerate(pool):
+        for key, row in pool.items():
             if row["album_id"] in recent_albums[-1:]:
                 continue
             who = row["album_artist"] or row["artist"]
@@ -100,11 +102,12 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
             out.append(row)
             recent_artists.append(who)
             recent_albums.append(row["album_id"])
-            pool.pop(i)
+            del pool[key]
             break
         else:
             # Every remaining candidate is blocked: relax and take the first.
-            row = pool.pop(0)
+            first = next(iter(pool))
+            row = pool.pop(first)
             out.append(row)
             recent_artists.append(row["album_artist"] or row["artist"])
             recent_albums.append(row["album_id"])
