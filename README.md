@@ -152,9 +152,8 @@ deployment story: [`deploy/README.md`](deploy/README.md).
 - **Sets, not picks.** The DJ is asked for three to ten tracks at once and one line
   that says what the set is, and the set is then played out one track at a time from
   `state/plans/<station>.json`. Asking "what follows this song" once per track has only
-  one cheap answer — the nearest thing to what is already playing — which is how the
-  station ended up circling the same corner; asking for a set costs one decision per
-  stretch of night instead of one per record. A listener request throws the rest of the
+  one cheap answer — the nearest thing to what is already playing — so a set costs one
+  decision per stretch of night instead of one per record. A listener request throws the rest of the
   set away, because it was chosen for the mood they asked to leave.
 - **LLM picks with real tools, when a set needs them.** Six of them: `history` (what
   the station just played, with how many songs ago), `flip` (three more records from the
@@ -196,7 +195,7 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   is, and the ids written in front, so a set is one model call and no lookups. A record
   stays out of the table for sixty DJ picks or eight hours of air, whichever is longer,
   and for four sets after it was merely *offered*: being offered is having had a turn,
-  and a record that never played used to come back on table after table. Absence also
+  so a record that never played does not return on table after table. Absence also
   lifts a candidate inside its direction, so near neighbours that have not had a turn come
   first instead of the same few orbiting what is on air. The familiar option is the top
   third of the artist's catalogue, ordered by whoever has been off the air longest rather
@@ -670,13 +669,11 @@ taken away, and both decisions outlive a rebuild.
 result as a sentence (*4,832 tracks · todo 4,832, prog 2,210, alt 1,545 in pools*), the
 local finish time and how long it took.
 
-**The look** is a radio in a lit room: warm paper as the ground, and the leather kept for
-objects — a band across the top with the badge, the play button, the level bars. Cream is
-the paper the tracks are printed on. Values were chosen by contrast, not by taste:
-`#bf5c35` cannot carry small text in either polarity (cream 3.5:1, ink 4.1:1), so it
-holds only the large wordmark and fills; surfaces with small text step down to `#8a4a2c`
-(cream 5.4:1); leather used as text on paper is `#6f3a22` (8.0:1); red survives as a
-signal because on paper it reads 5.7:1.
+**The look** is a radio in a lit room: warm paper as the ground, leather for objects — a
+band across the top with the badge, the play button and the level bars, and cream paper
+for the track list. Palette values are chosen to meet contrast at the size they are used:
+large fills may use the brighter leather, small text uses the darker tones, and red is
+kept for signals.
 
 ## Metadata and artwork
 
