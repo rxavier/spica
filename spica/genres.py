@@ -388,6 +388,7 @@ def merge(conn, labels, into, *, relabel: bool = False) -> int:
     target = pretty(str(into or "").strip())
     if not target:
         return 0
+    counts = label_queries.counts(conn)
     covered = 0
     for label in labels:
         label = str(label or "").strip()
@@ -398,9 +399,7 @@ def merge(conn, labels, into, *, relabel: bool = False) -> int:
             continue  # already there: nothing to move, nothing worth remembering
         _add_alias(label, target)
         keys = {fold(canon), fold(canonical(label))}
-        for row in label_queries.counts(conn):
-            if fold(row["label"]) in keys:
-                covered += 1
+        covered += sum(1 for row in counts if fold(row["label"]) in keys)
         if relabel:
             with conn:
                 label_queries.relabel(conn, target, canon)
