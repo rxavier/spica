@@ -13,6 +13,7 @@ import json
 import pytest
 
 from spica import config, enrich, genres, mixer, navidrome, queue
+from tests.factories import insert_tracks
 from spica.picker import library as picker_library
 from spica.picker import llm
 
@@ -39,12 +40,7 @@ def db(station, tmp_path, monkeypatch):
 
 def seed(conn, tracks, labels=()):
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " track_no, year, genre, duration, album_artist, album_artist_key)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            tracks,
-        )
+        insert_tracks(conn, tracks)
         if labels:
             conn.executemany(
                 "INSERT OR REPLACE INTO track_genres (track_id, label, source) VALUES (?,?,?)",

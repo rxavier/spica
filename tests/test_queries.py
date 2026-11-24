@@ -6,6 +6,7 @@ from pathlib import Path
 
 from spica import db, navidrome
 from spica.queries import enrichment, jobs, labels, tracks
+from tests.factories import insert_track
 
 
 def test_sql_lives_only_in_the_query_modules():
@@ -43,9 +44,9 @@ def test_coverage_shape_and_empty_library():
 def test_track_lookups(tmp_path):
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist, album) VALUES (?,?,?,?,?)",
-            ("a", "http://navidrome/a.flac", "A", "Band", "Record"),
+        insert_track(
+            conn, id="a", uri="http://navidrome/a.flac", title="A",
+            artist="Band", album="Record",
         )
 
     assert tracks.track_by_id(conn, "a")["title"] == "A"
@@ -59,9 +60,8 @@ def test_track_lookups(tmp_path):
 def test_label_queries_relabel_and_delete(tmp_path):
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist) VALUES (?,?,?,?)",
-            ("a", "http://navidrome/a.flac", "A", "Band"),
+        insert_track(
+            conn, id="a", uri="http://navidrome/a.flac", title="A", artist="Band",
         )
         labels.insert(conn, [("a", "Nu Disco")], "tag")
 

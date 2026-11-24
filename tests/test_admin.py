@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from spica import app as application
 from spica import auth, config, icecast, mixer, pool, queue, store
+from tests.factories import insert_track, insert_tracks
 
 PASSWORD = "let-me-in"
 
@@ -352,14 +353,14 @@ def test_the_path_instructions_are_editable(console):
 
 def _seed_artists(conn, count):
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id, album_artist)"
-            " VALUES (?,?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 (f"t{i:03d}", f"http://navidrome/{i}", f"Track {i}",
                  f"Artist {i:03d}", f"Artist {i:03d}", f"al{i:03d}", f"Artist {i:03d}")
                 for i in range(1, count + 1)
             ],
+            columns=("id", "uri", "title", "artist", "album", "album_id", "album_artist"),
         )
 
 
@@ -396,12 +397,10 @@ def test_the_station_artist_list_groups_by_album_artist(console):
     conn = store.conn()
     _seed_artists(conn, 2)
     with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO tracks"
-            " (id, uri, title, artist, album, album_id, album_artist)"
-            " VALUES (?,?,?,?,?,?,?)",
-            ("guest", "http://navidrome/guest", "Guest Track", "Guest Credit",
-             "Artist 001", "al001", "Artist 001"),
+        insert_track(
+            conn, id="guest", uri="http://navidrome/guest", title="Guest Track",
+            artist="Guest Credit", album="Artist 001", album_id="al001",
+            album_artist="Artist 001",
         )
 
     page = client.get("/admin/stations/alt/artists").text
