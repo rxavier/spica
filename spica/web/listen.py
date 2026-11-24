@@ -197,10 +197,12 @@ async def station_state(station_id: str, stream: str = ""):
 @router.get("/s/{station_id}/history", response_class=HTMLResponse)
 async def station_history(request: Request, station_id: str):
     st = station_or_404(station_id)
+    now = await asyncio.to_thread(now_playing, st)
+    history = await asyncio.to_thread(history_of, st, 15, now)
     return templates.TemplateResponse(
         request,
         "_history.html",
-        {"station": st, "history": history_of(st, 15, now_playing(st))},
+        {"station": st, "history": history},
     )
 
 
@@ -208,13 +210,16 @@ async def station_history(request: Request, station_id: str):
 async def station_requests(request: Request, station_id: str):
     """The list of requests still remembered. The form beside it is never replaced."""
     st = station_or_404(station_id)
-    return templates.TemplateResponse(request, "_request_list.html", {"requests": request_rows(st)})
+    rows = await asyncio.to_thread(request_rows, st)
+    return templates.TemplateResponse(request, "_request_list.html", {"requests": rows})
 
 
 @router.post("/s/{station_id}/request", response_class=HTMLResponse)
 async def station_request(request: Request, station_id: str, text: str = Form(...)):
     st = station_or_404(station_id)
-    entry = requests_mod.record(st, text, requests_mod.DEFAULT_SONGS)
+    entry = await asyncio.to_thread(
+        requests_mod.record, st, text, requests_mod.DEFAULT_SONGS
+    )
     try:
         pick = await asyncio.to_thread(
             picker.pick_next, store.library(), st, text, queue.recent_ids(st)
@@ -231,12 +236,13 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         # The pick is not lost — it moves behind the request, in the queue it is
         # already in, so it airs straight after instead of after a whole rotation.
         aired = await asyncio.to_thread(air.air_pick, st, pick, as_request=True, log=log.info)
-        requests_mod.attach_track(st, entry, pick.track)
+        await asyncio.to_thread(requests_mod.attach_track, st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"
         if aired.position > 1:
             message += f" Toca después de {aired.position - 1} pedido(s) más."
+    rows = await asyncio.to_thread(request_rows, st)
     return templates.TemplateResponse(
         request,
         "_request_result.html",
-        {"station": st, "message": message, "requests": request_rows(st)},
+        {"station": st, "message": message, "requests": rows},
     )
