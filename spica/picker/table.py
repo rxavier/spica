@@ -344,10 +344,12 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
         energy_moves = 0.10 <= abs(c["energy"] - energy) <= 0.30
         return tempo_moves != energy_moves
 
+    turn_cut = _percentile([x["sim"] for x in candidates], 25)
+
     def turns(c):
         if family:
             return c["family"] and c["family"] != family and abs(c["energy"] - energy) >= 0.12
-        return c["sim"] <= _percentile([x["sim"] for x in candidates], 25)
+        return c["sim"] <= turn_cut
 
     def lands(c):
         if not c["bpm"] or not bpm:
