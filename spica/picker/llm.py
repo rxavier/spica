@@ -32,19 +32,19 @@ REASONING_EFFORT = "low"
 
 # The reply contract lives in one place, so the system prompt and both retries
 # state it the same way.
-SET_CONTRACT = (
-    'Reply with ONLY a JSON object: {"rationale": "<one line, at most 140 characters: '
-    'what this set is and where it is going>", "ids": ["<id from a tool result>", ...]}'
-)
+def _contract(source: str) -> str:
+    return (
+        'Reply with ONLY a JSON object: {"rationale": "<one line, at most 140 characters: '
+        f'what this set is and where it is going>", "ids": ["<id from {source}>", ...]}}'
+    )
+
+
+SET_CONTRACT = _contract("a tool result")
 ANSWER_NOW = (
     "No more lookups. " + SET_CONTRACT + " Use ids from the results you already have."
 )
-
-# The track-candidate path gives the ids in the prompt context and asks for no lookups at all.
-SET_CONTRACT_TABLE = (
-    'Reply with ONLY a JSON object: {"rationale": "<one line, at most 140 characters: '
-    'what this set is and where it is going>", "ids": ["<id from the candidates>", ...]}'
-)
+# The track-candidate path gives the ids in the prompt context and asks for no lookups.
+SET_CONTRACT_TABLE = _contract("the candidates")
 
 
 def chat(messages: list[dict], tools: list[dict], no_tools: bool = False,
