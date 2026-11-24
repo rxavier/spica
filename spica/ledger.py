@@ -8,9 +8,9 @@ picker lives in one place.
 
 from __future__ import annotations
 
-import calendar
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 
 from . import config
@@ -25,6 +25,25 @@ AIR_HOURS = 8
 # Entries read per hour of history. A station airs about thirteen tracks an hour;
 # the headroom covers a shorter one.
 AIRINGS_PER_HOUR = 40
+
+
+STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def utc_stamp(when: float | None = None) -> str:
+    """A ledger timestamp: UTC, second precision, one spelling everywhere."""
+    return time.strftime(STAMP_FORMAT, time.gmtime(when))
+
+
+def parse_stamp(raw) -> float | None:
+    """A ledger timestamp to epoch seconds, or None when it is unusable."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def picks_path(station: config.Station) -> Path:
@@ -118,11 +137,8 @@ def aired_within(station: config.Station, seconds: float) -> set[str]:
     limit = int(seconds / 3600 * AIRINGS_PER_HOUR) + 40
     ids: set[str] = set()
     for entry in reversed(read_records(station.history_file, limit)):
-        try:
-            stamp = calendar.timegm(
-                time.strptime(str(entry.get("t")), "%Y-%m-%dT%H:%M:%SZ")
-            )
-        except ValueError:
+        stamp = parse_stamp(entry.get("t"))
+        if stamp is None:
             continue
         if stamp < cutoff:
             break

@@ -18,13 +18,14 @@ request still remembered.
 
 from __future__ import annotations
 
-import datetime
 import json
 import time
 from pathlib import Path
 
 from . import config, plan, subsonic
 from .ledger import (
+    parse_stamp,
+    utc_stamp,
     aired_within,
     last_shelf,
     offered_ids,
@@ -203,7 +204,7 @@ def queued(station: config.Station) -> str:
 def record(station: config.Station, track_id: str, title: str, artist: str, source: str, why: str = "") -> None:
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
     entry = {
-        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "t": utc_stamp(),
         "id": track_id,
         "title": title,
         "artist": artist,
@@ -239,7 +240,7 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
     """
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
     entry: dict[str, object] = {
-        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "id": track_id,
+        "t": utc_stamp(), "id": track_id,
         "title": title, "artist": artist, "why": why, "presence": presence,
     }
     if detail:
@@ -276,17 +277,6 @@ def record_pick(station: config.Station, track_id: str, title: str, artist: str,
 # Two plays of the same track further apart than this are two plays: a station that
 # resumes hours later picks up exactly where it stopped.
 DUPE_ANNOUNCE_S = 120
-
-
-def _when(entry: dict) -> float | None:
-    raw = str(entry.get("t") or "").strip()
-    if not raw:
-        return None
-    try:
-        stamp = datetime.datetime.strptime(raw[:19], "%Y-%m-%dT%H:%M:%S")
-    except ValueError:
-        return None
-    return stamp.replace(tzinfo=datetime.timezone.utc).timestamp()
 
 
 def recent(station: config.Station, n: int = 20) -> list[dict]:

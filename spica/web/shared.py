@@ -13,6 +13,7 @@ from .. import config
 from .. import genres as genre_lib
 from .. import liqgen
 from .. import icecast
+from .. import ledger
 from .. import mixer
 from .. import navidrome
 from .. import plays
@@ -187,11 +188,11 @@ def history_of(st, limit: int = 25, now: dict | None = None) -> list[dict]:
         # station's timezone rather than UTC.
         stamp = row.get("t") or ""
         row["stamp"] = stamp
-        try:
-            moment = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-            row["clock"] = moment.astimezone(LOCAL_TZ).strftime("%H:%M")
-        except (TypeError, ValueError):
-            row["clock"] = ""
+        moment = ledger.parse_stamp(stamp)
+        row["clock"] = (
+            datetime.fromtimestamp(moment, tz=LOCAL_TZ).strftime("%H:%M")
+            if moment is not None else ""
+        )
         album_id = store.album_for(row.get("id", ""))
         # Plays that come from the mixer's own rotation carry no id, so look the
         # track up by name before giving up on the artwork.

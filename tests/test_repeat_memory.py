@@ -91,3 +91,13 @@ def test_a_pick_without_an_offer_logs_none(station):
     entry = json.loads(station.history_file.with_suffix(".picks.jsonl").read_text())
     assert "offered" not in entry
     assert entry["path"] == "shelf"
+
+
+def test_ledger_stamps_round_trip_in_utc():
+    from spica import ledger
+
+    raw = ledger.utc_stamp(1700000000)
+    assert raw == "2023-11-14T22:13:20Z"
+    assert ledger.parse_stamp(raw) == 1700000000
+    assert ledger.parse_stamp("2023-11-14T23:13:20+01:00") == 1700000000
+    assert ledger.parse_stamp("not a stamp") is None

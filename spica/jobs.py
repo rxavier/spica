@@ -16,6 +16,7 @@ import math
 import sqlite3
 import time
 
+from . import ledger
 from .queries import jobs as job_queries
 
 # The one list of job kinds: database/log/URL name -> what the operator calls it.
@@ -81,11 +82,7 @@ def get(conn: sqlite3.Connection, job_id: int) -> dict | None:
 
 def _iso(ts) -> str:
     """An ISO stamp the page can localise, or ""."""
-    if not ts:
-        return ""
-    from datetime import datetime, timezone
-
-    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return ledger.utc_stamp(int(ts)) if ts else ""
 
 
 def _took(row: dict) -> str:

@@ -84,7 +84,7 @@ def record(station: config.Station, text: str, songs: int = DEFAULT_SONGS) -> di
     songs = max(1, min(MAX_SONGS, int(songs or DEFAULT_SONGS)))
     req = {
         "id": secrets.token_hex(8),
-        "t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "t": ledger.utc_stamp(),
         "text": text,
         "songs": songs,
         "at_play": _plays(station),
