@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import urllib.error
@@ -23,6 +24,7 @@ import urllib.request
 from pathlib import Path
 
 from . import config
+from .atomic import atomic_write
 
 API_VERSION = "1.16.1"
 CLIENT = "radio"
@@ -48,26 +50,22 @@ def _salt() -> str:
     if _SALT:
         return _SALT
     path = _salt_file()
-    try:
-        _SALT = path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        _SALT = ""
-    if not _SALT:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with path.open("x", encoding="utf-8") as fh:
-                fh.write(secrets.token_hex(8) + "\n")
-        except FileExistsError:
-            pass  # somebody else won the creation; use theirs
-        _SALT = path.read_text(encoding="utf-8").strip() or _new_salt(path)
-    return _SALT
-
-
-def _new_salt(path: Path) -> str:
-    """Last resort when the file exists but is empty: rewrite it in place."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     salt = secrets.token_hex(8)
-    path.write_text(salt + "\n", encoding="utf-8")
-    return salt
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Somebody else won the creation; use theirs.
+        _SALT = path.read_text(encoding="utf-8").strip()
+    else:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(salt + "\n")
+        _SALT = salt
+    if not _SALT:
+        # The file exists but is empty: give it one and keep the mode tight.
+        _SALT = salt
+        atomic_write(path, salt + "\n", mode=0o600)
+    return _SALT
 
 
 def _auth() -> dict[str, str]:
