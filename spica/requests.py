@@ -19,7 +19,7 @@ import secrets
 import time
 from pathlib import Path
 
-from . import config
+from . import config, ledger
 
 # How many plays a request is remembered for. Not how long it is obeyed: after the
 # track it produced, it is context the DJ may follow or leave.
@@ -65,17 +65,7 @@ def _plays(station: config.Station) -> int:
 
 
 def _load(station: config.Station) -> list[dict]:
-    try:
-        lines = _path(station).read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return []
-    out = []
-    for line in lines:
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return out
+    return ledger.read_records(_path(station), 0)
 
 
 def _store(station: config.Station, reqs: list[dict]) -> None:
