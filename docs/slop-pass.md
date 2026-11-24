@@ -41,6 +41,12 @@ Effort: **S** ≤ half a day, **M** ≈ 1–2 days, **L** > 2 days.
 
 ## Second pass (2026-11-24)
 
+**Status:** #114–#134 are addressed. #114 moved the caches to
+`spica/picker/context.py`; #127/#132/#133 were completed as far as their scope allows
+(the remaining items are deliberate: separate availability predicates, test-local
+fakes, and operator-facing README summary). Suite green.
+
+
 ### Fixed in this revision
 
 - **P0 regression** — `queue.recent` referenced `_when`, which the refactor removed;
