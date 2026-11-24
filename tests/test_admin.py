@@ -61,13 +61,11 @@ def console(monkeypatch, tmp_path):
     monkeypatch.setattr(icecast, "total_listeners", lambda states, st: 0)
     monkeypatch.setattr(icecast, "live_mount", lambda states, st: None)
 
-    store._conn = None
-    store._stations = None
+    store.reset()
     client = TestClient(application.app)
     yield client, cfg, state
 
-    store._conn = None
-    store._stations = None
+    store.reset()
 
 
 def login(client):

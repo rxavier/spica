@@ -7,6 +7,7 @@ One module, so `python -m spica.app` (running as `__main__`) and the importable
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 from . import config, navidrome
 from .names import norm, norm_loose, wildcard_match
@@ -17,62 +18,78 @@ def db_path():
     return config.STATE_DIR / "index.db"
 
 
-_conn: sqlite3.Connection | None = None
-_stations: list[config.Station] | None = None
+class _State:
+    """The handles the process shares, and the only place they are replaced."""
+
+    def __init__(self) -> None:
+        self.conn: sqlite3.Connection | None = None
+        self.stations: list[config.Station] | None = None
+        self.tracks: dict | None = None
+        self.library = None
+
+    def reset(self) -> None:
+        self.__init__()
+
+
+_state = _State()
+_lock = threading.RLock()
+
+
+def reset() -> None:
+    """Drop every cached handle. Tests call this between temporary state dirs."""
+    with _lock:
+        _state.reset()
 
 
 def conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        _conn = navidrome.connect(db_path())
-    return _conn
+    with _lock:
+        if _state.conn is None:
+            _state.conn = navidrome.connect(db_path())
+        return _state.conn
 
 
 def stations() -> list[config.Station]:
     """The station rack, read once and refreshed on demand."""
-    global _stations
-    if _stations is None:
-        _stations = config.load_stations()
-    return _stations
+    with _lock:
+        if _state.stations is None:
+            _state.stations = config.load_stations()
+        return _state.stations
 
 
 def reload_stations() -> list[config.Station]:
-    global _stations
-    _stations = config.load_stations()
-    return _stations
-
-
-_tracks: dict | None = None
+    with _lock:
+        _state.stations = config.load_stations()
+        return _state.stations
 
 
 def tracks() -> dict:
     """(artist, title) and (title) indexes over the library, built once."""
-    global _tracks
-    if _tracks is None:
-        by_both, by_title, by_id = {}, {}, {}
-        loose, loose_title, by_artist = {}, {}, {}
-        for row in track_queries.all_for_index(conn()):
-            key = (norm(row["artist"]), norm(row["title"]))
-            by_both.setdefault(key, row)
-            by_title.setdefault(norm(row["title"]), row)
-            loose.setdefault((norm_loose(row["artist"]), norm_loose(row["title"])), row)
-            loose_title.setdefault(norm_loose(row["title"]), row)
-            by_artist.setdefault(norm(row["artist"]), []).append(row)
-            by_id[row["id"]] = row
-        _tracks = {
-            "both": by_both,
-            "title": by_title,
-            "id": by_id,
-            "loose": loose,
-            "loose_title": loose_title,
-            "by_artist": by_artist,
-        }
-    return _tracks
+    with _lock:
+        if _state.tracks is None:
+            by_both, by_title, by_id = {}, {}, {}
+            loose, loose_title, by_artist = {}, {}, {}
+            for row in track_queries.all_for_index(conn()):
+                key = (norm(row["artist"]), norm(row["title"]))
+                by_both.setdefault(key, row)
+                by_title.setdefault(norm(row["title"]), row)
+                loose.setdefault((norm_loose(row["artist"]), norm_loose(row["title"])), row)
+                loose_title.setdefault(norm_loose(row["title"]), row)
+                by_artist.setdefault(norm(row["artist"]), []).append(row)
+                by_id[row["id"]] = row
+            _state.tracks = {
+                "both": by_both,
+                "title": by_title,
+                "id": by_id,
+                "loose": loose,
+                "loose_title": loose_title,
+                "by_artist": by_artist,
+            }
+        return _state.tracks
 
 
 def forget_tracks() -> None:
-    global _tracks
-    _tracks = None
+    with _lock:
+        _state.tracks = None
 
 
 def cover_for(album_id: str) -> str:
@@ -119,22 +136,19 @@ def find_track(artist: str, title: str):
     return None
 
 
-_lib = None
-
-
 def library():
     """The query layer over the index, shared so every caller sees one handle.
 
     One instance per connection, so the picker's caches and this pick's draw seed
     are the same whether the caller is the loop, the REST API or a web handler.
     """
-    global _lib
-    connection = conn()
-    if _lib is None or _lib.conn is not connection:
-        from . import picker
+    with _lock:
+        connection = conn()
+        if _state.library is None or _state.library.conn is not connection:
+            from . import picker
 
-        _lib = picker.Library(connection)
-    return _lib
+            _state.library = picker.Library(connection)
+        return _state.library
 
 
 def station(station_id: str) -> config.Station | None:
