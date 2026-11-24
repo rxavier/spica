@@ -30,11 +30,6 @@ MAX_TOOL_ROUNDS = 4
 # heard. One model call is usually under a minute.
 MIN_LEAD_S = 60
 
-# How many of its own picks the brief repeats, with the reason it gave. Three is
-# enough to keep a thread going and to avoid the same opening twice in a night; more
-# would spend tokens on lines the listener has long forgotten.
-RECENT_PLAYS = 5
-
 
 def _sound_suffix(lib, track_id: str) -> str:
     """The on-air track's numbers, so the table's directions are comparable.
