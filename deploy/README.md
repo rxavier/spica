@@ -127,19 +127,11 @@ replace the `image:` lines in `init`, `picker` and `worker` with:
 and give the worker a `build.target: worker` (or use the local build commands in
 [Audio analysis and loudness](#audio-analysis-and-loudness) above).
 
-With a local clone:
-
-```sh
-git clone https://github.com/rxavier/spica.git
-cd spica && docker build -t ghcr.io/rxavier/spica:0.15.2 .
-cd spica && docker build --target worker -t ghcr.io/rxavier/spica:0.15.2-worker .
-```
-
-For audio analysis, build the analyser variant too and use the overlay; the build
-commands are in [Audio analysis and loudness](#audio-analysis-and-loudness) above. Set
-`SPICA_TAG=dev` with a local clone so the overlay picks `dev-analysis`; leave the worker
-on the overlay's image rather than a `build:` stanza. The other services keep the lean
-image.
+With a local clone, use the three `dev` builds from
+[Audio analysis and loudness](#audio-analysis-and-loudness) above, then set
+`SPICA_TAG=dev` so compose picks `dev`, `dev-worker` and (under the overlay)
+`dev-analysis`. Leave the worker on the overlay's image rather than adding a `build:`
+stanza. The other services keep the lean image.
 
 ## Behind a reverse proxy
 
