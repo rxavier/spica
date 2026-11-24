@@ -411,7 +411,7 @@ def pick_and_air(station, text: str | None = None, *, displace: bool = False,
     """
     from .. import store
 
-    pick = pick_next(store.library(), station, text, queue.recent_ids(station))
+    pick = pick_next(store.library(), station, text, ledger.recent_ids(station))
     if pick is None:
         return None, None
     aired = air.air_pick(station, pick, displace=displace, as_request=as_request, log=log)

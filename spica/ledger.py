@@ -167,6 +167,13 @@ def candidate_ids(station: config.Station, sets: int = 4) -> set[str]:
     return out
 
 
+def recent_ids(station: config.Station, n: int = PLAY_MEMORY) -> set[str]:
+    """The ids of the last n plays, from the play ledger."""
+    from . import queue
+
+    return {str(entry["id"]) for entry in queue.recent(station, n) if entry.get("id")}
+
+
 def recently_out(station: config.Station) -> set[str]:
     """Ids that should not play again yet: what aired, and what the picker chose.
 
@@ -175,7 +182,7 @@ def recently_out(station: config.Station) -> set[str]:
     """
     from . import queue
 
-    return (queue.recent_ids(station, PLAY_MEMORY)
+    return (recent_ids(station)
             | recent_pick_ids(station, PICK_MEMORY)
             | aired_within(station, AIR_HOURS * 3600))
 
