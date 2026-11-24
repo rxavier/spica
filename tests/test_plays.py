@@ -1,4 +1,4 @@
-"""The play ledger: one airing, one line."""
+"""The play ledger: one mixer line is one airing, and repeats are kept."""
 
 from __future__ import annotations
 
@@ -12,11 +12,9 @@ from spica import ledger, plays
 
 @pytest.fixture(autouse=True)
 def clear_play_memory():
-    plays._played.clear()
-    plays._played_at.clear()
+    plays._observed.clear()
     yield
-    plays._played.clear()
-    plays._played_at.clear()
+    plays._observed.clear()
 
 
 def _append(station, seconds_ago: float, artist: str, title: str, track_id: str) -> None:
@@ -46,29 +44,42 @@ def quiet_lookup(monkeypatch):
     monkeypatch.setattr(plays.ledger, "reason_for", lambda station, title: "")
 
 
-def test_a_track_still_on_air_is_recorded_once(station, quiet_lookup):
-    _append(station, 180, "Roosevelt", "Getaway", "getaway")
-    plays.note(station, "Roosevelt - Getaway")
-    assert len(_lines(station)) == 1
-
-
-def test_a_restart_does_not_duplicate_the_airing(station, quiet_lookup):
-    _append(station, 180, "Roosevelt", "Getaway", "getaway")
-    plays._played.clear()
-    plays._played_at.clear()
-    plays.note(station, "Roosevelt - Getaway")
-    assert len(_lines(station)) == 1
-
-
-def test_a_new_track_is_recorded(station, quiet_lookup):
-    _append(station, 180, "Roosevelt", "Getaway", "getaway")
-    plays.note(station, "Incubus - Pendulous Threads")
-    rows = _lines(station)
-    assert len(rows) == 2
-    assert rows[-1]["title"] == "Pendulous Threads"
-
-
-def test_a_track_can_play_again_after_the_window(station, quiet_lookup):
-    _append(station, 16 * 60, "Roosevelt", "Getaway", "getaway")
-    plays.note(station, "Roosevelt - Getaway")
+def test_each_mixer_line_is_one_airing_even_when_it_repeats(station, quiet_lookup):
+    plays.record(station, "Roosevelt - Getaway")
+    plays.record(station, "Roosevelt - Getaway")
     assert len(_lines(station)) == 2
+
+
+def test_observe_records_a_title_once_per_change(station, quiet_lookup):
+    plays.observe(station, "Roosevelt - Getaway")
+    plays.observe(station, "Roosevelt - Getaway")
+    assert len(_lines(station)) == 1
+    plays.observe(station, "Incubus - Pendulous Threads")
+    assert len(_lines(station)) == 2
+
+
+def test_observe_seeds_from_the_ledger_on_restart(station, quiet_lookup):
+    _append(station, 180, "Roosevelt", "Getaway", "getaway")
+    plays._observed.clear()
+    plays.observe(station, "Roosevelt - Getaway")
+    assert len(_lines(station)) == 1
+
+
+def test_a_rotation_play_keeps_the_track_id(station, monkeypatch):
+    monkeypatch.setattr(
+        plays.store, "find_track",
+        lambda artist, title: {"id": "track-1", "title": "Getaway", "artist": "Roosevelt"},
+    )
+    monkeypatch.setattr(plays.ledger, "reason_for", lambda station, title: "")
+    plays.record(station, "Roosevelt - Getaway")
+    entry = _lines(station)[0]
+    assert entry["id"] == "track-1"
+    assert entry["source"] == "fallback_rotation"
+
+
+def test_a_dj_pick_keeps_its_line(station, quiet_lookup, monkeypatch):
+    monkeypatch.setattr(plays.ledger, "reason_for", lambda station, title: "Same line")
+    plays.record(station, "Roosevelt - Getaway")
+    entry = _lines(station)[0]
+    assert entry["source"] == "dj"
+    assert entry["why"] == "Same line"

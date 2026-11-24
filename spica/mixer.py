@@ -148,7 +148,9 @@ def _load_offset(station, size: int) -> int:
     except (OSError, ValueError):
         return size
     if saved < 0 or saved > size:  # the file went backwards under us
-        return 0
+        # Skip what is there rather than replaying it: those lines may already be
+        # in the ledger, and a second pass would add them again.
+        return size
     return saved
 
 

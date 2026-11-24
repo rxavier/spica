@@ -187,12 +187,26 @@ def recently_out(station: config.Station) -> set[str]:
             | aired_within(station, AIR_HOURS * 3600))
 
 
-def reason_for(station: config.Station, title: str) -> str:
-    """The reason the picker gave for a title, if it picked it recently."""
+def pick_for(station: config.Station, track_id: str = "", title: str = "",
+             within: float = 30 * 60) -> dict:
+    """The most recent pick for this track or title, if it was chosen recently."""
     from .store import norm
 
     key = norm(title)
-    for entry in reversed(recent_picks(station, 25)):
-        if norm(entry.get("title")) == key:
-            return entry.get("reason", "")
-    return ""
+    cutoff = time.time() - within
+    for entry in reversed(recent_picks(station, 40)):
+        at = parse_stamp(entry.get("t"))
+        if at is None:
+            continue
+        if at < cutoff:
+            break
+        if (track_id and str(entry.get("id") or "") == track_id) or (
+            key and norm(entry.get("title")) == key
+        ):
+            return entry
+    return {}
+
+
+def reason_for(station: config.Station, title: str) -> str:
+    """The reason the picker gave for a title, if it picked it recently."""
+    return str(pick_for(station, title=title).get("reason") or "")
