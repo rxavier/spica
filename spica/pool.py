@@ -24,7 +24,16 @@ from .queries import tracks as track_queries
 ARTIST_WINDOW = 12
 
 
-def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> dict[str, float]:
+def _popularity_stats(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
+    """Every stored play count, by track id. One read for the whole pool write."""
+    return {
+        r["track_id"]: (int(r["playcount"] or 0), r["source"] or "")
+        for r in enrich_queries.popularity(conn)
+    }
+
+
+def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row],
+                            stats: dict[str, tuple[int, str]] | None = None) -> dict[str, float]:
     """Each track's standing among that artist's own tracks, 0 = least known.
 
     Absolute counts only measure how big the artist is, which the genre filter already
@@ -32,10 +41,7 @@ def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -
     computed inside one provider, because Last.fm and ListenBrainz counts are not on
     the same scale.
     """
-    stats = {
-        r["track_id"]: (int(r["playcount"] or 0), r["source"] or "")
-        for r in enrich_queries.popularity(conn)
-    }
+    stats = stats if stats is not None else _popularity_stats(conn)
     by_group: dict[tuple[str, str], list[tuple[int, str]]] = {}
     for row in rows:
         hit = stats.get(row["id"])
@@ -228,6 +234,9 @@ def _recent_context(conn: sqlite3.Connection, station: config.Station) -> tuple[
 
 def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=print) -> dict[str, int]:
     counts: dict[str, int] = {}
+    # These are global tables, not per-station: read them once for the whole write.
+    measured = loudness.all_measured()
+    stats = _popularity_stats(conn)
     for st in stations:
         rows = navidrome.rows_for_station(conn, st)
         avoid, recent_artists, last_album = _recent_context(conn, st)
@@ -238,13 +247,12 @@ def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=pr
             if len(kept) >= max(1, len(rows) // 2):
                 rows = kept
         ordered = order(
-            st, rows, _popularity_percentiles(conn, rows),
+            st, rows, _popularity_percentiles(conn, rows, stats),
             seed_artists=recent_artists, seed_album=last_album,
         )
         st.pool_file.parent.mkdir(parents=True, exist_ok=True)
         body_lines: list[str] = []
         seen: set[str] = set()
-        measured = loudness.all_measured()
         for r in ordered:
             # The gain rides on the line as Liquidsoap's liq_amplify annotation, so
             # the fallback rotation is levelled exactly like a DJ pick.
