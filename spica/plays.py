@@ -12,13 +12,6 @@ import time
 
 from . import config, ledger, queue, store
 
-# A track cannot legitimately come round again inside this window, so seeing the
-# same title sooner than this is the poll loop, not a new play. Past it, the same
-# title is the station coming back on air — a restart, or a mount that closed
-# overnight and reopened on the track it was holding. That distinction is the
-# difference between a ledger that is honest and one stuck on yesterday.
-REPEAT_WINDOW_S = 15 * 60
-
 _played: dict[str, str] = {}
 _played_at: dict[str, float] = {}
 
@@ -51,7 +44,9 @@ def note(st: config.Station, raw_title: str) -> None:
 
     artist, song = queue.split_title(raw)
     key = _key(artist, song)
-    if _played.get(st.id) == key and time.time() - _played_at.get(st.id, 0.0) < REPEAT_WINDOW_S:
+    # The same window queue.recent uses to collapse a restart's re-announce: a
+    # repeated title inside it is the poll loop seeing the same airing, not a new play.
+    if _played.get(st.id) == key and time.time() - _played_at.get(st.id, 0.0) < queue.DUPE_ANNOUNCE_S:
         return
     _played[st.id] = key
     _played_at[st.id] = time.time()
