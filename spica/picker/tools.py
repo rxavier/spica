@@ -18,7 +18,6 @@ from .. import genres as genres_module
 from ..names import seed_key
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
-from .memory import recent_artists
 from .rows import clock, fit_rows, full, lean_row, visible
 from .rows import row as render_row
 from .schemas import TOOLS
@@ -119,7 +118,7 @@ class Tools:
         """
         from .. import enrich
 
-        rows = self.lib._station_rows(station)
+        rows = self.lib.station_rows(station)
         by_act: dict[str, list] = {}
         for row in rows:
             by_act.setdefault(navidrome.name_key(row["album_artist"] or row["artist"]), []).append(row)
@@ -210,7 +209,7 @@ class Tools:
         artists that aired in the last twenty tracks sort last, so a page does not open on
         whoever just played.
         """
-        rows = self.lib._station_rows(station)
+        rows = self.lib.station_rows(station)
         if kw.get("year_from"):
             rows = [r for r in rows if (r["year"] or 0) >= int(kw["year_from"])]
         if kw.get("year_to"):
@@ -261,31 +260,6 @@ class Tools:
             "results": shown,
         }
 
-    def catalog_summary(self, station: config.Station | None = None, limit: int = 60) -> dict:
-        """What this station holds, in the shape the system prompt wants.
-
-        The numbers the picker needs before it can choose: labels with weight and every
-        artist it can play. A prompt can state this, so it costs no tool rounds.
-        """
-        rows = self.lib._station_rows(station)
-
-        artists: Counter = Counter()
-        for row in rows:
-            artists[(row["album_artist"] or row["artist"]) or "?"] += 1
-        labels: Counter = Counter()
-        by_track = self.lib.labels_by_track()
-        for row in rows:
-            for label in by_track.get(row["id"], ()):
-                labels[label] += 1
-
-        return {
-            "tracks": len(rows),
-            "artists": artists.most_common(limit),
-            "artists_total": len(artists),
-            "labels": labels.most_common(limit),
-            "labels_total": len(labels),
-        }
-
     # Three records in the pile, five tracks visible per record: enough to show
     # directions without turning the prompt into a catalogue.
     SAMPLE_ALBUMS = 3
@@ -307,17 +281,7 @@ class Tools:
         """
         if station is None:
             return set()
-        return {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
-
-    def popularity_ranks(self, rows: list) -> dict[str, float]:
-        """Each track's standing among its own artist's tracks, 0 = the least known.
-
-        Absolute play counts only say how big the artist is; the question in front of the
-        picker is which of their songs people actually know.
-        """
-        from .. import pool
-
-        return pool._popularity_percentiles(self.lib.conn, rows)
+        return {navidrome.name_key(a) for a in self.lib.recent_labels(station, window)[1] if a}
 
     def _remember_sampled(self, albums: list[str]) -> None:
         """Remember which records have already been sampled this pick."""
@@ -334,7 +298,7 @@ class Tools:
         of them. Acts it has just played are left out, and each album comes from a
         different artist, so the five are five directions rather than five De Lux records.
         """
-        rows = self.lib._station_rows(station)
+        rows = self.lib.station_rows(station)
         if not rows:
             return []
 
@@ -372,7 +336,7 @@ class Tools:
         self._remember_sampled(picks)
 
         labels = self.lib.labels_by_track()
-        ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
+        ranks = self.lib.popularity_ranks([r for album in picks for r in by_album[album]])
         # How many tracks in the library carry each genre: the rarer the genre, the
         # more specific it is about this record. "Stoner Rock" says something about a
         # Sahara Surfers album that "Rock" does not.
@@ -412,20 +376,6 @@ class Tools:
             })
         return out
 
-    def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
-        """The labels and artists of the last few songs, oldest first.
-
-        The evidence a picker uses to notice it has been in one corner all night: not
-        what it meant to play, what actually went out.
-        """
-        plays = queue.recent(station, n)
-        labels = self.lib.labels_by_track()
-        counted: Counter = Counter()
-        for entry in plays:
-            for label in labels.get(entry.get("id") or "", ()):
-                counted[label] += 1
-        return [label for label, _ in counted.most_common(3)], recent_artists(self.lib, station, n)
-
     def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
         """Tracks by artists that sound like this one.
 
@@ -444,7 +394,7 @@ class Tools:
 
         # Audio first when it exists: it is local, free, and it can only name artists
         # this library owns — the provider chains below happily name ones it does not.
-        audio_names = self.lib._audio_artists(artist, k=12)
+        audio_names = self.lib.audio_artists(artist, k=12)
         if audio_names:
             keys = [navidrome.name_key(name) for name in audio_names]
             rows = track_queries.tracks_by_artist_keys(self.lib.conn, keys)
@@ -508,7 +458,7 @@ class Tools:
         "nothing here fits" needed an answer that produces ids: another three covers,
         and another three after that.
         """
-        _, recent_acts = self.recent_labels(station, 6)
+        _, recent_acts = self.lib.recent_labels(station, 6)
         albums = self.sample_albums(station, avoid_acts=set(recent_acts))
         if not albums:
             return {
@@ -653,7 +603,7 @@ class Tools:
         round again yet, and whether it is already queued: the four things every row
         should carry.
         """
-        rows = self.lib._station_rows(station)
+        rows = self.lib.station_rows(station)
         played = ledger.recently_out(station) if station else set()
         try:
             queued = set(mixer.queued_ids(station)) if station else set()
@@ -661,10 +611,10 @@ class Tools:
             queued = set()
         return {
             "labels": self.lib.labels_by_track(),
-            "ranks": self.popularity_ranks(rows),
+            "ranks": self.lib.popularity_ranks(rows),
             "played": played,
             "queued": queued,
-            "analysis": self.lib._features(),
+            "analysis": self.lib.features(),
         }
 
 # Tool name as the model sees it -> the method that answers it.
