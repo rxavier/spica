@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from .. import db
+from . import tracks as track_queries
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS track_loudness (
     track_id    TEXT PRIMARY KEY,
@@ -64,8 +67,8 @@ def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite
             ((track_id,) for track_id in done_ids),
         )
     return index_conn.execute(
-        "SELECT id, uri, replaygain_gain FROM tracks"
-        " WHERE uri != '' AND replaygain_gain IS NULL"
+        f"SELECT id, uri, replaygain_gain FROM tracks"
+        f" WHERE {db.PLAYABLE} AND replaygain_gain IS NULL"
         " AND id NOT IN (SELECT id FROM _done_ids)"
         " ORDER BY album_artist, album, track_no, id"
         " LIMIT ?",
@@ -75,21 +78,18 @@ def pending(index_conn: sqlite3.Connection, done_ids, limit: int) -> list[sqlite
 
 def gain_rows(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return index_conn.execute(
-        "SELECT id, replaygain_gain FROM tracks WHERE uri != ''"
+        f"SELECT id, replaygain_gain FROM tracks WHERE {db.PLAYABLE}"
     ).fetchall()
 
 
 def playable_ids(index_conn: sqlite3.Connection) -> set[str]:
-    return {
-        row["id"]
-        for row in index_conn.execute("SELECT id FROM tracks WHERE uri != ''")
-    }
+    return track_queries.playable_ids(index_conn)
 
 
 def tagged_ids(index_conn: sqlite3.Connection) -> set[str]:
     return {
         row["id"]
         for row in index_conn.execute(
-            "SELECT id FROM tracks WHERE uri != '' AND replaygain_gain IS NOT NULL"
+            f"SELECT id FROM tracks WHERE {db.PLAYABLE} AND replaygain_gain IS NOT NULL"
         )
     }

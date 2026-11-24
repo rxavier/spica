@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from .. import db
+from . import tracks as track_queries
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS track_analysis (
     track_id       TEXT PRIMARY KEY,
@@ -127,20 +130,13 @@ def artist_pool_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def candidate_rows(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return index_conn.execute(
-        "SELECT id, artist, album_artist, uri, fetched_at FROM tracks WHERE uri != ''"
+        f"SELECT id, artist, album_artist, uri, fetched_at FROM tracks WHERE {db.PLAYABLE}"
     ).fetchall()
 
 
 def playable_count(index_conn: sqlite3.Connection) -> int:
-    return int(
-        index_conn.execute(
-            "SELECT count(*) FROM tracks WHERE uri != ''"
-        ).fetchone()[0]
-    )
+    return track_queries.library_size(index_conn)
 
 
 def playable_ids(index_conn: sqlite3.Connection) -> set[str]:
-    return {
-        row["id"]
-        for row in index_conn.execute("SELECT id FROM tracks WHERE uri != ''")
-    }
+    return track_queries.playable_ids(index_conn)

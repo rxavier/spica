@@ -39,6 +39,11 @@ def tracks_by_ids(
     return conn.execute(f"SELECT {columns} FROM tracks WHERE {where}", args).fetchall()
 
 
+def playable_ids(conn: sqlite3.Connection) -> set[str]:
+    """Ids of tracks a station can actually fetch."""
+    return {row["id"] for row in conn.execute(f"SELECT id FROM tracks WHERE {db.PLAYABLE}")}
+
+
 def library_size(conn: sqlite3.Connection, *, playable: bool = True) -> int:
     where = f" WHERE {db.PLAYABLE}" if playable else ""
     return int(conn.execute(f"SELECT count(*) FROM tracks{where}").fetchone()[0])

@@ -225,12 +225,8 @@ def coverage(index_conn: sqlite3.Connection) -> dict | None:
             conn.close()
     measured_ids = seen & playable
     known = len(tagged | measured_ids)
-    total = len(playable)
     return {
-        "known": known,
-        "total": total,
-        "remaining": max(0, total - known),
-        "percent": math.floor(known * 1000.0 / total) / 10 if total else 0.0,
+        **db.coverage(known, len(playable)),
         "tagged": len(tagged),
         "measured": len(measured_ids),
         "errors": errors,
