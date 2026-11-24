@@ -291,74 +291,79 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
         return {"tracks": 0,
                 "note": "this image was built without the analysis extra; use the -analysis image"}
     store = analysis.connect(create=True)
-    analysis.ensure_models(config.ANALYSIS_MODELS_DIR, log=log)
+    if store is None:
+        return {"tracks": 0, "note": "could not open the analysis store"}
+    try:
+        analysis.ensure_models(config.ANALYSIS_MODELS_DIR, log=log)
 
-    rows = analysis.todo(conn, store, config.ANALYSIS_SLICE)
-    total = len(rows)
-    jobs.progress(conn, job_id, 0, total)
-    if not total:
-        written = analysis.refresh_artists(conn, store)
-        return {"tracks": 0, "artists": written, "note": "every track is analyzed"}
+        rows = analysis.todo(conn, store, config.ANALYSIS_SLICE)
+        total = len(rows)
+        jobs.progress(conn, job_id, 0, total)
+        if not total:
+            written = analysis.refresh_artists(conn, store)
+            return {"tracks": 0, "artists": written, "note": "every track is analyzed"}
 
-    tasks = [(row["id"], row["album_artist"] or row["artist"] or "") for row in rows]
-    workers = max(1, config.ANALYSIS_WORKERS)
-    done = failed = 0
-    errors: list[str] = []
-    started = time.time()
+        tasks = [(row["id"], row["album_artist"] or row["artist"] or "") for row in rows]
+        workers = max(1, config.ANALYSIS_WORKERS)
+        done = failed = 0
+        errors: list[str] = []
+        started = time.time()
 
-    def take(track_id: str, artist: str, features: dict) -> None:
-        nonlocal done
-        analysis.save(store, track_id, navidrome.name_key(artist), features)
-        done += 1
+        def take(track_id: str, artist: str, features: dict) -> None:
+            nonlocal done
+            analysis.save(store, track_id, navidrome.name_key(artist), features)
+            done += 1
 
-    def fetch_and_analyze(analyzer, track_id: str) -> dict:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "track"
-            _fetch_audio(track_id, path)
-            return analyzer.analyze(path)
+        def fetch_and_analyze(analyzer, track_id: str) -> dict:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "track"
+                _fetch_audio(track_id, path)
+                return analyzer.analyze(path)
 
-    if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
-        context = multiprocessing.get_context("fork")
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            mp_context=context,
-            initializer=_analysis_init,
-            initargs=(str(config.ANALYSIS_MODELS_DIR), max(1, config.ANALYSIS_THREADS)),
-        ) as pool:
-            futures = {pool.submit(_analysis_task, track_id): (track_id, artist)
-                       for track_id, artist in tasks}
-            for i, future in enumerate(as_completed(futures), 1):
-                track_id, artist = futures[future]
+        if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
+            context = multiprocessing.get_context("fork")
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=context,
+                initializer=_analysis_init,
+                initargs=(str(config.ANALYSIS_MODELS_DIR), max(1, config.ANALYSIS_THREADS)),
+            ) as pool:
+                futures = {pool.submit(_analysis_task, track_id): (track_id, artist)
+                           for track_id, artist in tasks}
+                for i, future in enumerate(as_completed(futures), 1):
+                    track_id, artist = futures[future]
+                    try:
+                        _id, features = future.result()
+                        take(track_id, artist, features)
+                    except Exception as exc:
+                        failed += 1
+                        errors.append(str(exc))
+                        log(f"analysis: {artist or track_id}: {exc}")
+                    jobs.progress(conn, job_id, i, total)
+        else:
+            from .analysis import Analyzer
+
+            analyzer = Analyzer(config.ANALYSIS_MODELS_DIR, threads=min(4, os.cpu_count() or 1))
+            for i, (track_id, artist) in enumerate(tasks, 1):
                 try:
-                    _id, features = future.result()
-                    take(track_id, artist, features)
+                    take(track_id, artist, fetch_and_analyze(analyzer, track_id))
                 except Exception as exc:
                     failed += 1
                     errors.append(str(exc))
                     log(f"analysis: {artist or track_id}: {exc}")
                 jobs.progress(conn, job_id, i, total)
-    else:
-        from .analysis import Analyzer
 
-        analyzer = Analyzer(config.ANALYSIS_MODELS_DIR, threads=min(4, os.cpu_count() or 1))
-        for i, (track_id, artist) in enumerate(tasks, 1):
-            try:
-                take(track_id, artist, fetch_and_analyze(analyzer, track_id))
-            except Exception as exc:
-                failed += 1
-                errors.append(str(exc))
-                log(f"analysis: {artist or track_id}: {exc}")
-            jobs.progress(conn, job_id, i, total)
-
-    if done:
-        analysis.refresh_artists(conn, store)
-    if total and not done:
-        # The per-track errors are in the log; the first one in the summary is what
-        # makes "the whole slice failed" diagnosable from the admin page.
-        detail = errors[0] if errors else "no track could be analyzed"
-        raise RuntimeError(f"no track could be analyzed ({failed} failed): {detail}")
-    return {"tracks": done, "failed": failed, "remaining": analysis.backlog(conn, store),
-            "seconds": int(time.time() - started)}
+        if done:
+            analysis.refresh_artists(conn, store)
+        if total and not done:
+            # The per-track errors are in the log; the first one in the summary is what
+            # makes "the whole slice failed" diagnosable from the admin page.
+            detail = errors[0] if errors else "no track could be analyzed"
+            raise RuntimeError(f"no track could be analyzed ({failed} failed): {detail}")
+        return {"tracks": done, "failed": failed, "remaining": analysis.backlog(conn, store),
+                "seconds": int(time.time() - started)}
+    finally:
+        store.close()
 
 
 def run_loudness(conn, job_id: int, log=print) -> dict:
