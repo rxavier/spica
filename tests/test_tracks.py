@@ -113,7 +113,7 @@ def test_played_and_queued_are_not_offered(rig):
     queued = rows[3][0]
     lib.by_id = lambda track_id: None  # artist fallback must not invent one
     queue.recent = lambda st, n=20: [{"id": played, "artist": "Artist 00"}]
-    queue.recent_ids = lambda st, n=40: {played}
+    ledger.recent_ids = lambda st, n=40: {played}
     ledger.last_candidate_artists = lambda st: ["Artist 05"]
     mixer.queued_ids = lambda st=None: [queued]
     built = tracks.build(lib, config.Station(id="t", name="T"))

@@ -21,6 +21,7 @@ from . import config, icecast, mixer, navidrome, picker, plays, pool, presence, 
 from . import enrich as enrich_mod
 from . import genres as genre_lib
 from . import jobs
+from . import ledger
 from . import liqgen
 from . import requests as requests_mod
 from .queries import tracks as track_queries
@@ -93,7 +94,7 @@ async def loop() -> None:
                     # stocking a second pick while the first is still queued.
                     continue
                 p = await asyncio.to_thread(
-                    picker.pick_next, store.library(), st, None, queue.recent_ids(st)
+                    picker.pick_next, store.library(), st, None, ledger.recent_ids(st)
                 )
                 if p is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": "pick failed — playlist continues"}
