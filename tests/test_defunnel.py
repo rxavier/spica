@@ -376,3 +376,20 @@ def test_precedence_counts_the_file_tags_it_kept(db):
     result = navidrome.apply_genre_precedence(db)
 
     assert result == {"musicbrainz": 2, "with_file_tag": 1}
+
+
+def test_label_explorer_expands_every_selected_label_in_one_scan(db, monkeypatch):
+    from spica.queries import labels as label_queries
+
+    seed(db, [track("1" * 22, "Disco Band"), track("2" * 22, "Rock Band")],
+         [label("1" * 22, "Nu Disco"), label("2" * 22, "Post-Rock")])
+    scans: list[int] = []
+    real = label_queries.distinct
+    monkeypatch.setattr(
+        label_queries, "distinct",
+        lambda conn: scans.append(1) or real(conn),
+    )
+
+    navidrome.label_explorer(db, ["Electronic", "Rock"])
+
+    assert len(scans) == 1, "one pass over the stored labels, not one per selection"

@@ -493,14 +493,20 @@ def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
     return out
 
 
-def _member_labels(conn: sqlite3.Connection, label: str) -> list[str]:
+def _members_by_shelf(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Folded shelf name -> every stored label under it, built in one scan."""
+    out: dict[str, list[str]] = {}
+    for label in label_queries.distinct(conn):
+        out.setdefault(genre_lib.fold(genre_lib.canonical(label)), []).append(label)
+    return out
+
+
+def _member_labels(conn: sqlite3.Connection, label: str,
+                   members: dict[str, list[str]] | None = None) -> list[str]:
     """Every stored label that the console shows under `label`."""
-    want = genre_lib.fold(genre_lib.canonical(label))
-    return [
-        label
-        for label in label_queries.distinct(conn)
-        if genre_lib.fold(genre_lib.canonical(label)) == want
-    ]
+    if members is None:
+        members = _members_by_shelf(conn)
+    return members.get(genre_lib.fold(genre_lib.canonical(label)), [])
 
 
 def genres(conn: sqlite3.Connection) -> list[tuple[str, int]]:
@@ -601,12 +607,13 @@ def label_explorer(conn: sqlite3.Connection, labels: list[str], limit: int = 500
         return {"tracks": [], "total": 0, "albums": 0}
     # The console offers collapsed names ("Electronic"), the index stores fine ones
     # ("Nu Disco"): expand what was asked for into the labels actually on the rows.
-    members: list[str] = []
+    members = _members_by_shelf(conn)
+    expanded: list[str] = []
     for name in labels:
-        for found in _member_labels(conn, name) or [name]:
-            if found not in members:
-                members.append(found)
-    labels = members
+        for found in _member_labels(conn, name, members) or [name]:
+            if found not in expanded:
+                expanded.append(found)
+    labels = expanded
     total = label_queries.explorer_total(conn, labels)
     albums = label_queries.explorer_albums(conn, labels)
     rows = label_queries.explorer_rows(conn, labels, limit)
