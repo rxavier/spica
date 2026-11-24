@@ -1,4 +1,4 @@
-"""The model endpoint and the DJ's global prompt."""
+"""The model endpoint and the picker's global prompt."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ async def admin_settings_dj(request: Request, mode: str = Form(...)):
         chosen = config.save_dj_mode(mode)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    # A set already waiting was chosen under the old mode; drop it so the next
+    # A set already waiting was chosen under the previous mode; drop it so the next
     # pick reflects what the operator just chose.
     for station in config.load_stations():
         plan.clear(station)
@@ -198,7 +198,7 @@ async def admin_settings_test(
     """Ask the endpoint for one tiny completion, with a tool, and report what came back.
 
     The fields come from the form beside the button, so this tests what is on screen
-    rather than what was last saved — testing the old values is how a typo in a base
+    rather than what was last saved — testing the saved values is how a typo in a base
     URL survives a green tick.
     """
     result = await _llm_probe(_llm_from_form(base, key, model, headers))
@@ -217,13 +217,13 @@ async def admin_prompt(request: Request):
         stations = []
     wanted = (request.query_params.get("station") or "").strip()
     selected = next((st for st in stations if st.id == wanted), stations[0] if stations else None)
-    table_prompt = shelf_prompt = ""
+    track_prompt = artist_prompt = ""
     if selected is not None:
         try:
 
-            roster = store.library().roster(selected)
-            table_prompt = prompt_mod.system_prompt(selected, roster, table=True)
-            shelf_prompt = prompt_mod.system_prompt(selected, roster, table=False)
+            catalog = store.library().catalog_summary(selected)
+            track_prompt = prompt_mod.system_prompt(selected, catalog, track_candidates=True)
+            artist_prompt = prompt_mod.system_prompt(selected, catalog, track_candidates=False)
         except Exception:
             pass
     return templates.TemplateResponse(
@@ -235,14 +235,14 @@ async def admin_prompt(request: Request):
             "custom": bool(text.strip()),
             "stations": stations,
             "selected": selected,
-            "table_prompt": table_prompt,
-            "shelf_prompt": shelf_prompt,
+            "track_prompt": track_prompt,
+            "artist_prompt": artist_prompt,
             "dj_mode": config.dj_mode(),
             "mode_label": config.DJ_MODE_LABELS.get(config.dj_mode(), config.dj_mode()),
-            "shelf_text": prompt_mod.shelf_guidance(),
-            "table_text": prompt_mod.table_guidance(),
-            "shelf_custom": config.dj_shelf_file().exists(),
-            "table_custom": config.dj_table_file().exists(),
+            "shelf_text": prompt_mod.artist_guidance(),
+            "table_text": prompt_mod.track_guidance(),
+            "artist_custom": config.dj_artists_file().exists(),
+            "track_custom": config.dj_tracks_file().exists(),
         },
     )
 
@@ -267,7 +267,7 @@ async def admin_prompt_path(
     text: str = Form(""),
     reset: str = Form(""),
 ):
-    path = {"shelf": config.dj_shelf_file, "table": config.dj_table_file}.get(kind)
+    path = {"artists": config.dj_artists_file, "tracks": config.dj_tracks_file}.get(kind)
     if path is None:
         raise HTTPException(400, "unknown path")
     target = path()

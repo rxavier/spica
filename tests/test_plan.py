@@ -14,7 +14,7 @@ def test_a_saved_set_comes_back_in_order(station):
     assert step is not None
     first, held = step
     assert first == "a"
-    assert held["theme"] == "a line about the set"
+    assert held["set_rationale"] == "a line about the set"
     assert len(plan.load(station)["ids"]) == 2
 
 
@@ -65,8 +65,8 @@ def test_no_set_is_not_an_error(station):
 def test_stations_do_not_share_a_set(station, other_station):
     plan.save(station, "alt set", ["x"])
     plan.save(other_station, "other set", ["y"])
-    assert plan.load(station)["theme"] == "alt set"
-    assert plan.load(other_station)["theme"] == "other set"
+    assert plan.load(station)["set_rationale"] == "alt set"
+    assert plan.load(other_station)["set_rationale"] == "other set"
 
 
 def test_clear_is_quiet_when_there_is_nothing_to_clear(station):

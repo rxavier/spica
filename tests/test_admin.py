@@ -212,7 +212,7 @@ def _write_pick(state, station_id, **entry):
     path = state / "history" / f"{station_id}.picks.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     base = {"t": "2026-11-17T19:25:10Z", "id": "t1", "title": "Title",
-            "artist": "Artist", "why": "Because."}
+            "artist": "Artist", "reason": "Because."}
     base.update(entry)
     path.write_text(json.dumps(base) + "\n", encoding="utf-8")
 
@@ -229,8 +229,8 @@ def test_the_queue_has_station_tabs_a_date_and_the_whole_brief(console):
     client, _, state = console
     login(client)
     brief = "start-of-the-brief\n" + ("x" * 2500) + "\nend-of-the-brief"
-    _write_pick(state, "alt", brief=brief, path="table", coverage=1.0,
-                shelf=["A", "B"], tools=[])
+    _write_pick(state, "alt", prompt_context=brief, strategy="tracks", coverage=1.0,
+                candidate_artists=["A", "B"], tools=[])
     page = client.get("/admin/queue?station=alt").text
     assert "?station=all" in page and "?station=alt" in page
     assert "2026-11-17" in page
@@ -240,8 +240,8 @@ def test_the_queue_has_station_tabs_a_date_and_the_whole_brief(console):
 
 def test_a_long_brief_survives_the_pick_log(station):
     queue.record_pick(station, "t1", "T", "A", "why",
-                      detail={"brief": "x" * 3000 + "-END"})
-    assert queue.recent_picks(station, 1)[-1]["brief"].endswith("-END")
+                      detail={"prompt_context": "x" * 3000 + "-END"})
+    assert queue.recent_picks(station, 1)[-1]["prompt_context"].endswith("-END")
 
 
 def test_the_library_names_each_job_and_the_current_offer(console):
@@ -315,15 +315,15 @@ def test_the_path_instructions_are_editable(console):
     client, cfg, _ = console
     login(client)
     response = client.post("/admin/prompt/path",
-                           data={"kind": "shelf", "text": "Custom shelf instruction."})
+                           data={"kind": "artists", "text": "Custom artist instruction."})
     assert response.status_code == 200
-    assert "Custom shelf instruction." in (cfg / "dj-shelf.md").read_text(encoding="utf-8")
+    assert "Custom artist instruction." in (cfg / "dj-artists.md").read_text(encoding="utf-8")
     page = client.get("/admin/prompt").text
-    assert "Custom shelf instruction." in page
+    assert "Custom artist instruction." in page
 
     client.post("/admin/prompt/path",
-                data={"kind": "shelf", "text": "ignored", "reset": "1"})
-    assert not (cfg / "dj-shelf.md").exists()
+                data={"kind": "artists", "text": "ignored", "reset": "1"})
+    assert not (cfg / "dj-artists.md").exists()
 
 
 def _seed_artists(conn, count):

@@ -1,9 +1,8 @@
-"""Who may not be offered a set, for the shelf and the table alike.
+"""Who may not be offered a set, for the artist and track candidates alike.
 
-The two offers used to gather this separately and had already diverged: the shelf
-counted the DJ's recent picks, the table did not, so the same artist could come
-straight back on a quiet station where the ledger held no airings. They now share
-one gathering step; the only difference is `include_picks`, which is explicit.
+The artist and track candidate builders share one gathering step, so they cannot
+disagree about what has just played. The one difference is ``include_picks``, which is
+explicit: the artists count the picker's recent choices, the tracks do not.
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ def queued_artists(lib, station, limit: int | None = None) -> list[str]:
     """The artists of the tracks already waiting for the mixer."""
     try:
         waiting = mixer.queued_ids(station)
-    except Exception:  # liquidsoap down: the offer is still worth building
+    except Exception:  # liquidsoap down: the candidates are still worth building
         return []
     if limit is not None:
         waiting = waiting[:limit]
@@ -69,8 +68,8 @@ def spread_decades(chosen, candidates, *, key, decade, decades=None,
 
     Replaces one item from `chosen` with the first candidate from a different era,
     returning `(index, previous, replacement)` or None. `accept` can veto a candidate
-    (the table excludes ids and artists already used); `replaceable` can veto the slot
-    (the shelf keeps the last record of a label). `decades` is the eras already on the
+    (the track candidates exclude ids and artists already used); `replaceable` can veto the slot
+    (the artist candidates keep the last record of a label). `decades` is the eras already on the
     offer when it spans more than one list.
     """
     seen = set(decades) if decades is not None else {
@@ -105,14 +104,14 @@ def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = Non
                     include_picks: bool = False) -> Blocklist:
     """Artists that may not be offered: just played, queued, or on the last offer.
 
-    ``include_picks`` adds the DJ's own recent choices. The shelf sets it because a
-    quiet station's ledger is mostly standby airings, so without it an artist chosen
-    an hour ago could come straight back; the table leaves it off because its
+    ``include_picks`` adds the picker's own recent choices. The artist candidates set it
+    because a quiet station's ledger is mostly fallback airings, so without it an artist
+    chosen an hour ago could come straight back; the track candidates leave it off because their
     familiar block is meant to be reachable.
     """
     played = recent_artists(lib, station, recent)
     queued = queued_artists(lib, station, queued_limit)
-    names = list(played) + list(queued) + list(queue.last_shelf(station))
+    names = list(played) + list(queued) + list(queue.last_candidate_artists(station))
     if include_picks:
         names += queue.recent_pick_artists(station, recent + 3)
     keys = {navidrome.name_key(name) for name in names if name}

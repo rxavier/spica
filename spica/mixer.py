@@ -32,7 +32,7 @@ def pending(station) -> int | None:
 
     An empty queue replies with nothing between the command and the END sentinel,
     which is a real answer — 0 means the station is running on its own pool and the
-    DJ is free to choose. None is reserved for a control server that is not there,
+    picker is free to choose. None is reserved for a control server that is not there,
     because the caller treats the two differently: one picks now, the other waits.
     """
     rids = _pending_rids(station)
@@ -134,11 +134,11 @@ def _offset_file(station):
 
 
 def _load_offset(station, size: int) -> int:
-    """Where we stopped last time. A fresh start begins at the end of the file.
+    """Where the previous process stopped. A fresh start begins at the end of the file.
 
     The offset has to outlive the process: the picker restarts, and replaying the
     file from zero would re-record everything the station played while the picker
-    was down as fresh plays — and crowd the DJ's avoid list with them. Seeding a
+    was down as fresh plays — and crowd the picker's avoid list with them. Seeding a
     first run to the current size loses nothing worth having; a couple of tracks
     from before the cursor existed are not evidence about now.
     """
@@ -162,10 +162,8 @@ def now_tail(station) -> str:
     """The last track the mixer stamped, without consuming it.
 
     Icecast carries a title only on the MP3 mount; Ogg streams (Opus, FLAC) carry
-    their metadata inside the stream, so a FLAC-only station has nothing to read from
-    the mount and used to fall back to the play ledger — which the picker writes on
-    its own 20-second tick. The mixer writes this file the moment a track starts, so
-    reading it is the freshest answer that works for every codec.
+    their metadata inside the stream. The mixer writes this file the moment a track
+    starts, so reading it is the freshest answer that works for every codec.
     """
     path = station.now_file
     try:

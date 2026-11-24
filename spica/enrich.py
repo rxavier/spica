@@ -9,7 +9,7 @@ breaking a pick. Providers, cheapest first:
   3. ListenBrainz             — artist MBID -> similar artists (keyless)
   4. Last.fm                  — artist NAME -> similar artists / tags (needs a key)
 
-Nothing here is required: with no network and no key, the DJ falls back to
+Nothing here is required: with no network and no key, the picker falls back to
 search/filter over names.
 """
 
@@ -385,7 +385,7 @@ def mb_artist_genres(artist: str, albums: list[str] | None = None, pause=1.1,
     With `mbid` — the id Navidrome already carries for the artist — this is one lookup
     instead of a search. The search is where the failures came from: `blink‐182` is
     stored with a typographic hyphen and can never match `blink-182`, and a shared name
-    the album titles cannot settle is answered "unknown" for ever. The id settles both,
+    the album titles cannot settle is answered "unknown" indefinitely. The id settles both,
     and costs half the requests.
 
     `None` means the question could not be asked — a timeout, a limiter that never
@@ -470,9 +470,9 @@ def mb_genre_vocabulary(force: bool = False, pause: float = 1.0) -> set[str]:
 
     names: list[str] = []
     offset = 0
-    # No blanket except here: an outage used to come back as an empty set, and the
-    # caller only validates "if vocabulary", so one bad afternoon imported every
-    # mood, nationality and file-manager artefact Last.fm had for the artist.
+    # No blanket except here: an outage must not look like an empty vocabulary, or
+    # the caller imports every mood, nationality and file-manager artefact Last.fm
+    # has for the artist.
     while True:
         page = _mb_get(
             f"https://musicbrainz.org/ws/2/genre/all?fmt=json&limit=100&offset={offset}"

@@ -28,7 +28,7 @@ ICECAST_OUTPUT_PORT = int(os.environ.get("ICECAST_OUTPUT_PORT", "8000"))
 PUBLIC_URL = os.environ.get("SPICA_PUBLIC_URL", "").rstrip("/")
 
 # Optional enrichment providers (see radio/enrich.py). Both are optional: with
-# neither, the DJ works from names, genre and year alone.
+# neither, the picker works from names, genre and year alone.
 # MusicBrainz asks callers to identify themselves; the project's own name and URL are
 # an honest default, and an operator can point it at their address instead.
 MB_USER_AGENT = os.environ.get(
@@ -63,7 +63,7 @@ ANALYSIS_THREADS = int(os.environ.get("SPICA_ANALYSIS_THREADS", "2"))
 ANALYSIS_MAX_SECONDS = int(os.environ.get("SPICA_ANALYSIS_MAX_SECONDS", "240"))
 # Extra DSP that nothing in the picker reads (EBU R128 loudness, classic
 # danceability, dynamic complexity). Together they cost a quarter of the pass, so
-# they are opt-in; the models' own energy/mood heads are what the DJ uses.
+# they are opt-in; the models' own energy/mood heads are what the picker uses.
 ANALYSIS_DEEP = os.environ.get("SPICA_ANALYSIS_DEEP", "").strip().lower() in ("1", "true", "yes", "on")
 # Read the original file by default. On a host where Navidrome runs next to the
 # analyser, transcoding to 96k MP3 moves the work onto Navidrome's ffmpeg and starves
@@ -77,7 +77,7 @@ ANALYSIS_BITRATE = int(os.environ.get("SPICA_ANALYSIS_BITRATE", "96"))
 # as they are jumps from quiet to loud every third record. Each track's ReplayGain
 # tag (read from Navidrome) becomes one static gain, applied before the crossfade.
 # This is normalisation, not the loudness-as-intensity measure the README rejects;
-# nothing here is read by the DJ. On by default, and a no-op on a library whose
+# nothing here is read by the picker. On by default, and a no-op on a library whose
 # files carry no ReplayGain tags.
 LOUDNESS = os.environ.get("SPICA_LOUDNESS", "1").strip().lower() not in ("0", "false", "no", "off")
 # Where every record should sit. -14 LUFS is the streaming convention; the
@@ -102,14 +102,14 @@ LOUDNESS_TIMEOUT = int(os.environ.get("SPICA_LOUDNESS_TIMEOUT", "300"))
 # Admin side is one password; listener side is public by design.
 ADMIN_PASSWORD = os.environ.get("SPICA_ADMIN_PASSWORD", "")
 SESSION_SECRET_FILE = STATE_DIR / ".session-secret"
-# Global DJ house rules, editable from the admin UI, injected into every pick.
+# Global persona rules, editable from the admin UI, injected into every pick.
 DJ_PERSONA_FILE = CONFIG_DIR / "dj-persona.md"
 # The two path instructions are editable too; the JSON contract and the legality
 # checks stay in the code.
 DJ_MODES = ("off", "artist", "track")
 DJ_MODE_LABELS = {"off": "Off", "artist": "Artist-led", "track": "Track-led"}
 DJ_MODE_DEFAULT = "track"
-# Liquidsoap's control server, used to restart the mixer after a station change.
+# Liquidsoap's control server, for restarting the mixer after a station change.
 LIQ_TELNET = os.environ.get("LIQ_TELNET", "mixer:1234")
 SESSION_HOURS = 12
 
@@ -127,7 +127,7 @@ QUEUE_TARGET = int(os.environ.get("QUEUE_TARGET", "1"))
 # Poll interval for the loop, seconds.
 POLL_S = int(os.environ.get("POLL_S", "20"))
 # Only used when Liquidsoap's control server is unreachable: without it the loop
-# would pick a track every POLL_S and the DJ would run hours ahead.
+# would pick a track every POLL_S and the picker would run hours ahead.
 PICK_COOLDOWN = int(os.environ.get("PICK_COOLDOWN", "240"))
 # Requests left waiting while one plays. Liquidsoap lists only what is waiting, so
 # 1 means "always have the next track ready": the request then has a whole track to
@@ -141,16 +141,16 @@ IDLE_STOP_S = int(os.environ.get("IDLE_STOP_S", "90"))
 REFRESH_CHECK_S = int(os.environ.get("REFRESH_CHECK_S", "900"))
 # How often the Icecast status page is read into the snapshot everything shares.
 # One read costs ~200 ms of wall clock, so this is the only place it happens; the
-# page poll, /status and the DJ all read the snapshot instead.
+# page poll, /status and the picker all read the snapshot instead.
 ICECAST_POLL_S = float(os.environ.get("ICECAST_POLL_S", "2"))
 # Shortest track a station will play. An album's silent gaps, a four-second interlude
 # and a hidden "silence" file are all tracks to the index, and the rotation aired one
 # of them fifty-two times: they are not music, so they are not eligible anywhere —
-# pool, table, tools. Zero turns the rule off.
+# pool, candidates, tools. Zero turns the rule off.
 MIN_TRACK_S = int(os.environ.get("SPICA_MIN_TRACK", "30"))
 # How long a MusicBrainz genre miss stands before the artist is asked about again. A miss
 # is cached as an empty answer, because leaving no trace is what made the follow-up queue
-# a forty-artist job on every refresh for ever. Long enough to stop the loop, short
+# a forty-artist job on every refresh indefinitely. Long enough to stop the loop, short
 # enough that an artist edited upstream comes back.
 MB_GENRES_TTL_S = int(float(os.environ.get("SPICA_MB_GENRES_DAYS", "30")) * 86400)
 
@@ -229,7 +229,7 @@ class Station:
 
     @property
     def plan_file(self) -> Path:
-        """The set the DJ is playing through: ids in order, under one line."""
+        """The set the picker is playing through: ids in order, under one line."""
         return STATE_DIR / "plans" / f"{self.id}.json"
 
 
@@ -417,9 +417,9 @@ def save_dj_mode(mode: str) -> str:
     return mode
 
 
-def dj_shelf_file() -> Path:
-    return CONFIG_DIR / "dj-shelf.md"
+def dj_artists_file() -> Path:
+    return CONFIG_DIR / "dj-artists.md"
 
 
-def dj_table_file() -> Path:
-    return CONFIG_DIR / "dj-table.md"
+def dj_tracks_file() -> Path:
+    return CONFIG_DIR / "dj-tracks.md"

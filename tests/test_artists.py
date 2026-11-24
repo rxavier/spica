@@ -11,7 +11,7 @@ import json
 from collections import Counter
 
 from spica import config, navidrome
-from spica.picker import loop, memory, shelf
+from spica.picker import artists, loop, memory
 from spica.picker.schemas import Pick
 
 
@@ -59,14 +59,14 @@ def profile(name, label, decade, tier, tracks=1):
 
 
 def test_quotas_follow_weight_under_a_cap():
-    quota = shelf._quotas(Counter({"Rock": 27, "Indie": 6, "Disco": 5}), 7, 3)
+    quota = artists._quotas(Counter({"Rock": 27, "Indie": 6, "Disco": 5}), 7, 3)
     assert quota == {"Rock": 3, "Indie": 2, "Disco": 2}
     assert max(quota.values()) <= 3
 
 
 def test_quotas_never_hand_one_label_the_list():
     """Two labels and a cap of three cannot pay for ten names; the caller tops up."""
-    quota = shelf._quotas(Counter({"Rock": 100, "Disco": 1}), 10, 3)
+    quota = artists._quotas(Counter({"Rock": 100, "Disco": 1}), 10, 3)
     assert quota == {"Rock": 3, "Disco": 3}
     assert sum(quota.values()) < 10
 
@@ -88,12 +88,12 @@ def a_pool():
 
 
 def test_the_shelf_is_a_small_version_of_the_pool():
-    drawn = shelf._stratified(a_pool(), shelf.SHELF, seed=7)
+    drawn = artists._stratified(a_pool(), artists.CANDIDATES, seed=7)
 
-    assert len(drawn) == shelf.SHELF
-    assert len({p["key"] for p in drawn}) == shelf.SHELF, "no artist twice"
+    assert len(drawn) == artists.CANDIDATES
+    assert len({p["key"] for p in drawn}) == artists.CANDIDATES, "no artist twice"
     per_label = Counter(p["label"] for p in drawn)
-    assert per_label.most_common(1)[0][1] <= shelf.PER_LABEL, "one label cannot own it"
+    assert per_label.most_common(1)[0][1] <= artists.PER_LABEL, "one label cannot own it"
     assert len(per_label) >= 2, "the shelf is not one corner of the station"
     assert len({p["decade"] for p in drawn}) >= 2, "two eras"
     assert {p["tier"] for p in drawn} == {0, 1, 2}, "both ends of the roster"
@@ -104,15 +104,15 @@ def test_the_cap_yields_before_the_list_does():
     pool = [profile(f"Rock {i}", "Rock", 1990, i % 3) for i in range(10)]
     pool += [profile(f"Pop {i}", "Pop", 2000, i % 3) for i in range(10)]
 
-    drawn = shelf._stratified(pool, shelf.SHELF, seed=4)
+    drawn = artists._stratified(pool, artists.CANDIDATES, seed=4)
 
-    assert len(drawn) == shelf.SHELF
-    assert Counter(p["label"] for p in drawn).most_common(1)[0][1] > shelf.PER_LABEL
+    assert len(drawn) == artists.CANDIDATES
+    assert Counter(p["label"] for p in drawn).most_common(1)[0][1] > artists.PER_LABEL
 
 
 def test_a_thin_pool_comes_back_whole():
     pool = a_pool()[:4]
-    drawn = shelf._stratified(pool, shelf.SHELF, seed=1)
+    drawn = artists._stratified(pool, artists.CANDIDATES, seed=1)
     assert len(drawn) == 4
 
 
@@ -124,14 +124,14 @@ def test_the_shelf_a_set_ago_is_not_offered_again(monkeypatch, tmp_path):
     station = config.Station(id="rot", name="Rotation")
     station.history_file.parent.mkdir(parents=True, exist_ok=True)
     station.history_file.with_suffix(".picks.jsonl").write_text(
-        json.dumps({"t": "2026-11-14T00:00:00Z", "id": "x", "shelf": ["Old One", "Old Two"]}) + "\n",
+        json.dumps({"t": "2026-11-14T00:00:00Z", "id": "x", "candidate_artists": ["Old One", "Old Two"]}) + "\n",
         encoding="utf-8",
     )
-    assert shelf.queue.last_shelf(station) == ["Old One", "Old Two"]
+    assert artists.queue.last_candidate_artists(station) == ["Old One", "Old Two"]
 
 
 def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_path):
-    """The ledger is airings, and on a quiet station those are the standby pool.
+    """The ledger is airings, and on a quiet station those are the fallback rotation.
 
     So the shelf reads the pick log too: an artist chosen an hour ago is exactly what
     "an artist that has just played cannot be the answer to what comes next" is about.
@@ -145,11 +145,11 @@ def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_
         def by_id(self, track_id):
             return None
 
-    monkeypatch.setattr(shelf.queue, "recent", lambda st, n=20: [])
-    monkeypatch.setattr(shelf.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
-    monkeypatch.setattr(shelf.queue, "last_shelf", lambda st, look=6: [])
+    monkeypatch.setattr(artists.queue, "recent", lambda st, n=20: [])
+    monkeypatch.setattr(artists.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
+    monkeypatch.setattr(artists.queue, "last_candidate_artists", lambda st, look=6: [])
     monkeypatch.setattr(memory.mixer, "queued_ids", lambda st=None: [])
-    blocked = shelf._blocked(IndexOnly(navidrome.connect(tmp_path / "index.db")), station, {})
+    blocked = artists._blocked(IndexOnly(navidrome.connect(tmp_path / "index.db")), station, {})
     assert navidrome.name_key("Just Played") in blocked
 
 
@@ -162,16 +162,16 @@ def test_a_shelf_too_small_to_choose_from_is_no_shelf_at_all(monkeypatch):
             return [object(), object()]
 
     two = [profile("One", "Rock", 1990, 1), profile("Two", "Pop", 2000, 2)]
-    monkeypatch.setattr(shelf, "_profiles", lambda lib, rows: {p["key"]: p for p in two})
-    monkeypatch.setattr(shelf, "_blocked", lambda lib, station, profiles: set())
-    monkeypatch.setattr(shelf, "_longest_absent", lambda lib, station, pool, k: [])
+    monkeypatch.setattr(artists, "_profiles", lambda lib, rows: {p["key"]: p for p in two})
+    monkeypatch.setattr(artists, "_blocked", lambda lib, station, profiles: set())
+    monkeypatch.setattr(artists, "_longest_absent", lambda lib, station, pool, k: [])
 
-    assert shelf.build(Tiny(), object()) == []
+    assert artists.build(Tiny(), object()) == []
 
 
 def test_the_draw_changes_with_the_seed():
-    first = {p["key"] for p in shelf._stratified(a_pool(), shelf.SHELF, seed=1)}
-    second = {p["key"] for p in shelf._stratified(a_pool(), shelf.SHELF, seed=2)}
+    first = {p["key"] for p in artists._stratified(a_pool(), artists.CANDIDATES, seed=1)}
+    second = {p["key"] for p in artists._stratified(a_pool(), artists.CANDIDATES, seed=2)}
     assert first != second
 
 
@@ -184,15 +184,15 @@ def test_the_two_extra_slots_are_whoever_has_been_off_longest(monkeypatch):
     lib.draw_seed = 3
     # Newest last: Artist 0 played most recently, Artist 7 never played at all.
     plays = [{"id": f"t{i:02d}", "artist": f"Artist {i}"} for i in range(7)]
-    monkeypatch.setattr(shelf.queue, "recent", lambda station, n=20: plays)
+    monkeypatch.setattr(artists.queue, "recent", lambda station, n=20: plays)
 
     pool = [{"key": navidrome.name_key(f"Artist {i}"), "name": f"Artist {i}"} for i in range(8)]
-    extra = shelf._longest_absent(lib, object(), pool, 2)
+    extra = artists._longest_absent(lib, object(), pool, 2)
 
     names = [p["name"] for p in extra]
     assert "Artist 7" in names, "never played is the longest absence there is"
     assert "Artist 0" not in names and "Artist 6" not in names, "recent ones do not qualify"
-    assert all(p["why"] == "absent" for p in extra)
+    assert all(p["reason"] == "absent" for p in extra)
 
 
 # ------------------------------------------------------------------ enforcement
@@ -246,5 +246,5 @@ def test_without_a_shelf_nothing_is_restricted(station):
 
 
 def test_the_pick_carries_the_shelf_it_was_given():
-    pick = Pick(track=FakeTrack("a" * 22, "One Artist"), why="line")
-    assert pick.shelf == ()
+    pick = Pick(track=FakeTrack("a" * 22, "One Artist"), reason="line")
+    assert pick.candidate_artists == ()

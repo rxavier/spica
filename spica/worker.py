@@ -193,12 +193,12 @@ def run_musicbrainz(conn, job_id: int, log=print) -> dict:
     for i, row in enumerate(todo, 1):
         artist = row["artist"]
         # Navidrome already knows which artist this is; the name search is what failed on
-        # the hyphenated spellings and the shared names. Ask by id when we have it.
+        # the hyphenated spellings and the shared names. Ask by id when it is cached.
         info = enrich.mb_artist_genres(artist, albums.get(artist, []),
                                        mbid=enrich.cached_mbid(conn, artist))
         if info is not None:
             # Written whether or not there were genres: an empty answer is a result, and
-            # leaving no trace is what made this job re-ask the same names for ever.
+            # leaving no trace would make this job re-ask the same names indefinitely.
             import json as _json
 
             with conn:
@@ -441,7 +441,7 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
     remaining = loudness.backlog(conn)
     if done and not remaining:
         # The pool is written once, at rebuild time. Now that the last untagged
-        # tracks have a level, rewrite it so the standby rotation is levelled too.
+        # tracks have a level, rewrite it so the fallback rotation is levelled too.
         try:
             stations = config.load_stations()
             counts = pool.write_pools(conn, stations, log=log)
@@ -508,8 +508,8 @@ def missing_similarity(conn) -> int:
 
 def stale_reason(conn) -> str:
     """Why the index should be rebuilt, or "" when it is current."""
-    # Raises when Navidrome is unreachable; the loop logs it and tries again on the
-    # next tick, where returning "" here used to mean "the index is current".
+    # Raises when Navidrome is unreachable; the loop logs it and retries on the next
+    # tick. That is distinct from the index being current.
     status = subsonic.scan_status()
     if status.get("scanning"):
         return ""  # never index a library that is mid-scan
@@ -521,8 +521,8 @@ def stale_reason(conn) -> str:
 
 
 HANDLERS = {"genre_tags": run_genre_tags, "refresh": run_refresh, "popularity": run_popularity, "musicbrainz": run_musicbrainz, "similarity": run_similarity, "analysis": run_analysis, "loudness": run_loudness}
-# A queued kind without a handler used to be a KeyError at claim time, after the
-# job had waited its turn. Refuse to start instead.
+# Refuse to start when a queued kind has no handler, rather than failing with a
+# KeyError after the job has waited its turn.
 if set(HANDLERS) != set(jobs.KINDS):
     raise RuntimeError(
         f"job handlers and kinds disagree: {sorted(set(HANDLERS) ^ set(jobs.KINDS))}"

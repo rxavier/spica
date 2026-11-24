@@ -1,7 +1,7 @@
 """The two memories repeats are judged against: what the DJ chose, and when it aired.
 
 The play ledger and the pick log disagree exactly when the station is quiet, which is
-when the old window failed: forty airings of the standby pool pushed a whole session out
+when the old window failed: forty airings of the fallback rotation pushed a whole session out
 of memory. These tests write both files and read them back through the helpers.
 """
 
@@ -25,8 +25,8 @@ def stamp(seconds_ago: float) -> str:
 
 def test_aired_within_counts_hours_not_airings(station):
     write(station, ".jsonl", [
-        {"t": stamp(9 * 3600), "id": "old" * 8, "artist": "A", "title": "one", "source": "standby"},
-        {"t": stamp(5 * 3600), "id": "middle" * 4, "artist": "B", "title": "two", "source": "standby"},
+        {"t": stamp(9 * 3600), "id": "old" * 8, "artist": "A", "title": "one", "source": "fallback_rotation"},
+        {"t": stamp(5 * 3600), "id": "middle" * 4, "artist": "B", "title": "two", "source": "fallback_rotation"},
         {"t": stamp(600), "id": "fresh" * 5, "artist": "C", "title": "three", "source": "dj"},
     ])
     assert queue.aired_within(station, 8 * 3600) == {"middle" * 4, "fresh" * 5}
@@ -36,7 +36,7 @@ def test_aired_within_counts_hours_not_airings(station):
 def test_aired_within_walks_back_only_as_far_as_the_window(station):
     """Eight hours of a station that airs thirteen an hour is about a hundred lines."""
     rows = [{"t": stamp(hours * 3600 + 60), "id": f"{hours:03d}" + "x" * 19,
-             "artist": "A", "title": f"{hours}", "source": "standby"}
+             "artist": "A", "title": f"{hours}", "source": "fallback_rotation"}
             for hours in reversed(range(12))]  # the ledger is append-only: oldest first
     write(station, ".jsonl", rows)
     ids = queue.aired_within(station, 8 * 3600)
@@ -57,18 +57,18 @@ def test_the_offer_is_remembered_with_the_pick(station):
     """A record offered and refused still had its turn, so the pick carries the offer."""
     now = {"t": stamp(60), "id": "a" * 22, "title": "x", "artist": "One", "why": "w"}
     write(station, ".picks.jsonl", [
-        {**now, "offered": ["a" * 22, "b" * 22]},
+        {**now, "candidate_ids": ["a" * 22, "b" * 22]},
         {**now, "id": "c" * 22},
-        {**now, "id": "d" * 22, "offered": ["d" * 22, "e" * 22]},
+        {**now, "id": "d" * 22, "candidate_ids": ["d" * 22, "e" * 22]},
     ])
     # The newest two offers, and a pick without one is skipped rather than counted.
-    assert queue.offered_ids(station, 2) == {"a" * 22, "b" * 22, "d" * 22, "e" * 22}
+    assert queue.candidate_ids(station, 2) == {"a" * 22, "b" * 22, "d" * 22, "e" * 22}
 
 
 def test_recently_out_unions_the_ledger_and_the_picks(station):
     """One answer for both callers: the table's offer and the tool rows read this."""
     write(station, ".jsonl", [
-        {"t": stamp(600), "id": "aired" * 4, "artist": "A", "title": "x", "source": "standby"},
+        {"t": stamp(600), "id": "aired" * 4, "artist": "A", "title": "x", "source": "fallback_rotation"},
     ])
     write(station, ".picks.jsonl", [
         # Chosen four hours ago and never aired: only the pick log knows about it.
@@ -80,17 +80,17 @@ def test_recently_out_unions_the_ledger_and_the_picks(station):
 
 
 def test_record_pick_keeps_what_was_offered(station):
-    queue.record_pick(station, "a" * 22, "x", "One", "why", detail={"offered": ["a" * 22] * 70})
+    queue.record_pick(station, "a" * 22, "x", "One", "why", detail={"candidate_ids": ["a" * 22] * 70})
     entry = json.loads(station.history_file.with_suffix(".picks.jsonl").read_text())
-    assert entry["offered"] == ["a" * 22] * 64
+    assert entry["candidate_ids"] == ["a" * 22] * 64
     assert entry["id"] == "a" * 22
 
 
 def test_a_pick_without_an_offer_logs_none(station):
-    queue.record_pick(station, "a" * 22, "x", "One", "why", detail={"path": "shelf"})
+    queue.record_pick(station, "a" * 22, "x", "One", "why", detail={"strategy": "artists"})
     entry = json.loads(station.history_file.with_suffix(".picks.jsonl").read_text())
-    assert "offered" not in entry
-    assert entry["path"] == "shelf"
+    assert "candidate_ids" not in entry
+    assert entry["strategy"] == "artists"
 
 
 def test_ledger_stamps_round_trip_in_utc():

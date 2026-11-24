@@ -17,33 +17,33 @@ class Pick:
     track: navidrome.Track
     # What listeners read under the song. For a track played from a set it is the
     # set's line, not a fresh justification for this one record.
-    why: str
-    theme: str = ""
-    # What the DJ was working with, kept for the admin: the brief it read, the tools
-    # it called, and the reply it produced. Empty when the caller does not record it.
-    brief: str = ""
+    reason: str
+    set_rationale: str = ""
+    # What the picker was working with, kept for the admin: the prompt context it
+    # read, the tools it called, and the reply it produced.
+    prompt_context: str = ""
     tools: tuple = ()
     reply: str = ""
-    # The artists the set was allowed to come from, as offered. Logged with the pick so
-    # "what was on the shelf at 23:14" is answerable later.
-    shelf: tuple = ()
-    # Which offer produced the set, and how much of the station was analysed when it
-    # did: "shelf", "table", or "table-partial" (with a not-measured group).
-    path: str = ""
+    # The artists the set was allowed to come from. Logged with the pick so
+    # "what could it choose from at 23:14" is answerable later.
+    candidate_artists: tuple = ()
+    # Which strategy produced the set, and how much of the station was analysed:
+    # "artists", "tracks", or "tracks-partial" (with a not-measured group).
+    strategy: str = ""
     coverage: float | None = None
-    # Every id the offer carried, played or not. Logged with the pick so the next sets
-    # can leave a record alone for a while even when nobody chose it.
-    offered: tuple = ()
+    # Every candidate id, played or not. Logged with the pick so the next sets can
+    # leave a record alone for a while even when nobody chose it.
+    candidate_ids: tuple = ()
 
     def detail(self) -> dict:
         """What the picker saw, in the shape `queue.record_pick` logs."""
         return {
-            "brief": self.brief,
+            "prompt_context": self.prompt_context,
             "tools": self.tools,
             "reply": self.reply,
-            "shelf": list(self.shelf),
-            "offered": list(self.offered),
-            "path": self.path,
+            "candidate_artists": list(self.candidate_artists),
+            "candidate_ids": list(self.candidate_ids),
+            "strategy": self.strategy,
             "coverage": self.coverage,
         }
 
@@ -69,10 +69,10 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "flip",
+            "name": "redraw",
             "description": (
                 "Three records pulled at random from the tracks this station can play, with "
-                "their track ids — a pile to flip through when you want somewhere to go "
+                "their track ids — another handful when you want somewhere to go "
                 "rather than something to look up. Each comes from a different artist, and "
                 "artists from the recent history are left out. Not a recommendation: take "
                 "from it if something fits, or keep looking."
@@ -86,7 +86,7 @@ TOOLS = [
             "name": "search",
             "description": (
                 "Free-text lookup across titles, artists and albums. Every word has to land "
-                "somewhere, so 'Ride Vapour Trail' finds the track. Best when you have a name in "
+                "somewhere, so 'Beach House Space Song' finds the track. Best when you have a name in "
                 "mind. When the name plays nowhere here it does not come back empty: it answers "
                 "with `similar_here` — at most three artists this station does play that sound "
                 "like the one you named, names only and never a track id, so pick one and call "

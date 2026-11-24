@@ -30,8 +30,8 @@ MAX_TOKENS = 4096
 # and bounds the length.
 REASONING_EFFORT = "low"
 
-# The reply contract, in one place: the system prompt and both retries used to
-# state it in three slightly different wordings.
+# The reply contract lives in one place, so the system prompt and both retries
+# state it the same way.
 SET_CONTRACT = (
     'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
     'what this set is and where it is going>", "ids": ["<id from a tool result>", ...]}'
@@ -40,10 +40,10 @@ ANSWER_NOW = (
     "No more lookups. " + SET_CONTRACT + " Use ids from the results you already have."
 )
 
-# The table path gives the ids in the brief and asks for no lookups at all.
+# The track-candidate path gives the ids in the prompt context and asks for no lookups at all.
 SET_CONTRACT_TABLE = (
     'Reply with ONLY a JSON object: {"theme": "<one line, at most 140 characters: '
-    'what this set is and where it is going>", "ids": ["<id from the table>", ...]}'
+    'what this set is and where it is going>", "ids": ["<id from the candidates>", ...]}'
 )
 
 
@@ -80,10 +80,8 @@ def fit(payload, limit: int = TOOL_RESULT_CHARS) -> str:
 
     Tools page themselves to this budget, so most calls never reach the trimming below.
     When one does — a nested album list, a tool that ignores its limit — the largest list
-    anywhere in the payload is cut, not the first one with a familiar name: `catalogue`
-    used to answer with the same tracks twice, and the old order cut the flat list to a
-    single row while the album block beside it still held all twenty, leaving the payload
-    above the cap with a note about the wrong list.
+    anywhere in the payload is cut, not the first one with a familiar name, so the result
+    fits and the note describes what was actually cut.
     """
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) <= limit:
@@ -138,8 +136,7 @@ def json_object(text: str) -> dict | None:
     """The first JSON object in a reply that carries a track id.
 
     Handles a bare object, a fenced one, prose around it, and two objects in one
-    reply — the old parser spanned from the first `{` to the last `}`, so any of
-    those produced invalid JSON and cost a whole extra round trip.
+    reply; only a complete decodable object carrying a track id counts.
     """
     decoder = json.JSONDecoder()
     at = text.find("{")

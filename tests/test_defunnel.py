@@ -358,7 +358,7 @@ def test_labels_and_the_station_matcher_are_built_once_per_index(db, station, mo
     monkeypatch.setattr(navidrome, "labels_by_track", counted)
     lib = picker_library.Library(db)
     lib.filter(station=station)
-    lib.roster(station)
+    lib.catalog_summary(station)
     lib.recent_labels(station, 2)
 
     assert len(builds) == 1

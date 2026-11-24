@@ -1,9 +1,9 @@
-"""The append-only ledgers: what played, what the DJ picked, what it was offered.
+"""The append-only ledgers: what played, what the picker picked, which candidates it saw.
 
 All three are JSONL files under the station's history directory. They only grow, so
 every reader here walks back from the end instead of parsing the whole file, and
-the repeat-memory policy that used to be spread across `queue`, `plays` and the
-picker lives in one place.
+the repeat-memory policy lives here rather than being spread across `queue`,
+`plays` and the picker.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 from . import config
 
 # A record may not come round again for this many picks, nor inside this many
-# hours of air. The play window is counted in airings, like the table's; the air
+# hours of air. The play window is counted in airings, like the candidates'; the air
 # window is in hours because that is the unit a listener hears in.
 PLAY_MEMORY = 40
 PICK_MEMORY = 60
@@ -97,7 +97,7 @@ def recent_picks(station: config.Station, n: int = 12) -> list[dict]:
 
 
 def recent_pick_ids(station: config.Station, n: int = PICK_MEMORY) -> set[str]:
-    """The ids the DJ chose in its last n picks."""
+    """The ids the picker chose in its last n picks."""
     return {str(entry["id"]) for entry in recent_picks(station, n) if entry.get("id")}
 
 
@@ -111,15 +111,15 @@ def recent_pick_artists(station: config.Station, n: int = 12) -> list[str]:
     return out
 
 
-def last_shelf(station: config.Station, look: int = 6) -> list[str]:
-    """The artists offered for the last set that was planned, if the log has them.
+def last_candidate_artists(station: config.Station, look: int = 6) -> list[str]:
+    """The candidate artists for the last set that was planned, if the log has them.
 
-    Rotation memory: an artist that was on the shelf a set ago has had its turn at
-    being offered, whether or not the DJ played it. Re-offering the same twelve names
-    every set would make the shelf a fixed menu again, only smaller.
+    Rotation memory: an artist that was a candidate a set ago has had its turn at
+    being offered, whether or not the picker played it. Re-offering the same twelve names
+    every set would make the candidate list a fixed menu again, only smaller.
     """
     for entry in reversed(recent_picks(station, look)):
-        names = entry.get("shelf")
+        names = entry.get("candidate_artists")
         if isinstance(names, list) and names:
             return [str(name) for name in names]
     return []
@@ -128,8 +128,8 @@ def last_shelf(station: config.Station, look: int = 6) -> list[str]:
 def aired_within(station: config.Station, seconds: float) -> set[str]:
     """Ids that aired inside the last `seconds`, from the play ledger.
 
-    `recent()` counts *airings*, and about half of them are the standby pool: forty
-    airings is under three hours, so a DJ that came back after a quiet night had
+    `recent()` counts *airings*, and about half of them are the fallback rotation: forty
+    airings is under three hours, so a picker that came back after a quiet night had
     forgotten its own set and could open with it again. This is the same ledger asked
     in hours instead, which is the unit a listener hears in.
     """
@@ -147,17 +147,17 @@ def aired_within(station: config.Station, seconds: float) -> set[str]:
     return ids
 
 
-def offered_ids(station: config.Station, sets: int = 4) -> set[str]:
-    """Ids the DJ was offered in its last `sets` sets, played or not.
+def candidate_ids(station: config.Station, sets: int = 4) -> set[str]:
+    """Ids the picker was offered in its last `sets` sets, played or not.
 
-    A record only leaves the table by *playing*, so the familiar block kept handing
-    over the same records it kept refusing — one was on better than a table in five
+    A record only leaves the candidates by *playing*, so the familiar block kept handing
+    over the same records it kept refusing — one was on better than a candidate set in five
     and never picked. Being offered is having had a turn too.
     """
     out: set[str] = set()
     found = 0
     for entry in reversed(recent_picks(station, max(1, sets) * 8)):
-        ids = entry.get("offered")
+        ids = entry.get("candidate_ids")
         if not isinstance(ids, list) or not ids:
             continue
         out.update(str(track_id) for track_id in ids if track_id)
@@ -168,7 +168,7 @@ def offered_ids(station: config.Station, sets: int = 4) -> set[str]:
 
 
 def recently_out(station: config.Station) -> set[str]:
-    """Ids that should not play again yet: what aired, and what the DJ chose.
+    """Ids that should not play again yet: what aired, and what the picker chose.
 
     The windows are the constants above — every caller wants the same memory, so
     there is no per-call tuning to get wrong.
@@ -180,12 +180,12 @@ def recently_out(station: config.Station) -> set[str]:
             | aired_within(station, AIR_HOURS * 3600))
 
 
-def why_for(station: config.Station, title: str) -> str:
-    """The reason the DJ gave for a title, if it picked it recently."""
+def reason_for(station: config.Station, title: str) -> str:
+    """The reason the picker gave for a title, if it picked it recently."""
     from .store import norm
 
     key = norm(title)
     for entry in reversed(recent_picks(station, 25)):
         if norm(entry.get("title")) == key:
-            return entry.get("why", "")
+            return entry.get("reason", "")
     return ""

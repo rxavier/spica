@@ -6,7 +6,7 @@ Ordering rules that matter and that an LLM should never be asked to do:
     and anything shuffling underneath a listener would be worse than variety,
   * no two tracks from one album adjacent,
   * no artist repeat inside ARTIST_WINDOW tracks,
-  * how the set leans is the DJ's brief, not a filter: the order itself is neutral.
+  * how the set leans is the picker's prompt context, not a filter: the order itself is neutral.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def _rotate_to(st: config.Station, track_id: str) -> bool:
 
 
 def skip_past(stations: list[config.Station], track_id: str, log=print) -> None:
-    """Push a track the DJ just queued to the far end of the pool.
+    """Push a track the picker just queued to the far end of the pool.
 
     A rewrite restarts a playlist at its first line, and this one rotates the list so
     that line is the track after the pick — the pool resumes from there and the pick
@@ -209,7 +209,7 @@ def _recent_context(conn: sqlite3.Connection, station: config.Station) -> tuple[
     """The recent plays a rebuilt rotation should leave out.
 
     Newest first. The pool is a static loop, so this is the best moment to apply the
-    same avoid window the DJ uses: the tracks are left out of the list, and the first
+    same avoid window the picker uses: the tracks are left out of the list, and the first
     placed track may not be by an artist or on an album that just finished.
     """
     entries = list(reversed(queue.recent(station, max(40, ARTIST_WINDOW))))
@@ -256,7 +256,7 @@ def write_pools(conn: sqlite3.Connection, stations: list[config.Station], log=pr
         seen: set[str] = set()
         for r in ordered:
             # The gain rides on the line as Liquidsoap's liq_amplify annotation, so
-            # the fallback rotation is levelled exactly like a DJ pick.
+            # the fallback rotation is levelled exactly like a picker pick.
             uri = loudness.annotate(r["uri"], loudness.for_row(r, measured.get(r["id"])))
             if r["id"] in seen:  # the same track reached twice
                 continue

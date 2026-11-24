@@ -24,12 +24,12 @@ asked for, never broader.
     station "Pop Punk"  ← track "Pop"              ✗ broader than asked
     station "Rap"       ← track "Trap"             ✗ not a word boundary
 
-Two registers use these layers. The INDEX and the DJ's tools use layers 1-2 only
+Two registers use these layers. The INDEX and the picker's tools use layers 1-2 only
 (the fine vocabulary the library, MusicBrainz and Last.fm actually carry). STATION
 MATCHING and the admin console use all three: an operator alias like
-"nu disco -> Electronic" is how the operator ticks one shelf instead of twelve, and
+"nu disco -> Electronic" is how the operator ticks one rollup instead of twelve, and
 it is applied when a station is matched — never when a label is stored. Applying it
-at import is what made a "Nu Disco" filter answer with the whole Electronic shelf.
+at import is what made a "Nu Disco" filter answer with the whole Electronic rollup.
 """
 
 from __future__ import annotations
@@ -50,10 +50,8 @@ _SPACE = re.compile(r"[^\w&]+", re.UNICODE)
 def fold(label: object) -> str:
     """Comparison key: case, punctuation and padding fold; `&` reads as `and`.
 
-    Letters in any script survive. The old pattern was `[^0-9a-z&]`, which turned
-    every non-Latin letter into a space: "Рок", "ロック" and "روك" all folded to
-    "" and unify_spellings then treated them as one label, keeping one spelling and
-    deleting the others.
+    Letters in any script survive: "Рок", "ロック" and "روك" keep their own keys
+    instead of folding to the empty string.
     """
     s = str(label or "").strip().lower().replace("&", " and ").replace("+", " and ")
     return _SPACE.sub(" ", s).replace("_", " ").strip()
@@ -105,7 +103,7 @@ BUILTIN: dict[str, str] = {
 
 
 # Last.fm artist tags are mostly real genres but carry a few that are not genres
-# at all — a country, a decade, a listening habit. Only used for labels we
+# at all — a country, a decade, a listening habit. Only used for labels the picker
 # IMPORT from a provider; a tag the library itself carries is left alone.
 NON_GENRE = {
     "seen live", "favorites", "favourites", "favorite", "favourite", "love",
@@ -131,7 +129,7 @@ NON_GENRE = {
     "female vocalists", "male vocalists", "instrumental", "instrumental rock",
     # performative, editorial and mood words that providers tag as genres. They are
     # true of the recording, not of a genre: a track can be instrumental and still be
-    # post-rock, and "atmospheric" describes a mix, not a shelf.
+    # post-rock, and "atmospheric" describes a mix, not a genre rollup.
     "instrumental music", "vocals", "vocal", "acapella", "a cappella", "karaoke",
     "cover", "covers", "live", "live recording", "studio", "bootleg", "demo",
     "remix", "remixes", "single", "ep", "album", "compilation", "greatest hits",
@@ -231,7 +229,7 @@ def canonical(label: object, *, operator: bool = True) -> str:
 
     `operator=False` skips the operator's alias file. The aliases are a rollup for
     station selection (a station that ticks "Electronic" should catch a track tagged
-    "Nu Disco"); they are not a rewrite of the library's vocabulary, and the DJ's
+    "Nu Disco"); they are not a rewrite of the library's vocabulary, and the picker's
     tools match on the fine labels.
     """
     return _resolve(label, operator)[0]
@@ -259,10 +257,10 @@ def targets(station_genres) -> list[list[str]]:
 
 
 def targets_fine(genres) -> list[list[str]]:
-    """DJ-tool genre words -> canonical word lists, WITHOUT the operator rollup.
+    """Picker-tool genre words -> canonical word lists, WITHOUT the operator rollup.
 
     `filter` must answer what the model actually asked: "Nu Disco" matches the
-    nu-disco labels, not the "Electronic" shelf the operator rolls them up into for
+    nu-disco labels, not the "Electronic" rollup the operator files them under for
     stations. Builtin spelling fixes ("synthpop" -> "Synth Pop") still apply.
     """
     return [_words(canonical(g, operator=False)) for g in (genres or ()) if fold(g)]
@@ -326,8 +324,8 @@ def unify_spellings(conn) -> int:
         if current is None or count > current[1] or (count == current[1] and label < current[0]):
             best[key] = (label, count)
     merged = 0
-    # No transaction of its own: this runs inside the rebuild's, and the per-label
-    # commit it used to do released a half-finished index.
+    # No transaction of its own: this runs inside the rebuild's, so the caller keeps
+    # one transaction around the whole rewrite.
     for row in rows:
         label = row["label"]
         winner = best.get(fold(label))
@@ -381,10 +379,9 @@ def merge(conn, labels, into, *, relabel: bool = False) -> int:
 
     The rule is what makes this stick: station matching canonicalises both sides, so
     a "Nu Disco" track answers a station that ticks "Electronic" without the stored
-    label being rewritten. Rewriting rows is therefore NOT what a merge does any
-    more — it would destroy the fine vocabulary the DJ's tools match on. `relabel`
-    keeps the old behaviour for the operator who really does want one label instead
-    of two, as an explicit second action.
+    label being rewritten. Rewriting rows would destroy the fine vocabulary the
+    picker's tools match on, so `relabel` does that only when the operator asks for
+    one label instead of two.
 
     Returns how many stored labels the rule now covers.
     """

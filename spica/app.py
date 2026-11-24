@@ -1,7 +1,7 @@
 """HTTP surface + the loop that feeds listened-to stations.
 
 One process: uvicorn serves /status and /request while a background task asks
-the DJ for a next track only on stations that have a listener.
+the picker for a next track only on stations that have a listener.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ async def loop() -> None:
             stamp = store.db_path().stat().st_mtime if store.db_path().exists() else 0.0
             if stamp and stamp != INDEX_STAMP[0]:
                 if INDEX_STAMP[0]:
-                    store.forget_tracks()  # the worker rebuilt the index under us
+                    store.forget_tracks()  # the worker rebuilt the index underneath it
                     log.info("index changed on disk — reloaded the track lookup")
                 INDEX_STAMP[0] = stamp
             states = icecast.listen_states()
@@ -92,9 +92,8 @@ async def loop() -> None:
                     if time.time() - LAST.get(st.id, {}).get("pushed", 0.0) < config.PICK_COOLDOWN:
                         continue
                 elif ahead >= config.KEEP_AHEAD:
-                    # One waiting means one waiting: this used to be `>`, so the
-                    # loop stocked a second pick while the first was still queued,
-                    # and both were chosen blind to each other.
+                    # One waiting means one waiting: `>=` keeps the loop from
+                    # stocking a second pick while the first is still queued.
                     continue
                 p = await asyncio.to_thread(
                     picker.pick_next, store.library(), st, None, queue.recent_ids(st)
@@ -104,13 +103,13 @@ async def loop() -> None:
                     continue
                 aired = await asyncio.to_thread(air.air_pick, st, p, log=log.info)
                 if not aired.ok:
-                    # Someone else filled the slot while the DJ was thinking — a
+                    # Someone else filled the slot while the picker was thinking — a
                     # listener request, usually. Their track airs; this pick is
                     # dropped rather than replacing it, and is not logged as played.
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": aired.why}
                     log.info("[%s] dropped a pick: %s is already waiting", st.id, queue.queued(st))
                     continue
-                log.info("[%s] queued %s — %s (%s)", st.id, p.track.title, p.track.artist, p.why[:60])
+                log.info("[%s] queued %s — %s (%s)", st.id, p.track.title, p.track.artist, p.reason[:60])
         except Exception as exc:  # keep the loop alive whatever happens
             log.warning("loop error: %s", exc)
         await asyncio.sleep(config.POLL_S)
@@ -243,7 +242,7 @@ async def status(request: Request) -> dict:
 
 
 async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick | None:
-    """Ask the DJ for one track on this station and hand it to the mixer."""
+    """Ask the picker for one track on this station and hand it to the mixer."""
     if not (config.llm_settings()["key"] and config.llm_settings()["base"]):
         return None
     p = await asyncio.to_thread(picker.pick_next, store.library(), st, text, queue.recent_ids(st))
@@ -270,7 +269,7 @@ async def request_track(body: RequestBody) -> dict:
     return {
         "station": st.id,
         "track": p.track.as_line(),
-        "why": p.why,
+        "why": p.reason,
         "request": {"text": req["text"], "songs": req["songs"]},
     }
 
@@ -296,7 +295,7 @@ async def force_pick(station_id: str) -> dict:
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
     await asyncio.to_thread(air.air_pick, st, p, displace=True, log=log.info)
-    return {"station": st.id, "track": p.track.as_line(), "why": p.why}
+    return {"station": st.id, "track": p.track.as_line(), "why": p.reason}
 
 
 @app.post("/rebuild")
@@ -304,8 +303,7 @@ async def rebuild() -> dict:
     """Re-index Navidrome and rewrite every pool.
 
     The connection and the station rack come from `store`, the same ones the rest
-    of the process uses: this endpoint used to hold its own copy of both, and the
-    copy of the connection was never assigned.
+    of the process uses.
     """
 
     def _run() -> dict:
@@ -384,7 +382,7 @@ async def aliases() -> dict:
 
 @app.get("/coverage")
 async def coverage() -> dict:
-    """What the DJ knows: genre coverage, plus analysis and loudness when on."""
+    """What the picker knows: genre coverage, plus analysis and loudness when on."""
     def _run() -> dict:
         out = jobs.coverage(store.library().conn)
         extra = analysis.coverage_for(store.library().conn)

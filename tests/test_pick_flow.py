@@ -47,7 +47,7 @@ class FakeLibrary:
     def recent_labels(self, station, n=5):
         return ["Rock"], ["Someone"]
 
-    def roster(self, station=None, limit=60):
+    def catalog_summary(self, station=None, limit=60):
         return {"tracks": 3, "artists": [("Someone", 3)], "artists_total": 1,
                 "labels": [("Rock", 3)], "labels_total": 1}
 
@@ -60,7 +60,7 @@ class FakeLibrary:
 
 def fake_shelf(lib, station):
     """Every track on the fake station, one artist each, so sets survive validation."""
-    return [{"artist": f"artist {i}", "why": "shelf"} for i in lib.ids]
+    return [{"artist": f"artist {i}", "reason": "candidate"} for i in lib.ids]
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def flow(monkeypatch, station):
 
     monkeypatch.setattr(loop, "chat", fake_chat)
     monkeypatch.setattr(loop, "already_airing", lambda lib, st: set())
-    monkeypatch.setattr(loop.shelf_module, "build", fake_shelf)
+    monkeypatch.setattr(loop.artists, "build", fake_shelf)
     monkeypatch.setattr(loop.queue, "recent", lambda st, n=20: [])
     monkeypatch.setattr(loop.mixer, "queued_ids", lambda st: [])
     monkeypatch.setattr(loop.icecast, "listen_states", lambda: {})
@@ -101,8 +101,8 @@ def test_a_stored_set_is_served_without_asking_the_model(flow, station, monkeypa
     pick = loop.pick_next(lib, station, None, set())
     assert pick is not None
     assert pick.track.id == U
-    assert pick.theme == "from earlier"
-    assert pick.why == "from earlier"
+    assert pick.set_rationale == "from earlier"
+    assert pick.reason == "from earlier"
     assert plan.load(station) is None
 
 
@@ -136,7 +136,7 @@ def test_the_first_new_reply_is_planned_and_the_rest_is_kept(flow, station):
     held = plan.load(station)
     assert held is not None
     assert held["ids"] == [U, V]
-    assert held["theme"] == pick.theme
+    assert held["set_rationale"] == pick.set_rationale
 
 
 def test_a_request_drops_the_set_and_asks_again(flow, station):
@@ -147,7 +147,7 @@ def test_a_request_drops_the_set_and_asks_again(flow, station):
     pick = loop.pick_next(lib, station, "play something heavier", set())
 
     assert pick is not None
-    assert pick.theme == "something heavier", "a request is a new decision"
+    assert pick.set_rationale == "something heavier", "a request is a new decision"
     held = plan.load(station)
     assert held is not None
     assert held["ids"] == [U], "the old set does not survive behind it"
@@ -165,7 +165,7 @@ def test_the_brief_names_the_shelf_and_nothing_else(flow, station):
     loop.pick_next(lib, station, None, set())
 
     brief = next(m["content"] for m in sent[0] if m["role"] == "user")
-    assert "On the shelf for this set, and nothing else" in brief
+    assert "Artist candidates for this set, and nothing else" in brief
     for track_id in lib.ids:
         assert f"artist {track_id}" in brief
     # What played is not repeated: the artists that aired are simply not on the shelf.
@@ -180,14 +180,14 @@ def test_a_request_is_not_policed_by_the_shelf(flow, station):
     loop.pick_next(lib, station, "play something heavier", set())
 
     brief = next(m["content"] for m in sent[0] if m["role"] == "user")
-    assert "On the shelf" not in brief
+    assert "Artist candidates" not in brief
 
 
 def test_a_track_off_the_shelf_is_dropped(flow, station, monkeypatch):
     lib, sent, replies = flow
     monkeypatch.setattr(
-        loop.shelf_module, "build",
-        lambda l, st: [{"artist": f"artist {T}", "why": "shelf"}],
+        loop.artists, "build",
+        lambda l, st: [{"artist": f"artist {T}", "reason": "candidate"}],
     )
     replies.append(a_set(T, U, V))
 
@@ -214,7 +214,7 @@ def test_the_pick_records_what_it_read(flow, station):
 
     pick = loop.pick_next(lib, station, None, set())
     assert pick is not None
-    assert pick.brief and "Choose the next set" in pick.brief
+    assert pick.prompt_context and "Choose the next set" in pick.prompt_context
     assert pick.reply.startswith("{")
 
 
@@ -231,7 +231,7 @@ def test_artist_mode_skips_the_table(flow, station, monkeypatch):
     lib, sent, replies = flow
     monkeypatch.setattr(config, "dj_mode", lambda: "artist")
     called = []
-    monkeypatch.setattr(loop.table_module, "build",
+    monkeypatch.setattr(loop.tracks, "build",
                         lambda lib, st: called.append(True) or None)
     replies.append(a_set(T))
 
@@ -244,7 +244,7 @@ def test_track_mode_tries_the_table(flow, station, monkeypatch):
     lib, sent, replies = flow
     monkeypatch.setattr(config, "dj_mode", lambda: "track")
     called = []
-    monkeypatch.setattr(loop.table_module, "build",
+    monkeypatch.setattr(loop.tracks, "build",
                         lambda lib, st: called.append(True) or None)
     replies.append(a_set(T))
 

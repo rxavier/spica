@@ -13,8 +13,8 @@ import time
 
 from .. import analysis, config, icecast, ledger, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
-from . import shelf as shelf_module
-from . import table as table_module
+from . import artists
+from . import tracks
 from .library import Library
 from .llm import ANSWER_NOW, SET_CONTRACT, SET_CONTRACT_TABLE, chat, fit, json_object
 from .prompt import system_prompt
@@ -23,15 +23,15 @@ from .schemas import TOOLS, Pick
 
 MAX_TOOL_ROUNDS = 4
 
-# How much of the on-air track must be left before a new set is planned. The brief
+# How much of the on-air track must be left before a new set is planned. The prompt context
 # anchors the set to what is on air; if the track ends while the model is thinking, the
-# set starts after the standby pool's next draw instead, chosen for a record nobody
+# set starts after the fallback rotation's next draw instead, chosen for a record nobody
 # heard. One model call is usually under a minute.
 MIN_LEAD_S = 60
 
 
 def _sound_suffix(lib, track_id: str) -> str:
-    """The on-air track's numbers, so the table's directions are comparable.
+    """The on-air track's numbers, so the candidate directions are comparable.
 
     Without them the model sees "continue the flow" as a label it has to trust; with
     them it can see how far a row actually moved (and how far its own set did).
@@ -89,8 +89,8 @@ def _count(result) -> int:
     return 0
 
 
-# What the shelf is: the artists this set may come from, drawn in shelf.py. The brief
-# no longer names what played — the names that aired are already off the shelf, and
+# What the candidate artists are: the artists this set may come from, drawn in artists.py.
+# The prompt context does not name what played — the artists that aired are already out, and
 # saying so twice is what made the model treat the list as a cast list.
 
 
@@ -110,7 +110,7 @@ def pick_next(
 
     A listener request is a new decision. The rest of the set was chosen for the mood
     they just asked to leave, so it is dropped and the next set is picked with the
-    request in the brief.
+    request in the prompt context.
     """
     mode = config.dj_mode()
     if mode == "off":
@@ -118,7 +118,7 @@ def pick_next(
         # still records what aired.
         return None
     # Nothing that is already airing or queued can air again — that is the one rule
-    # about repeats the code enforces. Artist and album spacing is the DJ's call.
+    # about repeats the code enforces. Artist and album spacing is the picker's call.
     avoid = (avoid or set()) | already_airing(lib, station)
     # A request is a new decision: the rest of the set was chosen for the mood the
     # listener just asked to leave, so it is dropped rather than played behind them.
@@ -138,14 +138,14 @@ def pick_next(
             # the pool, or left the library, by the time its turn comes. Skip that one
             # and keep the set rather than throwing the rest away for a single bad id.
             if track is not None and track.uri and lib.on_station(station, track_id):
-                theme = str(held.get("theme") or "")
-                return Pick(track=track, why=theme, theme=theme)
+                set_rationale = str(held.get("set_rationale") or "")
+                return Pick(track=track, reason=set_rationale, set_rationale=set_rationale)
             avoid.add(track_id)
 
     llm = config.llm_settings()
     if not llm["key"] or not llm["base"]:
         return None
-    return plan_pick(lib, station, request_text, avoid, use_table=(mode == "track"))
+    return plan_pick(lib, station, request_text, avoid, use_tracks=(mode == "track"))
 
 
 def _timeline_lines(lib, station) -> list[str]:
@@ -166,22 +166,22 @@ def _timeline_lines(lib, station) -> list[str]:
         if row is not None:
             waiting.append(f"{row.title} — {row.artist}")
 
-    def trail(entry: dict, repeat: bool = False) -> str:
+    def timeline(entry: dict, repeat: bool = False) -> str:
         """One line of the timeline: what played, and who put it there.
 
-        The DJ only gets a reason when the reason was its own. A track the mixer played
-        from the standby pool while the DJ was offline is labelled as such — it is what
+        The picker only gets a reason when the reason was its own. A track the mixer played
+        from the fallback rotation while the picker was offline is labelled as such — it is what
         the room heard, not a choice to build on, and presenting it as one is how the
         brief ends up disagreeing with the station.
 
         `repeat` drops the reason for a track that belongs to the set the line above it
         already explained: a set of six would otherwise print one theme six times, and
-        the timeline is the part of the brief the model reads as its own voice.
+        the timeline is the part of the prompt context the model reads as its own voice.
         """
         line = f"{entry.get('title')} — {entry.get('artist')}"
         if entry.get("source") == "dj" and entry.get("why"):
             return line + (" (same set)" if repeat else f": {entry['why']}")
-        return line + " (standby — the station played it while you were offline)"
+        return line + " (fallback rotation — the station played it while you were offline)"
 
     # The station's own title only exists on the MP3 mount; Ogg and FLAC carry theirs
     # inside the stream, so `on_air` falls back to the newest play. The timeline below
@@ -193,21 +193,21 @@ def _timeline_lines(lib, station) -> list[str]:
         (e for e in recent if f"{e.get('title')} — {e.get('artist')}" == on_air), {}
     )
 
-    # What the anchor sounds like, once, so the table's numbers can be read against
+    # What the anchor sounds like, once, so the candidate numbers can be read against
     # something. Raw `on_air` stays for the comparisons below.
     on_air_id = str(live_entry.get("id") or (recent[0].get("id") if recent else "") or "")
     display = on_air + _sound_suffix(lib, on_air_id)
 
     lines = []
     if on_air:
-        # The song on air is part of the same record as the ones before it: if the DJ
+        # The song on air is part of the same record as the ones before it: if the picker
         # chose it, its reason belongs here too, and if the station played it while the
-        # DJ was offline, that is the fact worth stating.
+        # picker was offline, that is the fact worth stating.
         if live_entry.get("source") == "dj" and live_entry.get("why"):
             lines.append(f"On air right now: {display}: {live_entry['why']}")
         elif live_entry and live_entry.get("source") != "dj":
             lines.append(
-                f"On air right now: {display} (standby — the station started this while "
+                f"On air right now: {display} (fallback rotation — the station started this while "
                 "you were offline)."
             )
         else:
@@ -218,7 +218,7 @@ def _timeline_lines(lib, station) -> list[str]:
     earlier = [e for e in recent if f"{e.get('title')} — {e.get('artist')}" != on_air][:4]
     if earlier:
         block = [
-            "Before that, newest first — the reason when you chose it, standby when the "
+            "Before that, newest first — the reason when you chose it, fallback rotation when the "
             "station did:"
         ]
         previous_why = (
@@ -226,7 +226,7 @@ def _timeline_lines(lib, station) -> list[str]:
         )
         for index, entry in enumerate(earlier, 1):
             why = str(entry.get("why") or "")
-            block.append(f"{index}. {trail(entry, repeat=bool(why) and why == previous_why)}")
+            block.append(f"{index}. {timeline(entry, repeat=bool(why) and why == previous_why)}")
             previous_why = why
         lines.append("\n".join(block))
 
@@ -241,79 +241,79 @@ def _timeline_lines(lib, station) -> list[str]:
     return lines
 
 
-def _offer_lines(lib, station, request_text: str | None,
-                 use_table: bool) -> tuple[list[str], dict | None, list[str]]:
-    """What the DJ may choose from: a table of records, or the artist shelf."""
+def _candidate_lines(lib, station, request_text: str | None,
+                 use_tracks: bool) -> tuple[list[str], dict | None, list[str]]:
+    """What the picker may choose from: candidate tracks, or candidate artists."""
     lines: list[str] = []
-    # What the DJ may choose from tonight. The artists that aired, the ones already
+    # What the picker may choose from tonight. The artists that aired, the ones already
     # queued and the ones that sound most like the three tracks either side of this set
-    # are not on it — so the brief never has to say what played, and the list cannot be
+    # are not on it — so the prompt context never has to say what played, and the list cannot be
     # read as a cast list of "names to get through".
-    # With analysis on, the offer is records, not artists: four directions, ids in
-    # front, one call and no lookups. Without it, the artist shelf is unchanged.
-    table = None
-    shelf_names: list[str] = []
-    if not request_text and use_table:
-        table = table_module.build(lib, station)
-    if table:
-        lines.append(table_module.render(table))
-        shelf_names = list(table["artists"])  # rotation memory, as before
+    # With analysis on, the candidates are records, not artists: four directions, ids in
+    # front, one call and no lookups. Without it, the artist candidates are unchanged.
+    candidate_tracks = None
+    candidate_artists: list[str] = []
+    if not request_text and use_tracks:
+        candidate_tracks = tracks.build(lib, station)
+    if candidate_tracks:
+        lines.append(tracks.render(candidate_tracks))
+        candidate_artists = list(candidate_tracks["artists"])  # rotation memory
     elif not request_text:
-        drawn = shelf_module.build(lib, station)
-        shelf_names = [item["artist"] for item in drawn]
-    if not table and shelf_names:
-        # When analysis ran, the shelf arrives with what it sounds like: the names
+        drawn = artists.build(lib, station)
+        candidate_artists = [item["artist"] for item in drawn]
+    if not candidate_tracks and candidate_artists:
+        # When analysis ran, the candidate artists arrive with what they sound like: the names
         # alone ask the model to recall artists it may not know, and for a local
         # collection that recall is exactly what is missing.
-        sound = lib.sound_line(shelf_names) if callable(getattr(lib, "sound_line", None)) else ""
+        sound = lib.sound_line(candidate_artists) if callable(getattr(lib, "sound_line", None)) else ""
         if sound:
             lines.append(sound)
         lines.append(
-            "On the shelf for this set, and nothing else: " + ", ".join(shelf_names) + "."
+            "Artist candidates for this set, and nothing else: " + ", ".join(candidate_artists) + "."
         )
         lines.append(
             "Every track comes from one of those artists, none of them twice, and the "
             "set still has to move — two eras, two genres, one thing changing between "
             "each track. Which of them, in what order, is yours."
         )
-    return lines, table, shelf_names
+    return lines, candidate_tracks, candidate_artists
 
 
 def _finish(lib: Library, station: config.Station, avoid: set[str], content: str, *,
             allowed: set[str] | None, allowed_ids: set[str] | None,
-            table: dict | None, shelf_names: list[str], brief: str,
-            called: list[dict]) -> Pick | None:
+            candidates: dict | None, candidate_artists: list[str],
+            prompt_context: str, called: list[dict]) -> Pick | None:
     """Turn a reply into a stored set.
 
-    The shelf is the one thing about a set that is checked rather than asked for:
-    every artist has to be on it, and none of them twice. Everything else — how
-    many tracks, which records, the order, the line — is the DJ's.
+    The candidate artists are the one thing about a set that is checked rather than
+    asked for: every artist has to be on the list, and none of them twice. Everything
+    else — how many tracks, which records, the order, the line — is the model's.
     """
-    theme, ids = parse_set(lib, content, avoid, station, allowed=allowed,
-                           allowed_ids=allowed_ids)
+    set_rationale, ids = parse_set(lib, content, avoid, station, allowed=allowed,
+                                   allowed_ids=allowed_ids)
     if not ids:
         return None
     # The set is stored before its first track is handed over: the next call finds
     # it there and plays the second track without asking the model anything.
-    plan.save(station, theme, ids[1:], shelf=shelf_names)
+    plan.save(station, set_rationale, ids[1:], candidate_artists=candidate_artists)
     track = lib.by_id(ids[0])
     if track is None or not track.uri:
         return None
-    pick = Pick(track=track, why=theme, theme=theme)
-    pick.path = ("shelf" if table is None
-                 else ("table-partial" if table.get("partial") else "table"))
-    pick.coverage = table.get("coverage") if table else None
-    # What the set was offered, played or not: the next few sets leave those records
-    # alone, so the same familiar block cannot come back every fifteen minutes.
-    pick.offered = tuple(table["ids"]) if table else ()
-    pick.brief, pick.tools = brief, tuple(called)
+    pick = Pick(track=track, reason=set_rationale, set_rationale=set_rationale)
+    pick.strategy = ("artists" if candidates is None
+                     else ("tracks-partial" if candidates.get("partial") else "tracks"))
+    pick.coverage = candidates.get("coverage") if candidates else None
+    # Every candidate id, played or not: the next few sets leave those records alone,
+    # so the same familiar block cannot come back every fifteen minutes.
+    pick.candidate_ids = tuple(candidates["ids"]) if candidates else ()
+    pick.prompt_context, pick.tools = prompt_context, tuple(called)
     pick.reply = (content or "")[:500]
-    pick.shelf = tuple(shelf_names)
+    pick.candidate_artists = tuple(candidate_artists)
     return pick
 
 
-def _table_attempt(messages: list[dict], finish) -> Pick | None:
-    """One call, no tools: the table already carries every id that may air."""
+def _track_attempt(messages: list[dict], finish) -> Pick | None:
+    """One call, no tools: the candidate tracks already carry every id that may air."""
     msg = chat(messages, [], no_tools=True)
     pick = finish(msg.get("content") or "")
     if pick is None:
@@ -321,7 +321,7 @@ def _table_attempt(messages: list[dict], finish) -> Pick | None:
         messages.append({
             "role": "user",
             "content": "That reply could not be used. " + SET_CONTRACT_TABLE
-            + " Every id must be one of the table's, no artist twice, and nothing "
+            + " Every id must be one of the candidates, no artist twice, and nothing "
             "already playing or queued.",
         })
         pick = finish(chat(messages, [], no_tools=True).get("content") or "")
@@ -346,14 +346,14 @@ def _tool_rounds(lib: Library, station: config.Station, messages: list[dict],
             if pick is not None:
                 return pick
             # One more go: an unusable reply is usually prose wrapped round the
-            # object, or a track we played minutes ago. Cheaper to ask again than to
+            # object, or a track that aired minutes ago. Cheaper to ask again than to
             # hand the listener a failed pick.
             messages.append({"role": "assistant", "content": msg.get("content") or ""})
             messages.append(
                 {
                     "role": "user",
                     "content": "That reply could not be used. " + SET_CONTRACT
-                    + " Every artist must be one of the names on the shelf, none of "
+                    + " Every artist must be one of the candidate artists, none of "
                     "them twice, and no track already playing or queued.",
                 }
             )
@@ -405,7 +405,7 @@ def plan_pick(
     station: config.Station,
     request_text: str | None,
     avoid: set[str],
-    use_table: bool = True,
+    use_tracks: bool = True,
 ) -> Pick | None:
     """Ask the model for the next set, store it, and hand back its first track."""
     # A request is answered now; a set can wait for the next record to settle. Planning
@@ -413,12 +413,12 @@ def plan_pick(
     # next draw, anchored to a record the listener never heard.
     if request_text is None and not _enough_runway(lib, station):
         return None
-    # One seed per set: `filter`'s order must hold still while the DJ is choosing, or
+    # One seed per set: `filter`'s order must hold still while the picker is choosing, or
     # `offset` would page a different list every call. The next set reshuffles.
     lib.draw_seed = secrets.randbits(32)
 
     lines = _timeline_lines(lib, station)
-    offer_lines, table, shelf_names = _offer_lines(lib, station, request_text, use_table)
+    offer_lines, candidate_tracks, candidate_artists = _candidate_lines(lib, station, request_text, use_tracks)
     lines += offer_lines
 
     # One thought per line. Run together as a paragraph, the on-air line, the queue and
@@ -432,7 +432,7 @@ def plan_pick(
     )
 
     messages: list[dict] = [
-        {"role": "system", "content": system_prompt(station, lib.roster(station), table=bool(table))},
+        {"role": "system", "content": system_prompt(station, lib.catalog_summary(station), track_candidates=bool(candidate_tracks))},
         {
             "role": "user",
             "content": (
@@ -443,20 +443,20 @@ def plan_pick(
         },
     ]
 
-    brief = messages[1]["content"]
+    prompt_context = messages[1]["content"]
     called: list[dict] = []
-    allowed = None if table else ({navidrome.name_key(name) for name in shelf_names} or None)
-    allowed_ids = set(table["ids"]) if table else None
+    allowed = None if candidate_tracks else ({navidrome.name_key(name) for name in candidate_artists} or None)
+    allowed_ids = set(candidate_tracks["ids"]) if candidate_tracks else None
 
     def finish(content: str) -> Pick | None:
         return _finish(
             lib, station, avoid, content,
             allowed=allowed, allowed_ids=allowed_ids,
-            table=table, shelf_names=shelf_names, brief=brief, called=called,
+            candidates=candidate_tracks, candidate_artists=candidate_artists, prompt_context=prompt_context, called=called,
         )
 
-    if table:
-        return _table_attempt(messages, finish)
+    if candidate_tracks:
+        return _track_attempt(messages, finish)
     return _tool_rounds(lib, station, messages, finish, called)
 
 def parse_set(
@@ -466,9 +466,9 @@ def parse_set(
     """The set the model chose: one line, and the ids that can actually play.
 
     Facts only — the track exists, it has a file, it is on this station, it is not
-    already airing or queued, its artist is on tonight's shelf, and no artist appears
-    twice. How many tracks the set holds, which of the shelf's artists it uses and where
-    it goes are the DJ's business; the shelf is the one boundary the station draws,
+    already airing or queued, its artist is in tonight's candidate list, and no artist
+    appears twice. How many tracks the set holds, which candidate artists it uses and
+    where it goes are the picker's business; the candidates are the one boundary the station draws,
     because an artist that has just played cannot be the answer to what comes next.
     """
     data = json_object(content)
@@ -490,7 +490,7 @@ def parse_set(
         if not lib.on_station(station, track_id):
             continue
         who = navidrome.name_key(getattr(track, "album_artist", "") or track.artist)
-        # The table path restricts by id; the shelf path restricts by artist. Both
+        # The track-candidate path restricts by id; the artist path by artist. Both
         # keep "one artist a set". A request passes neither and is exempt: two songs
         # off the album somebody asked for is a good set, not a repeat.
         if allowed_ids is not None and track_id not in allowed_ids:
@@ -508,7 +508,7 @@ def already_airing(lib: Library, station: config.Station) -> set[str]:
     """Ids that cannot air again right now: the track on air, and what is queued.
 
     Only ids. Whether the set wants another song by the same artist, or a second
-    one off the same album, is a judgement the DJ is better placed to make than a
+    one off the same album, is a judgement the picker is better placed to make than a
     set comparison — a listener asking for two songs off one album is a good request,
     not a mistake, and a rule enforced here would refuse it.
     """

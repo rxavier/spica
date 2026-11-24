@@ -1,19 +1,10 @@
-"""The table: the records a set may come from, grouped by direction.
+"""Candidate tracks for one set, grouped by the transition each direction makes.
 
-The artist shelf existed because nothing here could tell two tracks by the same act
-apart. Audio analysis changes that: with a vector, energy, tempo and style per track,
-the offer can be made of records and sorted by what they *do* — this one continues
-what is on air, this one moves one axis, this one turns away, this one lands.
-
-The table is handed over with its ids, so the set costs one model call and no
-lookups. That is why the checks in the loop matter more here than in the tool path:
-an id that is not on the table cannot air, no artist appears twice, and the station's
-rules were already applied when the rows were drawn. Thirty-two records for a set of
-three to ten is deliberate: more choice per direction than a set can spend.
-
-What makes it not a menu is the grouping and the numbers: directions, not a running
-order, more records than a set needs, and the previous table's artists excluded so it
-can never become the same thirty-two records every twenty minutes.
+With analysis on, the candidates are records rather than artists: the station's tracks are
+split into continue / single-axis / contrast / closing / familiar directions, and the
+model gets ids, so a set costs one call and no lookups. An id that is not in the
+candidate list cannot air, no artist appears twice, and the station's rules are applied
+before the list is built.
 """
 
 from __future__ import annotations
@@ -30,24 +21,24 @@ from .memory import ABSENCE, artist_absence, blocked_artists, spread_decades
 # still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
 # depends on the station's lean: a "hits" station gets a bigger familiar block, a
 # "deep" station a smaller one.
-TARGETS = (("continue", 7), ("shift", 6), ("contrast", 6), ("land", 6), ("known", 7))
-MIN_TABLE = 8
-PER_LABEL = 3  # one label cannot own the table
+TARGETS = (("continue", 7), ("single_axis", 6), ("contrast", 6), ("closing", 6), ("familiar", 7))
+MIN_CANDIDATES = 8
+PER_LABEL = 3  # one label cannot own the candidate list
 KNOWN = 0.66   # within-artist percentile that counts as "the one everyone knows"
-# A record *offered* this many sets ago has had its turn whether or not it played: the
+# A record offered this many sets ago has had its turn whether or not it played: the
 # play ledger alone let the familiar block hand over the same records it kept refusing.
 # The window itself — sixty picks or eight hours of air — lives in `queue`, because the
-# DJ's tool rows report it too.
-OFFER_SETS = 4
+# picker's tool rows report it too.
+SEEN_SETS = 4
 # The familiar block is one record per artist, so it needs the artist's turn remembered
 # rather than the record's: two sets is enough to stop the same name coming back, and
 # longer starves it — there are only so many artists with a known record in one family.
-KNOWN_SETS = 2
+FAMILIAR_SETS = 2
 # How much "not been on in ages" can move a candidate up its direction. Similarity
 # alone is what made the station orbit one sound: `-absence` sat after `-sim` in the
 # sort key, so it only ever broke an exact tie.
 ABSENCE_WEIGHT = 0.12
-# Readiness for the full table, per station. Below this the table still runs, but with
+# Readiness for full candidates, per station. Below this they still run, but with
 # an explicit "not measured yet" group so new music is not invisible.
 READY_TRACKS = 0.90
 READY_ARTISTS = 0.80
@@ -84,11 +75,11 @@ def _same_temperature(candidate: dict, energy: float, bpm: float, key) -> bool:
 
 LABELS = {
     "continue": ("Continue the flow", "closest to what is on air, same temperature"),
-    "shift": ("Move one axis", "one thing changes — tempo, weight or colour — and the rest holds"),
+    "single_axis": ("Move one axis", "one thing changes — tempo, weight or colour — and the rest holds"),
     "contrast": ("Change it up", "a different family of sound; a deliberate turn"),
-    "land": ("Land it", "calmer and slower than what is on air; a closer"),
-    "known": ("The one everyone knows",
-              "the familiar song, in the same family as what is on air"),
+    "closing": ("Land it", "calmer and slower than what is on air; a closer"),
+    "familiar": ("The one everyone knows",
+                 "the familiar song, in the same family as what is on air"),
     "unmeasured": ("Not measured yet", "no sonic data yet; offered so it is not invisible"),
 }
 
@@ -96,22 +87,22 @@ LABELS = {
 def targets(station) -> tuple[tuple[str, int], ...]:
     """The same thirty-two slots, weighted by how the station leans.
 
-    `popularity` on a station was only ever about the pool order; with the table it
-    decides how much of the offer is familiar. A hits station gets seven known
+    `popularity` on a station was only ever about the pool order; with candidates it
+    decides how much is familiar. A hits station gets seven familiar
     records, a deep one four, balanced six.
     """
     known = 7 if station.deep_bias < 0 else (4 if station.deep_bias > 0 else 6)
     rest = 32 - known
     base, extra = divmod(rest, 4)
-    names = ("continue", "shift", "contrast", "land")
+    names = ("continue", "single_axis", "contrast", "closing")
     return tuple(
         [(name, base + (1 if i < extra else 0)) for i, name in enumerate(names)]
-        + [("known", known)]
+        + [("familiar", known)]
     )
 
 
 def build(lib, station) -> dict | None:
-    """The table for one set, or None when analysis is off or too thin to draw one."""
+    """The candidate tracks for one set, or None when analysis is off or too thin."""
     if not analysis.enabled():
         return None
     rows = lib._station_rows(station)
@@ -134,7 +125,7 @@ def build(lib, station) -> dict | None:
     played = queue.recently_out(station)
     try:
         queued = set(mixer.queued_ids(station))
-    except Exception:  # liquidsoap down: the table is still worth drawing
+    except Exception:  # liquidsoap down: candidates are still worth drawing
         queued = set()
     on_air = str((queue.recent(station, 1) or [{}])[-1].get("id") or "")
 
@@ -147,29 +138,29 @@ def build(lib, station) -> dict | None:
 
     eligible = _eligible(rows, vectors, features, played, queued, on_air, blocked)
     candidates = _candidates(eligible, labels, ranks, absence)
-    if len(candidates) < MIN_TABLE:
+    if len(candidates) < MIN_CANDIDATES:
         return None
     # A record the last few sets offered has had its turn, played or not — that is what
     # stops the familiar block from becoming a fixed cast. On a small station the rule
-    # could empty the table, and a smaller offer is worse than a repeated one.
-    offered = queue.offered_ids(station, OFFER_SETS)
-    fresh = [c for c in candidates if c["id"] not in offered]
-    if len(fresh) >= MIN_TABLE:
+    # could empty the candidates, and fewer candidates are worse than a repeated one.
+    seen = queue.candidate_ids(station, SEEN_SETS)
+    fresh = [c for c in candidates if c["id"] not in seen]
+    if len(fresh) >= MIN_CANDIDATES:
         candidates = fresh
 
     anchor = _anchor(lib, station, features, vectors)
     if anchor is None or anchor.get("energy") is None:
         # Without a real anchor the directions are guesses against the station median;
-        # the artist shelf is a better offer than that.
+        # the artist candidates are better than that.
         return None
     for candidate in candidates:
         candidate["sim"] = float(candidate["vector"] @ anchor["vector"])
 
     groups = _groups(candidates, anchor, getattr(lib, "draw_seed", 0) or 0, station,
-                     offered_artists=_offered_artists(
-                         lib, queue.offered_ids(station, KNOWN_SETS)))
+                     seen_artists=_seen_artists(
+                         lib, queue.candidate_ids(station, FAMILIAR_SETS)))
     ids = [track["id"] for group in groups for track in group["tracks"]]
-    if len(ids) < MIN_TABLE:
+    if len(ids) < MIN_CANDIDATES:
         return None
     artists = []
     for group in groups:
@@ -198,14 +189,14 @@ def build(lib, station) -> dict | None:
     }
 
 
-def render(table: dict) -> str:
-    """The table as the brief carries it: id first, then what the record is and does."""
+def render(candidates: dict) -> str:
+    """The candidate tracks as the prompt carries them: id first, then what the record is and does."""
     lines = [
-        f"The table for this set — {len(table['ids'])} records in {len(table['groups'])} "
+        f"Candidate tracks for this set — {len(candidates['ids'])} records in {len(candidates['groups'])} "
         "directions. Every track comes from it, no artist twice, three to ten tracks, in "
         "the order they should air. The id leads each row; no lookups are needed."
     ]
-    for group in table["groups"]:
+    for group in candidates["groups"]:
         label, note = group["label"], group["note"]
         lines.append("")
         lines.append(f"{label} ({note}):")
@@ -217,11 +208,11 @@ def render(table: dict) -> str:
                     analysis.tempo_label(track["bpm"], track["energy"]),
                     track["key"],
                     f"energy {track['energy']:.2f}" if track["energy"] is not None else "",
-                    _prominence(track["popularity"], track["popularity_known"]),
+                    _popularity_tier(track["popularity"], track["popularity_known"]),
                 )
             else:
                 parts = (str(track["year"] or ""), "not measured",
-                         _prominence(track["popularity"], track["popularity_known"]))
+                         _popularity_tier(track["popularity"], track["popularity_known"]))
             detail = " · ".join(part for part in parts if part)
             lines.append(
                 f"- {track['id']} · {track['artist']} — {track['title']}"
@@ -235,8 +226,8 @@ def render(table: dict) -> str:
 def _eligible(rows, vectors, features, played, queued, on_air, blocked):
     """Rows a set may draw from at all, split into measured/unmeasured by the caller.
 
-    Played, queued, on-air and blocked artists are dropped once here. The two callers
-    used to run this same filter separately, so a new exclusion had to be added twice.
+    Played, queued, on-air and blocked artists are dropped once here, so a new
+    exclusion applies to measured and unmeasured candidates together.
     """
     out = []
     for row in rows:
@@ -282,14 +273,14 @@ def _candidates(eligible, labels, ranks, absence) -> list[dict]:
     return out
 
 
-def _offered_artists(lib, offered: set[str]) -> set[str]:
+def _seen_artists(lib, candidate_ids: set[str]) -> set[str]:
     """The artists whose records the last sets already offered, by name key.
 
-    Ids alone are not enough: an artist with several known records keeps a seat in the
-    familiar block by serving a different one each time, which is why the same five names
-    came back table after table while every individual record was rotated out.
+    Ids alone are not enough: an artist with several familiar records keeps a seat in
+    the familiar block by serving a different one each time, so the same five names
+    came back set after set while every individual record was rotated out.
     """
-    artists = lib.artists_by_ids(offered)
+    artists = lib.artists_by_ids(candidate_ids)
     return {
         navidrome.name_key(name)
         for name in artists.values()
@@ -302,7 +293,7 @@ def _absent(candidate: dict) -> float:
     return min(int(candidate["absence"]), ABSENCE) / ABSENCE
 
 
-def _offer_rank(candidate: dict, lean: float) -> float:
+def _candidate_rank(candidate: dict, lean: float) -> float:
     """Where a candidate sits in its direction: what it sounds like, and when it aired.
 
     Similarity alone is why the station orbited one corner of the library. A record that
@@ -317,7 +308,7 @@ def _offer_rank(candidate: dict, lean: float) -> float:
 
 
 def _groups(candidates: list[dict], anchor: dict, seed: int, station,
-            offered_artists: set[str] | None = None) -> list[dict]:
+            seen_artists: set[str] | None = None) -> list[dict]:
     used_ids: set[str] = set()
     used_artists: set[str] = set()
     label_counts: Counter = Counter()
@@ -330,7 +321,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
             if candidate["id"] in used_ids or candidate["artist_key"] in used_artists:
                 continue
             # An unlabelled track is not a label with three slots: without this, a
-            # library whose tags never reached the index would cap the table at three.
+            # library whose tags never reached the index would cap the candidates at three.
             if candidate["label"] != "?" and label_counts[candidate["label"]] >= PER_LABEL:
                 continue
             used_ids.add(candidate["id"])
@@ -371,23 +362,23 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
     lean = -station.deep_bias
     by_sim = sorted(
         candidates,
-        key=lambda c: (-_offer_rank(c, lean), seed_key(seed, c["id"])),
+        key=lambda c: (-_candidate_rank(c, lean), seed_key(seed, c["id"])),
     )
 
     plans = {
         # Continue may fall back to the nearest records: "closest to on air" is still
         # true of them when nothing sits in the same energy band.
         "continue": [c for c in by_sim if same_band(c)] or by_sim,
-        "shift": [c for c in by_sim if one_axis(c)],
+        "single_axis": [c for c in by_sim if one_axis(c)],
         "contrast": [c for c in by_sim if turns(c)],
-        "land": sorted(
+        "closing": sorted(
             [c for c in candidates if lands(c)],
             key=lambda c: (c["energy"], -c["absence"], seed_key(seed, c["id"])),
         ),
         # The familiar option, from whoever has been off the air longest: "the one
         # everyone knows" sorted by popularity alone hands over the same single every
         # time, which is the opposite of what the station is for.
-        "known": sorted(
+        "familiar": sorted(
             [c for c in candidates
              if c["popularity"] >= KNOWN and (not family or c["family"] == family)],
             key=lambda c: (-c["absence"], -c["popularity"], seed_key(seed, c["id"])),
@@ -397,8 +388,8 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
     # One record per artist means the familiar block has to be drawn first or the
     # directions before it can take every artist and leave it empty.
     wanted = list(targets(station))
-    build_order = ([item for item in wanted if item[0] == "known"]
-                   + [item for item in wanted if item[0] != "known"])
+    build_order = ([item for item in wanted if item[0] == "familiar"]
+                   + [item for item in wanted if item[0] != "familiar"])
     groups = []
     for name, size in build_order:
         if not plans[name]:
@@ -407,13 +398,13 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
             # of the station's energy is the case that made this necessary.
             continue
         plan = plans[name]
-        if name == "known" and offered_artists:
+        if name == "familiar" and seen_artists:
             # Familiar, and not the same familiar as last time: an artist offered a set
             # ago has had its turn, so its known records go behind the others. A shorter
             # block is the point; it only falls back when there is not even a choice left.
-            unheard = [c for c in plan if c["artist_key"] not in offered_artists]
+            unheard = [c for c in plan if c["artist_key"] not in seen_artists]
             plan = unheard if len(unheard) >= min(size, 2) else (
-                unheard + [c for c in plan if c["artist_key"] in offered_artists])
+                unheard + [c for c in plan if c["artist_key"] in seen_artists])
         picked = take(plan, size)
         if picked:
             groups.append({"name": name, "label": LABELS[name][0], "note": LABELS[name][1],
@@ -440,7 +431,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
 
 
 def _spread_decades(groups, plans, used_ids, used_artists, seed) -> None:
-    """Two decades on the table when the station can pay for it.
+    """Two decades in the candidate list when the station can pay for it.
 
     The replacement comes from the *same direction's* candidates, so the swap keeps
     the label true: a different decade is not a reason to smuggle a dance record into
@@ -470,19 +461,18 @@ def _spread_decades(groups, plans, used_ids, used_artists, seed) -> None:
         return
 
 
-def _prominence(popularity: float, known: bool = True) -> str:
-    """How known the track is within its artist's catalogue — always, explicitly.
+def _popularity_tier(popularity: float, known: bool = True) -> str:
+    """The track's standing within its artist's catalogue, always spelled out.
 
-    An empty tag was ambiguous: the model could read it as mid-catalogue, unknown, or
-    "not applicable", and it had no legend either way. Every row now says which of the
-    four it is.
+    ``unknown`` means no provider has a count; otherwise the tier is ``low``, ``mid``
+    or ``high`` (the familiar end).
     """
     if not known:
         return "unknown"
     if popularity >= KNOWN:
-        return "known"
+        return "high"
     if popularity <= 0.33:
-        return "deep cut"
+        return "low"
     return "mid"
 
 
@@ -536,10 +526,9 @@ def _public(candidate: dict) -> dict:
 # ------------------------------------------------------------------- the context
 
 def _blocked_artists(lib, station) -> set[str]:
-    """Artists that may not be offered: just played, queued, or on the last table.
+    """Artists that may not be offered: just played, queued, or in the last candidates.
 
-    No sonic distance here — the point of the table is that "close to what is on air"
-    is one of the directions on purpose. The DJ's own recent picks are left out, so
+    No sonic distance here — "close to what is on air" is one deliberate direction. The picker's own recent picks are left out, so
     the familiar block stays reachable for a set not anchored to an airing.
     """
     return blocked_artists(lib, station, recent=6, include_picks=False).keys

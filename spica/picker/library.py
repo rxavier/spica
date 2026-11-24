@@ -128,13 +128,13 @@ class Library:
         return self._vectors
 
     def sound_line(self, names: list[str]) -> str:
-        """One compact line on how the shelf sounds, or "" when analysis is off."""
+        """One compact line on how the candidate artists sound, or "" when analysis is off."""
         if not names or self.analysis_store() is None:
             return ""
         from .. import analysis
 
         try:
-            return analysis.shelf_sound(self._analysis_conn, names)
+            return analysis.style_summary(self._analysis_conn, names)
         except Exception as exc:
             _analysis_error(exc)
             return ""
@@ -161,8 +161,8 @@ class Library:
     def labels_by_track(self) -> dict[str, list[str]]:
         """The stored label of every track, cached until the index changes.
 
-        Rebuilt for every tool call before this, and building it canonicalises every
-        label in the library — which stats the operator alias file each time.
+        Building it canonicalises every label in the library, so a cached copy is
+        kept until the index changes.
         """
         stamp = self._index_stamp()
         cached = getattr(self, "_labels_cache", None)
@@ -200,10 +200,10 @@ class Library:
     def search(self, query: str, limit: int = 20, station: config.Station | None = None, **_):
         """Tracks whose name matches the query, or what the library has that is close.
 
-        Every word has to land somewhere, in any column, so "Ride Vapour Trail" — an
+        Every word has to land somewhere, in any column, so "Beach House Space Song" — an
         artist and a title, the way anybody would write it — finds the record. A name
         that simply is not in the library answers with what does sound like it: an
-        empty list reads the same as a typo and sends the DJ to the next remembered name.
+        empty list reads the same as a typo and sends the picker to the next remembered name.
         """
         text = html.unescape(str(query or "")).strip()
         limit = clamp(limit, 20, 200)
@@ -212,7 +212,7 @@ class Library:
             return {"results": [], "note": "empty query"}
 
         # Every word has to land somewhere — one column, any column. "Ride Vapour
-        # Trail" is two fields of the same record, which is how people name records.
+        # Song" is two fields of the same record, which is how people name records.
         rows = track_queries.search(self.conn, text, tokens, limit * 40)
 
         on_station = self.rows_on_station(rows, station)
@@ -229,12 +229,9 @@ class Library:
         `similar` uses and keeps only the artists this station plays — at most three,
         artist names only.
 
-        Two things it deliberately does not do. It does not hand back a track id: that
-        turned every miss into a pick, and because the acts that sound like the model's
-        favourite French-touch names on this shelf are the three it owns, a night of
-        asking for that scene fed the same three straight into the sets. And it does not
-        offer acts that have just been on air: when everything similar is recent, the
-        honest answer is that this corner of the shelf has had its turn.
+        It never hands back a track id: a miss is a route, not a pick. And it does not
+        offer acts that have just been on air; when everything similar is recent, the
+        honest answer is that this corner of the station has had its turn.
         """
         offers = self.similar_here(text, station)
         recent = self._recent_act_keys(station)
@@ -258,7 +255,7 @@ class Library:
         else:
             payload["note"] = (
                 f"nothing by '{text}' plays on this station, and nothing here sounds much "
-                "like it. Find another vibe: filter draws from the whole station, flip "
+                "like it. Find another vibe: filter draws from the whole station, redraw "
                 "deals three records, catalogue knows what you own by an artist you can name."
             )
             # Nothing similar at all: the only useful thing left is a spelling correction
@@ -290,7 +287,7 @@ class Library:
                     continue
                 # The same track was handed out on every miss — "Là-haut" for
                 # L'Impératrice, "Like Eating Glass" for Bloc Party — because the lead
-                # was the first row in table order. Draw it from this pick's seed.
+                # was the first row in candidate order. Draw it from this pick's seed.
                 lead = sorted(hits, key=self._shuffle_key)[0]
                 found.append({
                     "artist": lead["album_artist"] or lead["artist"],
@@ -359,14 +356,13 @@ class Library:
     def filter(self, station: config.Station | None = None, **kw) -> dict:
         """A draw from the station, optionally narrowed, with the size of the slice.
 
-        Built on the station's own rows rather than querying the table again: the
+        Built on the station's own rows rather than querying the index again: the
         station rules are the expensive part and they have already been applied, so a
         narrower question only needs to narrow the list it is given.
 
         `genre` matches the library's own labels, not the operator's station rollup, and
-        artists that aired in the last twenty tracks sort last — a genre word used to be
-        answered with the whole shelf an alias filed it under, and the page always opened
-        on whoever had just played.
+        artists that aired in the last twenty tracks sort last, so a page does not open on
+        whoever just played.
         """
         rows = self._station_rows(station)
         if kw.get("year_from"):
@@ -379,7 +375,7 @@ class Library:
         want = kw.get("genre")
         if want:
             # Fine labels, not the operator's station rollup: "Nu Disco" answers the
-            # nu-disco shelf, not everything the station files under Electronic.
+            # nu-disco labels, not everything the station files under Electronic.
             target = genres_module.targets_fine([want])
             by_track = self.labels_by_track()
             rows = [r for r in rows if genres_module.matches(by_track.get(r["id"], ()), target)]
@@ -419,13 +415,11 @@ class Library:
             "results": visible,
         }
 
-    def roster(self, station: config.Station | None = None, limit: int = 60) -> dict:
-        """Who and what this station holds, in the shape the system prompt wants.
+    def catalog_summary(self, station: config.Station | None = None, limit: int = 60) -> dict:
+        """What this station holds, in the shape the system prompt wants.
 
-        The numbers the DJ needs before it can choose anything: what this station is
-        made of, in the only terms that matter to it — labels with weight, and every artist
-        it can play. Two tools used to answer this a page at a time; a prompt can simply
-        state it, and a stated fact costs no rounds.
+        The numbers the picker needs before it can choose: labels with weight and every
+        artist it can play. A prompt can state this, so it costs no tool rounds.
         """
         rows = self._station_rows(station)
 
@@ -446,11 +440,10 @@ class Library:
             "labels_total": len(labels),
         }
 
-    # Three records in the pile, five tracks visible per record. A DJ flipping crates
-    # sees covers and a handful of titles, not a catalogue — and three is enough to
-    # offer directions without turning the brief into a list.
-    CRATE_ALBUMS = 3
-    CRATE_TRACKS = 5
+    # Three records in the pile, five tracks visible per record: enough to show
+    # directions without turning the prompt into a catalogue.
+    SAMPLE_ALBUMS = 3
+    SAMPLE_TRACKS = 5
 
     def _shuffle_key(self, row: sqlite3.Row):
         return seed_key(self.draw_seed or 0, row["id"])
@@ -471,27 +464,27 @@ class Library:
         return {navidrome.name_key(a) for a in self.recent_labels(station, window)[1] if a}
 
     def popularity_ranks(self, rows: list) -> dict[str, float]:
-        """Each track's standing among its own artist's tracks, 0 = the deep cut.
+        """Each track's standing among its own artist's tracks, 0 = the least known.
 
         Absolute play counts only say how big the artist is; the question in front of the
-        DJ is which of their songs people actually know.
+        picker is which of their songs people actually know.
         """
         from .. import pool
 
         return pool._popularity_percentiles(self.conn, rows)
 
-    def _remember_dealt(self, albums: list[str]) -> None:
-        """Track which records are already in front of the DJ this pick."""
-        if getattr(self, "_dealt_seed", None) != self.draw_seed:
-            self._dealt_seed = self.draw_seed
-            self._dealt_albums = set()
-        self._dealt_albums |= set(albums)
+    def _remember_sampled(self, albums: list[str]) -> None:
+        """Remember which records have already been sampled this pick."""
+        if getattr(self, "_sampled_seed", None) != self.draw_seed:
+            self._sampled_seed = self.draw_seed
+            self._sampled_albums = set()
+        self._sampled_albums |= set(albums)
 
-    def crate(self, station: config.Station | None = None, *, size: int | None = None,
+    def sample_albums(self, station: config.Station | None = None, *, size: int | None = None,
               tracks_shown: int | None = None, avoid_acts: set[str] | None = None) -> list[dict]:
-        """A handful of records pulled out at random, the way you'd flip a crate.
+        """A handful of records sampled at random.
 
-        Nothing here is curated: it is the pile, and the DJ may take one or ignore all
+        Nothing here is curated: it is the pile, and the picker may take one or ignore all
         of them. Acts it has just played are left out, and each album comes from a
         different artist, so the five are five directions rather than five De Lux records.
         """
@@ -499,13 +492,13 @@ class Library:
         if not rows:
             return []
 
-        size = size or self.CRATE_ALBUMS
-        tracks_shown = tracks_shown or self.CRATE_TRACKS
+        size = size or self.SAMPLE_ALBUMS
+        tracks_shown = tracks_shown or self.SAMPLE_TRACKS
         skip = {navidrome.name_key(a) for a in (avoid_acts or set()) if a}
-        # Never deal the same record twice in one pick: a flip is a new pile, not the
-        # same three covers with one swapped.
-        self._remember_dealt(())
-        dealt = set(self._dealt_albums)
+        # Never sample the same record twice in one pick: a redraw is a new pile, not
+        # the same three covers with one swapped.
+        self._remember_sampled(())
+        dealt = set(self._sampled_albums)
 
         by_album: dict[str, list] = {}
         for row in rows:
@@ -517,8 +510,8 @@ class Library:
         if not by_album:
             return []
 
-        # One album per artist, then take the artists at random: a crate of five, not a crate
-        # of five records by whoever owns the most of the library.
+        # One album per artist, then take the artists at random: five directions, not
+        # five records by whoever owns the most of the library.
         by_act: dict[str, list[str]] = {}
         for album_id, tracks in by_album.items():
             by_act.setdefault(navidrome.name_key(tracks[0]["album_artist"] or tracks[0]["artist"]), []).append(album_id)
@@ -530,7 +523,7 @@ class Library:
             picks.append(random.choice(by_act[artist]))
             if len(picks) >= size:
                 break
-        self._remember_dealt(picks)
+        self._remember_sampled(picks)
 
         labels = self.labels_by_track()
         ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
@@ -576,7 +569,7 @@ class Library:
     def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
         """The labels and artists of the last few songs, newest first.
 
-        This is the evidence a DJ would use to notice he has been in one corner all
+        This is the evidence a picker would use to notice he has been in one corner all
         night: not what he meant to play, what actually went out.
         """
         plays = queue.recent(station, n)
@@ -626,7 +619,7 @@ class Library:
 
         A station whose rules match nothing is on air with the whole library (see
         rows_for_station), so its picks are allowed the same way — otherwise a typo
-        in a genre list would leave the DJ unable to answer at all.
+        in a genre list would leave the picker unable to answer at all.
         """
         row = track_queries.track_by_id(self.conn, track_id)
         if row is None:
@@ -680,7 +673,7 @@ class Library:
             rows.sort(key=lambda r: self._act_key(r) in recent)
             rows = rows[: int(limit)]
             # Names found but nothing owned is a real answer: report the similar
-            # artists and an empty track list rather than pretending we found none.
+            # artists and an empty track list rather than pretending nothing was found.
             return {
                 "source": source,
                 "artists": names[:10],
@@ -695,7 +688,7 @@ class Library:
         genre = track_queries.dominant_genre(self.conn, key)
         if genre:
             # The one branch that had no station filter at all, so it could hand the
-            # DJ a track the station is not allowed to play.
+            # hand the picker a track the station is not allowed to play.
             rows = track_queries.tracks_in_genre_excluding_artist(self.conn, genre, key)
             rows = self.rows_on_station(rows, station)
             rows.sort(key=lambda r: self._act_key(r) in recent)
@@ -711,15 +704,15 @@ class Library:
                 }
         return {"source": "none", "artists": [], "tracks": []}
 
-    def flip(self, station: config.Station | None = None, **_) -> dict:
+    def redraw_albums(self, station: config.Station | None = None, **_) -> dict:
         """Three more records from the racks, never ones already dealt this pick.
 
-        The DJ keeps choosing from ids it was handed rather than going looking, so
+        The picker keeps choosing from ids it was handed rather than going looking, so
         "nothing here fits" needed an answer that produces ids: another three covers,
         and another three after that.
         """
         _, recent_acts = self.recent_labels(station, 6)
-        albums = self.crate(station, avoid_acts=set(recent_acts))
+        albums = self.sample_albums(station, avoid_acts=set(recent_acts))
         if not albums:
             return {
                 "albums": [],
@@ -802,8 +795,8 @@ class Library:
         ctx = self._context(station)
         if not album:
             # Albums in this pick's order, tracks still in running order within each
-            # album: browsing an artist used to open on the same records every time —
-            # alphabetical order is a favourite in disguise.
+            # album: alphabetical order always opens on the same records, which is a
+            # favourite in disguise.
             grouped: dict[str, list] = {}
             for row in rows:
                 grouped.setdefault(row["album_id"] or row["album"], []).append(row)
@@ -884,8 +877,8 @@ class Library:
         """Everything a track row needs, gathered once per call rather than per row.
 
         Genres, how well known each track is for its artist, whether it should come
-        round again yet, and whether it is already queued — the four things the DJ needs
-        to judge a row, and the four things only some tools used to carry.
+        round again yet, and whether it is already queued: the four things every row
+        should carry.
         """
         rows = self._station_rows(station)
         played = queue.recently_out(station) if station else set()
@@ -909,7 +902,7 @@ class Library:
     def _row(self, row: sqlite3.Row, ctx: dict) -> dict:
         """The row every tool returns, so the model never has to guess what is missing.
 
-        The record's artist, not the track credit: the DJ reasons about artists, and
+        The record's artist, not the track credit: the picker reasons about artists, and
         "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
         """
         keys = row.keys()
@@ -1009,18 +1002,17 @@ class Library:
 
 
 # Tool name as the model sees it -> the method that answers it. Checked against the
-# schemas at import, because a tool the model can call with nothing behind it used to
-# be a runtime "no such tool" that cost a round trip and read like a library problem.
+# schemas at import, so a tool with no handler fails here rather than at call time.
 HANDLERS = {
     "history": Library.history,
     "catalogue": Library.catalogue,
     "similar": Library.similar,
-    "flip": Library.flip,
+    "redraw": Library.redraw_albums,
     "search": Library.search,
     "filter": Library.filter,
 }
-_offered = {t["function"]["name"] for t in TOOLS}
-if set(HANDLERS) != _offered:
+_tool_names = {t["function"]["name"] for t in TOOLS}
+if set(HANDLERS) != _tool_names:
     raise RuntimeError(
-        f"tool schemas and handlers disagree: {sorted(_offered ^ set(HANDLERS))}"
+        f"tool schemas and handlers disagree: {sorted(_tool_names ^ set(HANDLERS))}"
     )

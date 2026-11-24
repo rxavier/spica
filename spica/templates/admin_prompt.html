@@ -20,7 +20,7 @@
 <h2>Artist-led path</h2>
 <p class="sub">Used when the DJ works without audio analysis, or on a station the analyser has not measured enough. The DJ is given a list of artists and searches their catalogues for tracks.{% if shelf_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
 <form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
-  <input type="hidden" name="kind" value="shelf">
+  <input type="hidden" name="kind" value="artists">
   <textarea name="text" rows="18">{{ shelf_text }}</textarea>
   <div class="inline">
     <button class="primary" type="submit">Save artist-led path</button>
@@ -31,7 +31,7 @@
 <h2>Track-led path</h2>
 <p class="sub">Used when the DJ works from audio analysis. The DJ is given a table of tracks grouped by how they relate to the current song; this is the more guided path and usually makes for more fluid sets.{% if table_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
 <form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
-  <input type="hidden" name="kind" value="table">
+  <input type="hidden" name="kind" value="tracks">
   <textarea name="text" rows="18">{{ table_text }}</textarea>
   <div class="inline">
     <button class="primary" type="submit">Save track-led path</button>
@@ -51,16 +51,16 @@
   {% endfor %}
 </nav>
 
-{% if table_prompt %}
+{% if track_prompt %}
 <details>
   <summary class="sub">the track-led prompt</summary>
-  <pre class="prompt-view">{{ table_prompt }}</pre>
+  <pre class="prompt-view">{{ track_prompt }}</pre>
 </details>
 {% endif %}
-{% if shelf_prompt %}
+{% if artist_prompt %}
 <details>
   <summary class="sub">the artist-led prompt</summary>
-  <pre class="prompt-view">{{ shelf_prompt }}</pre>
+  <pre class="prompt-view">{{ artist_prompt }}</pre>
 </details>
 {% endif %}
 {% else %}

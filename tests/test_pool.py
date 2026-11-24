@@ -43,8 +43,8 @@ def test_the_pool_leaves_out_recent_tracks_and_seeds_the_artist_window(
             columns=("id", "uri", "title", "artist", "album", "album_id"),
         )
     # A1 and A2 just aired; Band A is the artist that must not open the rotation.
-    queue.record(station, "a1", "title a1", "Band A", "standby")
-    queue.record(station, "a2", "title a2", "Band A", "standby")
+    queue.record(station, "a1", "title a1", "Band A", "fallback_rotation")
+    queue.record(station, "a2", "title a2", "Band A", "fallback_rotation")
 
     pool.write_pools(conn, [station], log=lambda *args, **kwargs: None)
     lines = station.pool_file.read_text(encoding="utf-8").splitlines()
@@ -71,7 +71,7 @@ def test_a_tiny_station_keeps_a_rotation_even_when_everything_is_recent(
             conn, id=track_id, uri=uri, title=title, artist=artist,
             album=album, album_id=album_id,
         )
-    queue.record(station, "only", "title only", "Only Band", "standby")
+    queue.record(station, "only", "title only", "Only Band", "fallback_rotation")
 
     pool.write_pools(conn, [station], log=lambda *args, **kwargs: None)
     assert station.pool_file.read_text(encoding="utf-8").strip()

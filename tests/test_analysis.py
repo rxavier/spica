@@ -54,7 +54,7 @@ def test_disabled_means_no_store_and_no_coverage(station):
     assert analysis.connect(readonly=True) is None
     assert analysis.feature_map(None) == {}
     assert analysis.coverage_for(None) is None
-    assert analysis.shelf_sound(None, ["Band"]) == ""
+    assert analysis.style_summary(None, ["Band"]) == ""
 
 
 def test_library_behaves_as_before_without_analysis(station, tmp_path):
@@ -211,7 +211,7 @@ def test_shelf_sound_line(station, tmp_path):
                 ("band a", "Band A", np.ones(4, np.float32).tobytes(), 3, 118.0, 0.8,
                  json.dumps([["Nu-Disco", 0.4], ["Funk", 0.3], ["Disco", 0.1]])),
             )
-        line = analysis.shelf_sound(store, ["Band A", "Unknown Band"])
+        line = analysis.style_summary(store, ["Band A", "Unknown Band"])
         assert "Band A — Nu-Disco / Funk, 118 bpm, high energy" in line
         assert "Unknown Band" not in line
     finally:

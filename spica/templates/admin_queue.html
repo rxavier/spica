@@ -81,13 +81,13 @@
           </div>
         {% endif %}
         {% if p.presence %}<div class="sub">{{ p.presence }}</div>{% endif %}
-        {% if p.shelf %}
+        {% if p.candidate_artists %}
           <div class="muted">Offered for this set</div>
-          <div class="sub">{{ p.shelf|join(", ") }}</div>
+          <div class="sub">{{ p.candidate_artists|join(", ") }}</div>
         {% endif %}
-        {% if p.brief %}
+        {% if p.prompt_context %}
           <div class="muted">What the DJ was told</div>
-          <pre>{{ p.brief }}</pre>
+          <pre>{{ p.prompt_context }}</pre>
         {% endif %}
         {% if p.tools %}
           <div class="muted">What it looked up</div>
@@ -101,7 +101,7 @@
           <div class="muted">What it answered</div>
           <pre>{{ p.reply }}</pre>
         {% endif %}
-        {% if not p.brief and not p.tools and not p.reply %}
+        {% if not p.prompt_context and not p.tools and not p.reply %}
           <div class="sub">This pick predates the detail being recorded.</div>
         {% endif %}
       </div>

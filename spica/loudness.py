@@ -12,7 +12,7 @@ the index on purpose: the index is a disposable projection, and a measurement is
 an hour of CPU.
 
 This is normalisation, not the loudness-as-intensity signal the README rejects.
-Nothing here is read by the DJ: loudness says how loud a record was mastered, not
+Nothing here is read by the picker: loudness says how loud a record was mastered, not
 how energetic it is.
 """
 
