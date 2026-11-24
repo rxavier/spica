@@ -2,8 +2,23 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from spica import db, navidrome
 from spica.queries import enrichment, jobs, labels, tracks
+
+
+def test_sql_lives_only_in_the_query_modules():
+    root = Path(__file__).resolve().parent.parent / "spica"
+    offenders = []
+    for path in root.rglob("*.py"):
+        if "queries" in path.relative_to(root).parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in (".execute(", ".executemany(", ".executescript("):
+            if marker in text:
+                offenders.append(f"{path.relative_to(root)}{marker}")
+    assert not offenders, f"SQL outside spica/queries: {offenders}"
 
 
 def test_artist_expr_follows_the_alias():
