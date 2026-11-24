@@ -230,10 +230,11 @@ def test_a_listener_request_is_recorded(console):
     response = client.post(
         "/s/alt/request", data={"text": "something for the rain"}, follow_redirects=False
     )
-    assert response.status_code in (200, 303)
-    requests_file = state / "history" / "alt.requests.jsonl"
-    if requests_file.exists():
-        assert "something for the rain" in requests_file.read_text(encoding="utf-8")
+    assert response.status_code == 200
+    assert "Pedido registrado" in response.text
+    requests_file = state / "history" / "requests" / "alt.jsonl"
+    assert requests_file.exists(), "the request has to land in the station's request log"
+    assert "something for the rain" in requests_file.read_text(encoding="utf-8")
 
 
 def _write_pick(state, station_id, **entry):
