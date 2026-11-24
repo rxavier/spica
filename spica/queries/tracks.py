@@ -62,6 +62,18 @@ def album_name(conn: sqlite3.Connection, album_id: str) -> str:
     return (row["album"] if row else "") or ""
 
 
+def album_covers(conn: sqlite3.Connection, album_ids) -> list[sqlite3.Row]:
+    """Cover ids for many albums, batched so an `IN` stays bounded."""
+    ids = [album_id for album_id in album_ids if album_id]
+    out: list[sqlite3.Row] = []
+    for start in range(0, len(ids), 400):
+        where, args = db.where_in("album_id", ids[start : start + 400])
+        out += conn.execute(
+            f"SELECT album_id, cover_id FROM album_art WHERE {where}", args
+        ).fetchall()
+    return out
+
+
 def album_cover(conn: sqlite3.Connection, album_id: str) -> str | None:
     if not album_id:
         return None
