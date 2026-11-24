@@ -136,3 +136,19 @@ def test_open_store_is_optional_and_creates_when_asked(tmp_path):
     assert ensured == [1]
     assert path.exists()
     conn.close()
+
+
+def test_open_store_migrates_each_file_once_per_process(tmp_path):
+    from spica import db as db_mod
+
+    path = tmp_path / "once.db"
+    calls: list[int] = []
+    for _ in range(2):
+        conn = db_mod.open_store(path, create=True, ensure=lambda c: calls.append(1))
+        conn.close()
+    assert calls == [1]
+
+    path.unlink()
+    conn = db_mod.open_store(path, create=True, ensure=lambda c: calls.append(1))
+    conn.close()
+    assert calls == [1, 1], "a new file is a new store and gets its schema"
