@@ -35,13 +35,8 @@ def pending(station) -> int | None:
     DJ is free to choose. None is reserved for a control server that is not there,
     because the caller treats the two differently: one picks now, the other waits.
     """
-    try:
-        reply = command(f"q_{station.id}.queue")
-    except OSError:
-        return None
-    if reply.startswith("ERROR"):
-        return None
-    return len(reply.split())
+    rids = _pending_rids(station)
+    return None if rids is None else len(rids)
 
 
 def _switches(station, codec, verb: str) -> bool:
