@@ -242,12 +242,9 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     """Ask the picker for one track on this station and hand it to the mixer."""
     if not (config.llm_settings()["key"] and config.llm_settings()["base"]):
         return None
-    p = await asyncio.to_thread(picker.pick_next, store.library(), st, text, queue.recent_ids(st))
-    if p is None:
-        return None
-    # A person asked for this, so it goes next even if something was already
-    # waiting; the displaced track goes back to the top of the pool.
-    await asyncio.to_thread(air.air_pick, st, p, displace=True, log=log.info)
+    p, _aired = await asyncio.to_thread(
+        picker.pick_and_air, st, text, displace=True, log=log.info
+    )
     return p
 
 
@@ -288,10 +285,11 @@ async def clear_requests(station_id: str) -> dict:
 @app.post("/pick/{station_id}")
 async def force_pick(station_id: str) -> dict:
     st = web.station_or_404(station_id)
-    p = await asyncio.to_thread(picker.pick_next, store.library(), st, None, queue.recent_ids(st))
+    p, _aired = await asyncio.to_thread(
+        picker.pick_and_air, st, None, displace=True, log=log.info
+    )
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
-    await asyncio.to_thread(air.air_pick, st, p, displace=True, log=log.info)
     return {"station": st.id, "track": p.track.as_line(), "why": p.reason}
 
 

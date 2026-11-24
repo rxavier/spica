@@ -212,8 +212,8 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         requests_mod.record, st, text, requests_mod.DEFAULT_SONGS
     )
     try:
-        pick = await asyncio.to_thread(
-            picker.pick_next, store.library(), st, text, queue.recent_ids(st)
+        pick, aired = await asyncio.to_thread(
+            picker.pick_and_air, st, text, as_request=True, log=log.info
         )
     except Exception as exc:
         # The request is recorded either way, and the station's next pick reads the
@@ -226,7 +226,6 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         # A request is a person in the room: it airs next, ahead of the picker's pick.
         # The pick is not lost — it moves behind the request, in the queue it is
         # already in, so it airs straight after instead of after a whole rotation.
-        aired = await asyncio.to_thread(air.air_pick, st, pick, as_request=True, log=log.info)
         await asyncio.to_thread(requests_mod.attach_track, st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.reason}"
         if aired.position > 1:

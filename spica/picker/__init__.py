@@ -13,8 +13,8 @@ request). One call = one pick, so the token bill tracks use.
 from __future__ import annotations
 
 from .library import Library
-from .loop import pick_next
+from .loop import pick_and_air, pick_next
 from .prompt import DEFAULT_PERSONA
 from .schemas import Pick
 
-__all__ = ["DEFAULT_PERSONA", "Library", "Pick", "pick_next"]
+__all__ = ["DEFAULT_PERSONA", "Library", "Pick", "pick_and_air", "pick_next"]
