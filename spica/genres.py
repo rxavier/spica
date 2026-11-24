@@ -39,6 +39,7 @@ import re
 from pathlib import Path
 
 from . import config
+from .atomic import atomic_write
 from .queries import labels as label_queries
 
 # ---------------------------------------------------------------- layer 1: fold
@@ -331,8 +332,7 @@ def _add_alias(source: str, target: str) -> None:
     aliases = [a for a in raw.get("aliases", []) if a.get("from") != key]
     aliases.append({"from": key, "to": target})
     raw["aliases"] = aliases
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write(path, json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
 
 
 def remove_alias(source: str) -> bool:
@@ -350,10 +350,7 @@ def remove_alias(source: str) -> bool:
     if len(aliases) == len(current):
         return False
     raw["aliases"] = aliases
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    atomic_write(path, json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
     return True
 
 

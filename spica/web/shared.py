@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from .. import config
+from ..atomic import atomic_write
 from .. import genres as genre_lib
 from .. import liqgen
 from .. import icecast
@@ -258,10 +259,10 @@ def pool_size(st) -> int:
 
 
 def write_stations(items: list[dict]) -> None:
-    path = config.CONFIG_DIR / "stations.json"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"stations": items}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    atomic_write(
+        config.CONFIG_DIR / "stations.json",
+        json.dumps({"stations": items}, indent=2, ensure_ascii=False) + "\n",
+    )
 
 
 def _raw_stations() -> list[dict]:
