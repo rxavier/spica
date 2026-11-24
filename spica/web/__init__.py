@@ -24,7 +24,15 @@ from . import (
     login,
     media,
 )
-from .shared import now_playing, pool_size, station_or_404, static, stream_states, templates
+from .shared import (
+    coverage_context,
+    now_playing,
+    pool_size,
+    station_or_404,
+    static,
+    stream_states,
+    templates,
+)
 
 router = APIRouter()
 for part in (
@@ -40,6 +48,6 @@ for part in (
     router.include_router(part.router)
 
 __all__ = [
-    "now_playing", "pool_size", "router", "station_or_404", "static",
-    "stream_states", "templates",
+    "coverage_context", "now_playing", "pool_size", "router", "station_or_404",
+    "static", "stream_states", "templates",
 ]
