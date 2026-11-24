@@ -109,7 +109,7 @@ def run_refresh(conn, job_id: int, log=print) -> dict:
 
 
 def run_popularity(conn, job_id: int, log=print) -> dict:
-    """Fill the popularity table: ListenBrainz in batches, Last.fm for the rest."""
+    """Fill the popularity store: ListenBrainz in batches, Last.fm for the rest."""
     todo = track_queries.tracks_missing_popularity(conn)
     total = len(todo)
     jobs.progress(conn, job_id, 0, total)
@@ -617,7 +617,7 @@ def main() -> int:
         if not job:
             # Nothing queued. Every REFRESH_CHECK_S, notice whether the library
             # changed and whether the gaps that follow changed with it. Doing this
-            # on a timer instead of every poll keeps two full-table scans off the
+            # on a timer instead of every poll keeps two whole-library scans off the
             # idle path.
             if time.time() - last_check > config.REFRESH_CHECK_S:
                 last_check = time.time()
