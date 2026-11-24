@@ -18,6 +18,7 @@ from collections import Counter
 
 from .. import config, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
+from ..queries import tracks as track_queries
 from .schemas import TOOLS
 
 
@@ -139,8 +140,6 @@ class Library:
         ok = navidrome.station_matcher(self.conn, station)
         return [r for r in rows if ok(r)]
 
-    SEARCH_COLUMNS = "title LIKE ? OR artist LIKE ? OR album LIKE ? OR album_artist LIKE ? OR album_artist_key LIKE ?"
-
     def search(self, query: str, limit: int = 20, station: config.Station | None = None, **_):
         """Tracks whose name matches the query, or what the library has that is close.
 
@@ -158,34 +157,13 @@ class Library:
 
         # Every word has to land somewhere — one column, any column. "Ride Vapour
         # Trail" is two fields of the same record, which is how people name records.
-        where = ["uri != ''"]
-        args: list = []
-        for token in tokens:
-            where.append("(" + self.SEARCH_COLUMNS + ")")
-            args += self._search_args(token)
-        rows = self.conn.execute(
-            "SELECT * FROM tracks WHERE " + " AND ".join(where)
-            + " ORDER BY album_artist, album, track_no LIMIT ?",
-            (*args, limit * 40),
-        ).fetchall()
-        if not rows and len(tokens) > 1:
-            # The words may be scattered rather than all present; fall back to the
-            # whole string, which is what the tool did before tokens.
-            rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE " + self.SEARCH_COLUMNS
-                + " ORDER BY album_artist, album, track_no LIMIT ?",
-                (*self._search_args(text), limit * 40),
-            ).fetchall()
+        rows = track_queries.search(self.conn, text, tokens, limit * 40)
 
         on_station = self.rows_on_station(rows, station)
         if on_station:
             ctx = self._context(station)
             return self._visible(on_station[:limit], ctx)
         return self._search_miss(text, station)
-
-    def _search_args(self, token: str) -> list:
-        like = f"%{token}%"
-        return [like, like, like, like, f"%{navidrome.name_key(token)}%"]
 
     def _search_miss(self, text: str, station) -> dict:
         """A name that plays nowhere here, answered with names, never with a track.
@@ -300,24 +278,20 @@ class Library:
         # Acts only. Album titles were tried too and produced noise: "Parcels" reached
         # "Parachutes", "Jungle" reached "Singles" — matches on shape, not on sense.
         scored = []
-        for row in self.conn.execute(
-            "SELECT album_artist AS name FROM tracks WHERE album_artist != '' GROUP BY 1"
-        ):
-            folded = navidrome.name_key(row["name"])
+        for name in track_queries.album_artist_names(self.conn):
+            folded = navidrome.name_key(name)
             if not folded:
                 continue
             ratio = difflib.SequenceMatcher(None, key, folded).ratio()
             if key in folded or folded in key:
                 ratio = max(ratio, 0.85)
             if ratio >= 0.6:
-                scored.append((ratio, row["name"]))
+                scored.append((ratio, name))
         scored.sort(reverse=True)
 
         out: list[dict] = []
         for _, name in scored:
-            rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE album_artist = ?", (name,)
-            ).fetchall()
+            rows = track_queries.tracks_for_album_artist(self.conn, name)
             playable = self.rows_on_station(rows, station) if station else rows
             if not playable:
                 continue
@@ -564,7 +538,7 @@ class Library:
         counted: Counter = Counter()
         for entry in plays:
             track_id = entry.get("id") or ""
-            row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone() if track_id else None
+            row = track_queries.track_by_id(self.conn, track_id)
             if row is not None:
                 artists.append(row["album_artist"] or row["artist"] or "")
                 for label in labels.get(track_id, ()):
@@ -574,7 +548,7 @@ class Library:
         return [label for label, _ in counted.most_common(3)], artists
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
-        row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        row = track_queries.track_by_id(self.conn, track_id)
         return self._full(row) if row else None
 
     def count(self, station: config.Station) -> int:
@@ -587,13 +561,13 @@ class Library:
         rows_for_station), so its picks are allowed the same way — otherwise a typo
         in a genre list would leave the DJ unable to answer at all.
         """
-        row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        row = track_queries.track_by_id(self.conn, track_id)
         if row is None:
             return False
         ok = navidrome.station_matcher(self.conn, station)
         if ok(row):
             return True
-        return not any(ok(r) for r in self.conn.execute("SELECT * FROM tracks WHERE uri != ''"))
+        return not any(ok(r) for r in track_queries.playable_tracks(self.conn))
 
     def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
         """Tracks by artists that sound like this one.
@@ -616,10 +590,7 @@ class Library:
         audio_names = self._audio_artists(artist, k=12)
         if audio_names:
             keys = [navidrome.name_key(name) for name in audio_names]
-            marks = ",".join("?" for _ in keys)
-            rows = self.conn.execute(
-                f"SELECT * FROM tracks WHERE album_artist_key IN ({marks})", keys
-            ).fetchall()
+            rows = track_queries.tracks_by_artist_keys(self.conn, keys)
             rows = self.rows_on_station(rows, station)
             if rows:
                 rows.sort(key=lambda r: self._act_key(r) in recent)
@@ -633,13 +604,9 @@ class Library:
         names, source = enrich.similar_artists(self.conn, artist, limit=20)
         if names:
             keys = [navidrome.name_key(name) for name in names]
-            marks = ",".join("?" for _ in keys)
             # Match the record's artist, not the track credit: an album artist's
             # tracks with guests are still that artist.
-            rows = self.conn.execute(
-                f"SELECT * FROM tracks WHERE album_artist_key IN ({marks}) ORDER BY RANDOM()",
-                (*keys,),
-            ).fetchall()
+            rows = track_queries.tracks_by_artist_keys(self.conn, keys, random_order=True)
             rows = self.rows_on_station(rows, station)
             # Stable sort: the artist that played ten minutes ago goes to the back,
             # the random order survives within each group.
@@ -658,25 +625,18 @@ class Library:
         # the band's dominant genre instead of having none. Matched on the folded key,
         # because the caller types the name.
         key = navidrome.name_key(artist)
-        row = self.conn.execute(
-            """SELECT genre FROM tracks WHERE album_artist_key = ? AND genre != ''
-               GROUP BY genre ORDER BY COUNT(*) DESC LIMIT 1""",
-            (key,),
-        ).fetchone()
-        if row:
+        genre = track_queries.dominant_genre(self.conn, key)
+        if genre:
             # The one branch that had no station filter at all, so it could hand the
             # DJ a track the station is not allowed to play.
-            rows = self.conn.execute(
-                "SELECT * FROM tracks WHERE genre = ? AND album_artist_key <> ? ORDER BY RANDOM()",
-                (row["genre"], key),
-            ).fetchall()
+            rows = track_queries.tracks_in_genre_excluding_artist(self.conn, genre, key)
             rows = self.rows_on_station(rows, station)
             rows.sort(key=lambda r: self._act_key(r) in recent)
             rows = rows[: int(limit)]
             if rows:
                 return {
                     "source": "genre",
-                    "genre": row["genre"],
+                    "genre": genre,
                     "artists": sorted({
                         (r["album_artist"] or r["artist"]) for r in rows
                     })[:10],
@@ -709,7 +669,7 @@ class Library:
         out: list[dict] = []
         for ago, entry in enumerate(plays):
             track_id = entry.get("id") or ""
-            row = self.conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone() if track_id else None
+            row = track_queries.track_by_id(self.conn, track_id)
             if row is not None:
                 item = self._row(row, ctx)
             else:
@@ -743,24 +703,9 @@ class Library:
         alphabetical order meant every browse of an artist opened on the same record.
         """
         limit = clamp(limit, 25, 100)
-        where, args = ["uri != ''"], []
-        if artist:
-            # Either name finds the record: the credit ("& Fabiana Martone") and the
-            # artist are the same shelf, and a listener naming the guest should land on it.
-            # Matched on the key, so an ASCII apostrophe finds the typographic one and
-            # a missing accent still lands: the model types names, it does not copy them.
-            where.append("(album_artist_key = ? OR artist = ? COLLATE NOCASE)")
-            args.extend([navidrome.name_key(artist), artist.strip()])
-        if album:
-            where.append("album LIKE ?")
-            args.append(f"%{album.strip()}%")
-        if not artist and not album:
+        rows = track_queries.catalogue(self.conn, artist, album)
+        if rows is None:
             return {"error": "give an artist, an album, or both"}
-
-        rows = self.conn.execute(
-            "SELECT * FROM tracks WHERE " + " AND ".join(where)
-            + " ORDER BY COALESCE(NULLIF(album_artist, ''), artist), album, track_no", args
-        ).fetchall()
         rows = self.rows_on_station(rows, station)
         if not rows:
             return {
@@ -845,7 +790,7 @@ class Library:
         serving a stale index for long.
         """
         if station is None:
-            return self.conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+            return track_queries.playable_tracks(self.conn)
         cached = getattr(self, "_rows_cache", None)
         now = time.monotonic()
         if cached and cached[0] is station and now - cached[1] < 5.0:

@@ -22,6 +22,7 @@ import hashlib
 from collections import Counter
 
 from .. import analysis, mixer, navidrome, queue
+from ..queries import tracks as track_queries
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
 # still fit cheaply in one message (~3.5k characters, about 900 tokens). The split
@@ -591,9 +592,9 @@ def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:
 def _artist_vector(lib, name: str, vectors: dict):
     key = navidrome.name_key(name)
     parts = [
-        vectors[row["id"]] for row in
-        lib.conn.execute("SELECT id FROM tracks WHERE album_artist_key = ?", (key,))
-        if row["id"] in vectors
+        vectors[track_id] for track_id in
+        track_queries.track_ids_for_artist(lib.conn, key)
+        if track_id in vectors
     ]
     return _mean_vector(parts) if parts else None
 
@@ -602,9 +603,9 @@ def _artist_feature(lib, name: str, features: dict) -> dict:
     """Median-ish feature of an artist's analysed tracks, for an unanalysed on-air one."""
     key = navidrome.name_key(name)
     rows = [
-        features[row["id"]] for row in
-        lib.conn.execute("SELECT id FROM tracks WHERE album_artist_key = ?", (key,))
-        if row["id"] in features
+        features[track_id] for track_id in
+        track_queries.track_ids_for_artist(lib.conn, key)
+        if track_id in features
     ]
     energies = [r["energy"] for r in rows if r.get("energy") is not None]
     bpms = [r["bpm"] for r in rows if r.get("bpm")]

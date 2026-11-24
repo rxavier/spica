@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 from . import config, navidrome
+from .queries import tracks as track_queries
 
 
 def db_path():
@@ -78,7 +79,7 @@ def tracks() -> dict:
     if _tracks is None:
         by_both, by_title, by_id = {}, {}, {}
         loose, loose_title, by_artist = {}, {}, {}
-        for row in conn().execute("SELECT id, title, artist, album_id FROM tracks"):
+        for row in track_queries.all_for_index(conn()):
             key = (norm(row["artist"]), norm(row["title"]))
             by_both.setdefault(key, row)
             by_title.setdefault(norm(row["title"]), row)
@@ -107,12 +108,10 @@ def cover_for(album_id: str) -> str:
     if not album_id:
         return album_id
     try:
-        row = conn().execute(
-            "SELECT cover_id FROM album_art WHERE album_id = ?", (album_id,)
-        ).fetchone()
+        cover = track_queries.album_cover(conn(), album_id)
+        return cover if cover is not None else album_id
     except sqlite3.Error:
         return album_id
-    return row["cover_id"] if row else album_id
 
 
 def cover_tag(album_id: str) -> str:

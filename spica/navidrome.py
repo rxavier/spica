@@ -471,9 +471,9 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     }
     mb = {key: names for key, names in mb.items() if names}
 
-    rows = conn.execute(
-        "SELECT id, COALESCE(NULLIF(album_artist, ''), artist) AS artist FROM tracks"
-    ).fetchall()
+    from .queries import tracks as track_queries
+
+    rows = track_queries.record_artists(conn)
     tagged = 0
     informed = 0
     # No transaction of its own: the rebuild already has one open, and opening a
@@ -606,7 +606,9 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
 
 
 def rows_for_station(conn: sqlite3.Connection, st: config.Station) -> list[sqlite3.Row]:
-    rows = conn.execute("SELECT * FROM tracks WHERE uri != ''").fetchall()
+    from .queries import tracks as track_queries
+
+    rows = track_queries.playable_tracks(conn)
     ok = station_matcher(conn, st)
     picked = [r for r in rows if ok(r)]
     if picked:

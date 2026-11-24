@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from . import bootstrap
 from . import config, icecast, mixer, navidrome, picker, plays, pool, presence, queue, store, web
 from . import requests as requests_mod
+from .queries import tracks as track_queries
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("radio")
@@ -393,17 +394,7 @@ async def enrich_ids(limit: int = 0) -> dict:
 
     def _run() -> dict:
         conn = lib().conn
-        outstanding = conn.execute(
-            """SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                      MIN(COALESCE(NULLIF(t.album_artist_id, ''), t.artist_id)) AS artist_id
-               FROM tracks t
-               LEFT JOIN artist_mbids a
-                 ON a.name = COALESCE(NULLIF(t.album_artist, ''), t.artist)
-               WHERE a.name IS NULL
-                 AND COALESCE(NULLIF(t.album_artist, ''), t.artist) != ''
-                 AND COALESCE(NULLIF(t.album_artist_id, ''), t.artist_id) != ''
-               GROUP BY artist"""
-        ).fetchall()
+        outstanding = track_queries.artists_missing_mbid(conn)
         if limit:
             outstanding = outstanding[:limit]
         # Navidrome knows the artist it indexed, so ask it before asking anyone
@@ -414,17 +405,7 @@ async def enrich_ids(limit: int = 0) -> dict:
             if mbid:
                 en.remember_mbid(conn, row["artist"], mbid, "navidrome")
                 resolved += 1
-        todo = conn.execute(
-            """SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                      MAX(t.mbz_album) AS album
-               FROM tracks t
-               LEFT JOIN artist_mbids a
-                 ON a.name = COALESCE(NULLIF(t.album_artist, ''), t.artist)
-               WHERE a.name IS NULL
-                 AND COALESCE(NULLIF(t.album_artist, ''), t.artist) != ''
-                 AND t.mbz_album != ''
-               GROUP BY artist"""
-        ).fetchall()
+        todo = track_queries.artists_missing_mbid_with_album(conn)
         if limit:
             todo = todo[:limit]
         ok = 0

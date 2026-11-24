@@ -10,6 +10,7 @@ from .. import navidrome
 from .. import pool
 from .. import store
 from .. import auth
+from ..queries import tracks as track_queries
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
@@ -106,14 +107,7 @@ async def admin_station_form(request: Request, station_id: str):
     # The two dropdowns list the record's artists, most recorded first. Any name
     # already selected is kept even if the index no longer has it under that
     # spelling, so saving the form does not silently drop a rule.
-    artists = [
-        row["name"]
-        for row in _conn().execute(
-            "SELECT COALESCE(NULLIF(album_artist, ''), artist) AS name, COUNT(*) n"
-            " FROM tracks GROUP BY name ORDER BY n DESC, name"
-        )
-        if row["name"]
-    ]
+    artists = [row["artist"] for row in track_queries.record_artist_counts(_conn())]
     chosen = set(item.get("include_artists") or ()) | set(item.get("exclude_artists") or ())
     have = set(artists)
     artists.extend(sorted(chosen - have, key=str.casefold))
