@@ -75,6 +75,7 @@ services:
       - SPICA_STATE=/state
       - ICECAST_URL=http://icecast:8000
       - TZ=${TZ:-UTC}
+      - SPICA_TZ=${TZ:-UTC}
       - PORT=8030
     ports:
       - "${SPICA_PORT:-8030}:8030"
@@ -101,6 +102,7 @@ services:
       - SPICA_CONFIG=/config
       - SPICA_STATE=/state
       - TZ=${TZ:-UTC}
+      - SPICA_TZ=${TZ:-UTC}
     volumes:
       - ./config:/config:ro
       - ./state:/state
