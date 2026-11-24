@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from spica import db, navidrome
-from spica.queries import tracks
+from spica.queries import labels, tracks
 
 
 def test_artist_expr_follows_the_alias():
@@ -39,3 +39,23 @@ def test_track_lookups(tmp_path):
     assert tracks.tracks_by_ids(conn, []) == []
     assert tracks.library_size(conn) == 1
     assert tracks.album_name(conn, "missing") == ""
+
+
+def test_label_queries_relabel_and_delete(tmp_path):
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        conn.execute(
+            "INSERT INTO tracks (id, uri, title, artist) VALUES (?,?,?,?)",
+            ("a", "http://navidrome/a.flac", "A", "Band"),
+        )
+        labels.insert(conn, [("a", "Nu Disco")], "tag")
+
+    assert labels.by_track(conn) == {"a": ["Nu Disco"]}
+
+    with conn:
+        labels.relabel(conn, "Electronic", "Nu Disco")
+    assert labels.by_track(conn) == {"a": ["Electronic"]}
+
+    with conn:
+        labels.delete_for_tracks(conn, ["a"], "electronic")
+    assert labels.by_track(conn) == {}

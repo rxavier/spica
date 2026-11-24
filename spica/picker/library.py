@@ -18,6 +18,7 @@ from collections import Counter
 
 from .. import config, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
+from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from .schemas import TOOLS
 
@@ -485,12 +486,7 @@ class Library:
         # How many tracks in the library carry each genre: the rarer the genre, the
         # more specific it is about this record. "Stoner Rock" says something about a
         # Sahara Surfers album that "Rock" does not.
-        breadth = {
-            row["label"]: row["n"]
-            for row in self.conn.execute(
-                "SELECT label, count(*) AS n FROM track_genres GROUP BY label"
-            )
-        }
+        breadth = {row["label"]: row["c"] for row in label_queries.counts(self.conn)}
 
         out: list[dict] = []
         for album_id in picks:

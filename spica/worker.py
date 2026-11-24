@@ -29,6 +29,7 @@ from pathlib import Path
 from . import bootstrap
 from . import genres as genre_lib
 from . import config, enrich, genres, jobs, loudness, navidrome, pool, queue, subsonic
+from .queries import labels as label_queries
 from .queries import tracks as track_queries
 
 POLL_SECONDS = 5
@@ -85,9 +86,10 @@ def run_genre_tags(conn, job_id: int, log=print) -> dict:
         if labels:
             ids = track_ids
             with conn:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?, 'external')",
+                label_queries.insert(
+                    conn,
                     [(tid, label) for tid in ids for label in labels[:3]],
+                    "external",
                 )
             tagged += 1
         if i % 5 == 0 or i == total:

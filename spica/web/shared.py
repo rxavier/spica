@@ -17,6 +17,7 @@ from .. import plays
 from .. import queue
 from .. import store
 from .. import requests as requests_mod
+from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from fastapi import HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -338,8 +339,8 @@ def known_labels(names: list[str]) -> list[str]:
 
     conn = _conn()
     shelf = {
-        genre_lib.fold(genre_lib.canonical(row["label"]))
-        for row in conn.execute("SELECT DISTINCT label FROM track_genres")
+        genre_lib.fold(genre_lib.canonical(label))
+        for label in label_queries.known(conn)
     }
     seen, out = set(), []
     for name in names:
