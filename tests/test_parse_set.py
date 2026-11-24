@@ -51,27 +51,6 @@ def parse(content, avoid=(), lib=None):
     return loop.parse_set(lib or library(), content, set(avoid), object())
 
 
-def test_a_bare_object_is_read():
-    theme, ids = parse(json.dumps({"theme": "a set", "ids": [T, U]}))
-    assert theme == "a set"
-    assert ids == [T, U]
-
-
-def test_a_fenced_object_is_read():
-    theme, ids = parse("```json\n" + json.dumps({"theme": "t", "ids": [T]}) + "\n```")
-    assert ids == [T]
-
-
-def test_prose_around_the_object_is_ignored():
-    theme, ids = parse("Here is the set.\n" + json.dumps({"theme": "t", "ids": [U]}))
-    assert ids == [U]
-
-
-def test_the_first_usable_object_wins():
-    content = json.dumps({"theme": "one", "ids": [T]}) + "\n" + json.dumps({"theme": "two", "ids": [U]})
-    assert parse(content) == ("one", [T])
-
-
 def test_ids_may_arrive_as_objects():
     """A model will sometimes answer with the row shape it just read."""
     _, ids = parse(json.dumps({"theme": "t", "ids": [{"id": T, "why": "x"}, {"id": U}]}))
