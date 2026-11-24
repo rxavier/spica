@@ -18,10 +18,11 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config
+from . import config, db
 from . import genres as genre_lib
 from . import subsonic
 from .queries import enrichment as enrich_queries
+from .queries import index as index_queries
 from .queries import labels as label_queries
 
 
@@ -66,135 +67,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     # The API runs picks in worker threads (asyncio.to_thread), so the handle must
     # be usable across them. Reads dominate; writes happen only on /rebuild.
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    # Indexes built before the API rewrite stored a filesystem path. The track
-    # table is a rebuildable projection, so an old shape is dropped rather than
-    # migrated: POST /rebuild repopulates it from the API.
-    have = {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}
-    if have and "uri" not in have:
-        conn.execute("DROP TABLE tracks")
-        conn.execute("DROP TABLE IF EXISTS track_genres")
-        conn.execute("DROP TABLE IF EXISTS track_raw_genres")
-        have = set()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tracks (
-            id TEXT PRIMARY KEY,
-            uri TEXT NOT NULL,
-            title TEXT,
-            artist TEXT,
-            album TEXT,
-            album_id TEXT,
-            track_no INTEGER DEFAULT 0,
-            year INTEGER DEFAULT 0,
-            genre TEXT DEFAULT '',
-            duration INTEGER DEFAULT 0,
-            fetched_at INTEGER,
-            mbz_album TEXT DEFAULT '',
-            mbz_recording TEXT DEFAULT '',
-            artist_id TEXT DEFAULT '',
-            album_artist TEXT DEFAULT '',
-            album_artist_id TEXT DEFAULT '',
-            album_artist_key TEXT DEFAULT '',
-            replaygain_gain REAL,
-            replaygain_peak REAL
-        )
-        """
-    )
-    # `artist_id` is Navidrome's own handle for the artist, which is what turns a
-    # name into a MusicBrainz id without guessing: getArtist answers with the
-    # artist's `musicBrainzId`. Older indexes get the column rather than a rebuild,
-    # so manual labels and cached provider answers survive the upgrade.
-    if "artist_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}:
-        conn.execute("ALTER TABLE tracks ADD COLUMN artist_id TEXT DEFAULT ''")
-    # The record's artist, which is the identity everything groups by: a guest on a
-    # track ("L’Impératrice & Fabiana Martone") is a credit, not a different artist, and
-    # counting by the track artist split one band across five names.
-    columns = {r["name"] for r in conn.execute("PRAGMA table_info(tracks)")}
-    if "album_artist" not in columns:
-        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist TEXT DEFAULT ''")
-    if "album_artist_id" not in columns:
-        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_id TEXT DEFAULT ''")
-    if "album_artist_key" not in columns:
-        conn.execute("ALTER TABLE tracks ADD COLUMN album_artist_key TEXT DEFAULT ''")
-    # ReplayGain arrives with the song on OpenSubsonic servers. Stored raw (the
-    # tag's dB offset and linear peak) so a target change needs no re-index; the
-    # gain itself is computed when a request is written.
-    if "replaygain_gain" not in columns:
-        conn.execute("ALTER TABLE tracks ADD COLUMN replaygain_gain REAL")
-    if "replaygain_peak" not in columns:
-        conn.execute("ALTER TABLE tracks ADD COLUMN replaygain_peak REAL")
-    conn.execute("CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre)")
-    conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
-    conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
-    conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_artist ON tracks(album_artist)")
-    # now_playing() looks a track's album up by album_id on every poll, and the
-    # ledger once per row; without this it is a scan of the whole library each time.
-    conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_id ON tracks(album_id)")
-    # Canonical genre labels, one row per (track, label). `tracks.genre` keeps
-    # only the first label for display; every filter walks this table instead,
-    # because matching is not SQL-expressible (see radio/genres.py).
-    #
-    # `source` records where the label came from: "tag" when Navidrome reports it,
-    # otherwise "album" or "artist" when it was inherited from that level, or
-    # "external" when a provider supplied it.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS track_genres (
-               track_id TEXT NOT NULL,
-               label    TEXT NOT NULL,
-               source   TEXT NOT NULL DEFAULT 'tag',
-               PRIMARY KEY (track_id, label)
-           )"""
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS track_genres_label ON track_genres(label)")
-    # Raw labels as the library spells them, kept for the merge audit and the
-    # future genre UI: `track_genres` holds only the canonical result.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS track_raw_genres (
-               track_id TEXT NOT NULL,
-               raw      TEXT NOT NULL,
-               PRIMARY KEY (track_id, raw)
-           )"""
-    )
-    # How well known a track is. Two providers, batched where possible; the source
-    # is stored because ranks only compare inside one of them.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS track_popularity (
-               track_id   TEXT PRIMARY KEY,
-               playcount  INTEGER DEFAULT 0,
-               users      INTEGER DEFAULT 0,
-               source     TEXT NOT NULL,
-               fetched_at INTEGER
-           )"""
-    )
-    # A label the operator removed by hand, which a rebuild must not put back.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS track_genre_veto (
-               track_id TEXT NOT NULL,
-               label    TEXT NOT NULL,
-               PRIMARY KEY (track_id, label)
-           )"""
-    )
-    # MusicBrainz genres are per artist, so they are cached per artist rather than
-    # copied onto every track.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS mb_artist_genres (
-               artist_key TEXT PRIMARY KEY,
-               mbid       TEXT,
-               genres     TEXT,
-               fetched_at INTEGER
-           )"""
-    )
-    # Subsonic serves art under its own cover id (al-<album>_<hash>); asking for the
-    # album id returns Navidrome's placeholder instead of the sleeve.
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS album_art (
-               album_id TEXT PRIMARY KEY,
-               cover_id TEXT NOT NULL
-           )"""
-    )
-    conn.commit()
+    conn = db.open_db(db_path, timeout=5.0, check_same_thread=False)
+    index_queries.ensure_schema(conn)
     from . import enrich, jobs
 
     enrich.ensure_schema(conn)
@@ -362,33 +236,15 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
             labels.extend((track_id, label, "tag") for label in canon)
 
     with conn:
-        conn.execute("DELETE FROM tracks")
-        conn.executemany(
-            """INSERT INTO tracks
-                 (id,uri,title,artist,album,album_id,track_no,year,genre,duration,fetched_at,
-                  mbz_album,mbz_recording,artist_id,album_artist,album_artist_id,
-                  album_artist_key,replaygain_gain,replaygain_peak)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            rows,
-        )
+        index_queries.replace_tracks(conn, rows)
         labels.extend(_inherited_labels(meta, native))
-        # Labels fetched from a provider are knowledge about the artist, not a
-        # projection of the library, so a rebuild must not throw them away —
-        # only the labels derived from the files are recomputed here.
-        conn.execute("DELETE FROM track_genres WHERE source != 'external'")
-        conn.executemany(
-            "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?,?)", labels
-        )
-        conn.execute("DELETE FROM album_art")
-        conn.executemany(
-            "INSERT OR REPLACE INTO album_art (album_id, cover_id) VALUES (?,?)", album_art
-        )
+        index_queries.replace_file_labels(conn, labels)
+        index_queries.replace_album_art(conn, album_art)
         apply_genre_precedence(conn, log)
         merged = genre_lib.unify_spellings(conn)
         if merged:
             log(f"genres: {merged} spelling variant(s) merged")
-        conn.execute("DELETE FROM track_raw_genres")
-        conn.executemany("INSERT OR IGNORE INTO track_raw_genres (track_id, raw) VALUES (?,?)", raws)
+        index_queries.replace_raw_genres(conn, raws)
 
     by_source = Counter(row[2] for row in labels)
     log(
