@@ -151,6 +151,8 @@ def is_genre_like(label: object) -> bool:
 
 _FILE = config.STATE_DIR / "genre-aliases.json"
 _cache: tuple[float, dict[str, str]] = (-1.0, {})
+# (folded label, operator flag, alias-file mtime) -> (canonical, source)
+_resolved: dict[tuple[str, bool, float], tuple[str, str]] = {}
 
 
 def alias_path() -> Path:
@@ -162,6 +164,7 @@ def reset_cache() -> None:
     """Forget the cached aliases. Tests move the file between temporary states."""
     global _cache
     _cache = (-1.0, {})
+    _resolved.clear()
 
 
 def operator_aliases(path: Path | None = None) -> dict[str, str]:
@@ -193,6 +196,36 @@ def operator_aliases(path: Path | None = None) -> dict[str, str]:
 # ------------------------------------------------------------------- resolution
 
 
+def _resolve(label: object, operator: bool = True) -> tuple[str, str]:
+    """The canonical spelling and where it came from: operator, builtin, or library."""
+    text = str(label or "").strip()
+    if not text:
+        return "", "library"
+    key = fold(text)
+    if operator:
+        user = operator_aliases()
+        stamp = _cache[0]
+        cached = _resolved.get((key, True, stamp))
+        if cached is not None:
+            return cached
+        if key in user:
+            result = (user[key], "operator")
+            _resolved[(key, True, stamp)] = result
+            return result
+    else:
+        cached = _resolved.get((key, False, -1.0))
+        if cached is not None:
+            return cached
+    if key in BUILTIN:
+        result = (BUILTIN[key], "builtin")
+    elif key.replace(" ", "") in BUILTIN:
+        result = (BUILTIN[key.replace(" ", "")], "builtin")
+    else:
+        result = (text, "library")
+    _resolved[(key, operator, _cache[0] if operator else -1.0)] = result
+    return result
+
+
 def canonical(label: object, *, operator: bool = True) -> str:
     """Operator rule, then builtin, then the label spelled as the library has it.
 
@@ -201,20 +234,7 @@ def canonical(label: object, *, operator: bool = True) -> str:
     "Nu Disco"); they are not a rewrite of the library's vocabulary, and the DJ's
     tools match on the fine labels.
     """
-    text = str(label or "").strip()
-    if not text:
-        return ""
-    key = fold(text)
-    if operator:
-        user = operator_aliases()
-        if key in user:
-            return user[key]
-    if key in BUILTIN:
-        return BUILTIN[key]
-    squashed = key.replace(" ", "")
-    if squashed in BUILTIN:
-        return BUILTIN[squashed]
-    return text
+    return _resolve(label, operator)[0]
 
 
 def labels_of(raw: object, *, operator: bool = True) -> list[str]:
@@ -266,20 +286,9 @@ def matches(labels, target_sets: list[list[str]]) -> bool:
 
 def explain(label: object) -> dict:
     """Why a raw label resolves the way it does — for /genres and the future UI."""
-    key = fold(label)
-    user = operator_aliases()
-    if key in user:
-        return {"raw": str(label), "key": key, "canonical": user[key], "source": "operator"}
-    if key in BUILTIN:
-        return {"raw": str(label), "key": key, "canonical": BUILTIN[key], "source": "builtin"}
-    if key.replace(" ", "") in BUILTIN:
-        return {
-            "raw": str(label),
-            "key": key,
-            "canonical": BUILTIN[key.replace(" ", "")],
-            "source": "builtin",
-        }
-    return {"raw": str(label), "key": key, "canonical": str(label).strip(), "source": "library"}
+    text = str(label or "").strip()
+    canon, source = _resolve(text, True)
+    return {"raw": text, "key": fold(text), "canonical": canon, "source": source}
 
 
 _ACRONYMS = {"r&b", "idm", "edm", "uk", "us", "usa", "dj", "mc", "d&b", "dnb", "synthpop", "ebm"}
@@ -344,6 +353,7 @@ def _add_alias(source: str, target: str) -> None:
     aliases.append({"from": key, "to": target})
     raw["aliases"] = aliases
     atomic_write(path, json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+    reset_cache()
 
 
 def remove_alias(source: str) -> bool:
@@ -362,6 +372,7 @@ def remove_alias(source: str) -> bool:
         return False
     raw["aliases"] = aliases
     atomic_write(path, json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+    reset_cache()
     return True
 
 

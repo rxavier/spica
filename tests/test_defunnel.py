@@ -395,3 +395,14 @@ def test_label_explorer_expands_every_selected_label_in_one_scan(db, monkeypatch
     navidrome.label_explorer(db, ["Electronic", "Rock"])
 
     assert len(scans) == 1, "one pass over the stored labels, not one per selection"
+
+
+def test_canonical_and_explain_share_the_resolver_and_a_merge_invalidates_it(db):
+    assert genres.canonical("Indie") == "Indie"
+    assert genres.explain("Indie")["source"] == "library"
+
+    genres.merge(db, ["Indie"], "Rock")
+
+    assert genres.canonical("Indie") == "Rock"
+    info = genres.explain("Indie")
+    assert info["canonical"] == "Rock" and info["source"] == "operator"
