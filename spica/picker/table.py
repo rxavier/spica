@@ -137,7 +137,7 @@ def build(lib, station) -> dict | None:
         queued = set()
     on_air = str((queue.recent(station, 1) or [{}])[-1].get("id") or "")
 
-    labels = navidrome.labels_by_track(lib.conn)
+    labels = lib.labels_by_track()
     try:
         ranks = lib.popularity_ranks(rows)
     except Exception:

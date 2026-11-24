@@ -366,13 +366,16 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
     return {"musicbrainz": informed, "with_file_tag": tagged}
 
 
-def station_matcher(conn: sqlite3.Connection, st: config.Station):
+def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None):
     """One predicate that decides whether a track may play on this station.
 
     Used by the pool builder AND by the DJ's tools, so a station's rules are a
     constraint on what the model can return, not a suggestion in its prompt.
+
+    ``by_track`` lets a caller that already holds the label map pass it in; the
+    picker caches that map, so rebuilding it here would undo the cache.
     """
-    by_track = labels_by_track(conn)
+    by_track = by_track if by_track is not None else labels_by_track(conn)
     # A station picks labels from the vocabulary, so this is set membership: no
     # substring guessing about what a genre name might have meant.
     #
@@ -445,11 +448,11 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station):
     return ok
 
 
-def rows_for_station(conn: sqlite3.Connection, st: config.Station) -> list[sqlite3.Row]:
+def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None) -> list[sqlite3.Row]:
     from .queries import tracks as track_queries
 
     rows = track_queries.playable_tracks(conn)
-    ok = station_matcher(conn, st)
+    ok = matcher if matcher is not None else station_matcher(conn, st)
     picked = [r for r in rows if ok(r)]
     if picked:
         return picked
