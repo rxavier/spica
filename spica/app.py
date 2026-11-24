@@ -376,7 +376,7 @@ async def genres() -> dict:
 async def aliases() -> dict:
     """The operator merge rules currently in force (empty until you add some)."""
     return {
-        "file": str(genre_lib._FILE),
+        "file": str(genre_lib.alias_path()),
         "operator": await asyncio.to_thread(lambda: genre_lib.operator_aliases()),
         "builtin": genre_lib.BUILTIN,
     }

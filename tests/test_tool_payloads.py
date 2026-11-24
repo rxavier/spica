@@ -28,8 +28,8 @@ def track(track_id: str, artist: str, *, album: str = "Record", album_id: str = 
 
 @pytest.fixture
 def db(station, tmp_path, monkeypatch):
-    monkeypatch.setattr(genres, "_FILE", tmp_path / "genre-aliases.json")
-    monkeypatch.setattr(genres, "_cache", (-1.0, {}))
+    monkeypatch.setattr(genres, "alias_path", lambda: tmp_path / "genre-aliases.json")
+    genres.reset_cache()
     monkeypatch.setattr(mixer, "queued_ids", lambda st=None: [])
     monkeypatch.setattr(enrich, "lfm_similar", lambda name, limit=100: [])
     monkeypatch.setattr(queue, "recent", lambda st, n=20: [])

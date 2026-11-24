@@ -153,10 +153,21 @@ _FILE = config.STATE_DIR / "genre-aliases.json"
 _cache: tuple[float, dict[str, str]] = (-1.0, {})
 
 
+def alias_path() -> Path:
+    """Where the operator's alias file lives. Owned here, not by its callers."""
+    return _FILE
+
+
+def reset_cache() -> None:
+    """Forget the cached aliases. Tests move the file between temporary states."""
+    global _cache
+    _cache = (-1.0, {})
+
+
 def operator_aliases(path: Path | None = None) -> dict[str, str]:
     """Load the operator's rules, re-reading only when the file changes."""
     global _cache
-    p = path or _FILE
+    p = path or alias_path()
     try:
         mtime = p.stat().st_mtime
     except OSError:
@@ -323,7 +334,7 @@ def unify_spellings(conn) -> int:
 
 def _add_alias(source: str, target: str) -> None:
     """Remember the rule, so a rebuild does not undo the merge."""
-    path = _FILE
+    path = alias_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -337,7 +348,7 @@ def _add_alias(source: str, target: str) -> None:
 
 def remove_alias(source: str) -> bool:
     """Forget the operator rule for `source`, matching the folded key it was stored under."""
-    path = _FILE
+    path = alias_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
