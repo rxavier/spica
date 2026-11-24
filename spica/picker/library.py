@@ -8,7 +8,6 @@ talks to the network; the tools only ever read what the rebuild wrote.
 from __future__ import annotations
 
 import difflib
-import hashlib
 import html
 import json
 import random
@@ -18,6 +17,7 @@ from collections import Counter
 
 from .. import config, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
+from ..names import seed_key
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from .schemas import TOOLS
@@ -455,8 +455,7 @@ class Library:
     CRATE_TRACKS = 5
 
     def _shuffle_key(self, row: sqlite3.Row):
-        seed = self.draw_seed or 0
-        return hashlib.blake2b(f"{seed}|{row['id']}".encode(), digest_size=8).digest()
+        return seed_key(self.draw_seed or 0, row["id"])
 
     def _act_key(self, row) -> str:
         """The folded identity of the record's artist, for recency comparisons."""

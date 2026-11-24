@@ -18,10 +18,10 @@ can never become the same thirty-two records every twenty minutes.
 
 from __future__ import annotations
 
-import hashlib
 from collections import Counter
 
 from .. import analysis, mixer, navidrome, queue
+from ..names import seed_key
 from ..queries import tracks as track_queries
 
 # A set is 3-10 tracks. Thirty-two records leave a real choice in every direction and
@@ -361,7 +361,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
     lean = -station.deep_bias
     by_sim = sorted(
         candidates,
-        key=lambda c: (-_offer_rank(c, lean), _seed_key(seed, c["id"])),
+        key=lambda c: (-_offer_rank(c, lean), seed_key(seed, c["id"])),
     )
 
     plans = {
@@ -372,7 +372,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
         "contrast": [c for c in by_sim if turns(c)],
         "land": sorted(
             [c for c in candidates if lands(c)],
-            key=lambda c: (c["energy"], -c["absence"], _seed_key(seed, c["id"])),
+            key=lambda c: (c["energy"], -c["absence"], seed_key(seed, c["id"])),
         ),
         # The familiar option, from whoever has been off the air longest: "the one
         # everyone knows" sorted by popularity alone hands over the same single every
@@ -380,7 +380,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
         "known": sorted(
             [c for c in candidates
              if c["popularity"] >= KNOWN and (not family or c["family"] == family)],
-            key=lambda c: (-c["absence"], -c["popularity"], _seed_key(seed, c["id"])),
+            key=lambda c: (-c["absence"], -c["popularity"], seed_key(seed, c["id"])),
         ),
     }
 
@@ -419,7 +419,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
     for group in groups:
         if not group["tracks"]:
             continue
-        group["tracks"].sort(key=lambda c: _seed_key(seed, c["id"]))
+        group["tracks"].sort(key=lambda c: seed_key(seed, c["id"]))
         out.append({
             "name": group["name"],
             "label": group["label"],
@@ -440,7 +440,7 @@ def _spread_decades(groups, plans, used_ids, used_artists, seed) -> None:
     if len(decades) >= 2:
         return
     for group in sorted(groups, key=lambda g: -len(g["tracks"])):
-        for candidate in sorted(plans[group["name"]], key=lambda c: _seed_key(seed, c["id"])):
+        for candidate in sorted(plans[group["name"]], key=lambda c: seed_key(seed, c["id"])):
             if (candidate["id"] in used_ids or candidate["artist_key"] in used_artists
                     or not candidate["decade"] or candidate["decade"] in decades):
                 continue
@@ -645,5 +645,3 @@ def _percentile(values: list, pct: int) -> float:
     return float(ordered[min(len(ordered) - 1, len(ordered) * pct // 100)])
 
 
-def _seed_key(seed: int, track_id: str) -> bytes:
-    return hashlib.blake2b(f"{seed}|{track_id}".encode(), digest_size=8).digest()
