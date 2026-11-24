@@ -15,6 +15,7 @@ import struct
 import pytest
 
 from spica import analysis, config, navidrome
+from tests.factories import insert_tracks
 from spica.picker.library import Library
 
 
@@ -29,12 +30,7 @@ def track(track_id: str, artist: str, uri: str | None = None) -> tuple:
 def seed(path, rows):
     conn = navidrome.connect(path)
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " track_no, year, genre, duration, album_artist, album_artist_key)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            rows,
-        )
+        insert_tracks(conn, rows)
     return conn
 
 
@@ -225,15 +221,16 @@ def test_shelf_sound_line(station, tmp_path):
 def test_todo_spreads_across_artists_and_prefers_new_arrivals(station, tmp_path):
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.executemany(
-            "INSERT INTO tracks (id, uri, title, artist, album_artist,"
-            " album_artist_key, fetched_at) VALUES (?,?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 ("a1", "http://x/a1", "old A", "A", "Artist A", "artist a", 100),
                 ("a2", "http://x/a2", "new A", "A", "Artist A", "artist a", 300),
                 ("b1", "http://x/b1", "B", "B", "Artist B", "artist b", 200),
                 ("c1", "http://x/c1", "C", "C", "Artist C", "artist c", 50),
             ],
+            columns=("id", "uri", "title", "artist", "album_artist",
+                     "album_artist_key", "fetched_at"),
         )
     store = analysis.connect(path=tmp_path / "analysis.db", create=True)
     first = analysis.todo(conn, store, 3)

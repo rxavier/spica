@@ -8,6 +8,7 @@ list, and the first placement is seeded with the artists and album that just air
 from __future__ import annotations
 
 from spica import config, navidrome, pool, queue, subsonic
+from tests.factories import insert_track, insert_tracks
 
 
 def _track(track_id: str, artist: str, album: str, album_id: str) -> tuple:
@@ -27,9 +28,8 @@ def test_the_pool_leaves_out_recent_tracks_and_seeds_the_artist_window(
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.executemany(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id)"
-            " VALUES (?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 _track("a1", "Band A", "First", "al1"),
                 _track("a2", "Band A", "First", "al1"),
@@ -40,6 +40,7 @@ def test_the_pool_leaves_out_recent_tracks_and_seeds_the_artist_window(
                 _track("c2", "Band C", "Third", "al4"),
                 _track("d1", "Band D", "Fourth", "al5"),
             ],
+            columns=("id", "uri", "title", "artist", "album", "album_id"),
         )
     # A1 and A2 just aired; Band A is the artist that must not open the rotation.
     queue.record(station, "a1", "title a1", "Band A", "standby")
@@ -63,10 +64,12 @@ def test_a_tiny_station_keeps_a_rotation_even_when_everything_is_recent(
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id)"
-            " VALUES (?,?,?,?,?,?)",
-            _track("only", "Only Band", "Only", "only"),
+        track_id, uri, title, artist, album, album_id = _track(
+            "only", "Only Band", "Only", "only"
+        )
+        insert_track(
+            conn, id=track_id, uri=uri, title=title, artist=artist,
+            album=album, album_id=album_id,
         )
     queue.record(station, "only", "title only", "Only Band", "standby")
 

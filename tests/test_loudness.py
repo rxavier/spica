@@ -11,6 +11,7 @@ import pytest
 
 from spica import config, liqgen, loudness, navidrome, pool, subsonic
 from spica.picker.library import Library
+from tests.factories import insert_track, insert_tracks
 
 def test_replaygain_tag_becomes_loudness_and_peak():
     lufs, peak = loudness.from_replaygain({"trackGain": 0, "trackPeak": 1.0})
@@ -69,15 +70,14 @@ def test_picker_hands_the_mixer_an_annotated_uri(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id,"
-            " replaygain_gain, replaygain_peak) VALUES (?,?,?,?,?,?,?,?)",
-            ("t1", "http://navidrome/rest/stream?id=t1", "First", "Band", "Record", "al1", 6, 0.5),
+        insert_track(
+            conn, id="t1", uri="http://navidrome/rest/stream?id=t1", title="First",
+            artist="Band", album="Record", album_id="al1",
+            replaygain_gain=6, replaygain_peak=0.5,
         )
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id)"
-            " VALUES (?,?,?,?,?,?)",
-            ("t2", "http://navidrome/rest/stream?id=t2", "Second", "Band", "Record", "al1"),
+        insert_track(
+            conn, id="t2", uri="http://navidrome/rest/stream?id=t2", title="Second",
+            artist="Band", album="Record", album_id="al1",
         )
     rows = {r["id"]: r for r in conn.execute("SELECT * FROM tracks")}
     lib = Library(conn)
@@ -96,9 +96,8 @@ def test_the_loudness_store_is_read_once_per_picker(tmp_path, monkeypatch):
     (tmp_path / "loudness.db").write_bytes(b"")
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist) VALUES (?,?,?,?)",
-            ("t1", "http://navidrome/stream?id=t1", "First", "Band"),
+        insert_track(
+            conn, id="t1", uri="http://navidrome/stream?id=t1", title="First", artist="Band",
         )
 
     calls = []
@@ -129,11 +128,10 @@ def test_the_fallback_pool_is_levelled_too(tmp_path, monkeypatch):
     station = config.Station(id="alt", name="Alt")
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.execute(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id,"
-            " replaygain_gain, replaygain_peak) VALUES (?,?,?,?,?,?,?,?)",
-            ("t1", "http://navidrome/rest/stream?id=t1", "First", "Band", "Record",
-             "al1", 6, 0.5),
+        insert_track(
+            conn, id="t1", uri="http://navidrome/rest/stream?id=t1", title="First",
+            artist="Band", album="Record", album_id="al1",
+            replaygain_gain=6, replaygain_peak=0.5,
         )
     pool.write_pools(conn, [station], log=lambda *args, **kwargs: None)
 
@@ -197,14 +195,14 @@ def test_measured_store_round_trip_and_backlog(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.executemany(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id, replaygain_gain)"
-            " VALUES (?,?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 ("t1", "http://navidrome/1", "Tagged", "Band", "Record", "al1", 6.0),
                 ("t2", "http://navidrome/2", "Untagged", "Band", "Record", "al1", None),
                 ("t3", "http://navidrome/3", "Also", "Band", "Record", "al1", None),
             ],
+            columns=("id", "uri", "title", "artist", "album", "album_id", "replaygain_gain"),
         )
 
     assert [r["id"] for r in loudness.pending(conn, 10)] == ["t2", "t3"]
@@ -249,14 +247,14 @@ def test_loudness_job_measures_untagged_tracks_and_marks_failures(tmp_path, monk
 
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.executemany(
-            "INSERT INTO tracks (id, uri, title, artist, album, album_id, replaygain_gain)"
-            " VALUES (?,?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 ("t1", "http://navidrome/1", "Tagged", "Band", "Record", "al1", 6.0),
                 ("t2", "http://navidrome/2", "Untagged", "Band", "Record", "al1", None),
                 ("t3", "http://navidrome/3", "Broken", "Band", "Record", "al1", None),
             ],
+            columns=("id", "uri", "title", "artist", "album", "album_id", "replaygain_gain"),
         )
     jobs.ensure_schema(conn)
     job_id = jobs.create(conn, "loudness")

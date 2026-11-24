@@ -14,6 +14,7 @@ import pytest
 from spica import analysis, config, mixer, navidrome, queue
 from spica.picker import loop, table
 from spica.picker.library import Library
+from tests.factories import insert_tracks
 
 
 def vector(x: float, y: float):
@@ -37,11 +38,7 @@ def seed_station(tmp_path, artists: int = 12, per_artist: int = 3):
             genres.append((track_id, f"Label {a % 4}", "tag"))
             pops.append((track_id, (j + 1) * 100 + a, 10, "listenbrainz", 0))
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " track_no, year, genre, duration, album_artist, album_artist_key)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows,
-        )
+        insert_tracks(conn, rows)
         conn.executemany(
             "INSERT OR REPLACE INTO track_genres (track_id, label, source) VALUES (?,?,?)",
             genres,

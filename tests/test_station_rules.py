@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from spica import config, navidrome
+from tests.factories import insert_tracks
 
 
 def track(track_id: str, artist: str, *, duration: int = 200, year: int = 2000) -> tuple:
@@ -34,21 +35,16 @@ def track(track_id: str, artist: str, *, duration: int = 200, year: int = 2000) 
 def db(station, tmp_path):
     conn = navidrome.connect(tmp_path / "index.db")
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " track_no, year, genre, duration, album_artist, album_artist_key)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            [
-                track("g" * 22, "Giraffe"),
-                track("p" * 22, "Porcupine Tree"),
-                track("c" * 22, "Clash", duration=150),
-                track("s" * 22, "Silence", duration=4),
-                track("z" * 22, "Unknown Length", duration=0),
-                # A station whose rules match nothing falls back to the whole library,
-                # so the date test needs one record on the right side of the clock.
-                track("m" * 22, "Modern", year=2015),
-            ],
-        )
+        insert_tracks(conn, [
+            track("g" * 22, "Giraffe"),
+            track("p" * 22, "Porcupine Tree"),
+            track("c" * 22, "Clash", duration=150),
+            track("s" * 22, "Silence", duration=4),
+            track("z" * 22, "Unknown Length", duration=0),
+            # A station whose rules match nothing falls back to the whole library,
+            # so the date test needs one record on the right side of the clock.
+            track("m" * 22, "Modern", year=2015),
+        ])
         conn.executemany(
             "INSERT OR REPLACE INTO track_genres (track_id, label, source) VALUES (?,?,?)",
             [

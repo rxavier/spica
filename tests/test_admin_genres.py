@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from spica import app as application
 from spica import config, genres, icecast, mixer, navidrome, pool, store
+from tests.factories import insert_tracks
 
 PASSWORD = "let-me-in"
 
@@ -62,14 +63,14 @@ def console(monkeypatch, tmp_path):
 
 def seed(conn):
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " year, duration) VALUES (?,?,?,?,?,?,?,?)",
+        insert_tracks(
+            conn,
             [
                 ("t1" * 11, "http://navidrome/1.flac", "First", "Band A", "Record", "al1", 2001, 210),
                 ("t2" * 11, "http://navidrome/2.flac", "Second", "Band B", "Record", "al1", 2002, 240),
                 ("t3" * 11, "http://navidrome/3.flac", "Third", "Band C", "Other", "al2", 1999, 180),
             ],
+            columns=("id", "uri", "title", "artist", "album", "album_id", "year", "duration"),
         )
         conn.executemany(
             "INSERT OR REPLACE INTO track_genres (track_id, label, source) VALUES (?,?,?)",

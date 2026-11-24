@@ -13,6 +13,7 @@ import time
 import pytest
 
 from spica import config, enrich, navidrome, worker
+from tests.factories import insert_tracks
 
 
 def seed(conn, artists=("Loud Band", "Quiet Band")) -> None:
@@ -24,11 +25,7 @@ def seed(conn, artists=("Loud Band", "Quiet Band")) -> None:
                          name, f"album {i}", f"al{i}", j + 1, 2000, "", 200,
                          name, navidrome.name_key(name)))
     with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO tracks (id, uri, title, artist, album, album_id,"
-            " track_no, year, genre, duration, album_artist, album_artist_key)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows,
-        )
+        insert_tracks(conn, rows)
 
 
 @pytest.fixture
