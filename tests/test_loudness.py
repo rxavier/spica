@@ -283,3 +283,28 @@ def test_loudness_job_measures_untagged_tracks_and_marks_failures(tmp_path, monk
     finally:
         store.close()
     assert "t1" not in measured_ids
+
+
+def test_the_loudness_job_honours_the_measure_opt_out(tmp_path, monkeypatch):
+    """SPICA_LOUDNESS_MEASURE=0 means tags only, even for a manually queued job."""
+    from spica import jobs, worker
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(config, "LOUDNESS_MEASURE", False)
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        insert_track(
+            conn, id="t1", uri="http://navidrome/1", title="Untagged", artist="Band",
+            album="Record", album_id="al1",
+        )
+    jobs.ensure_schema(conn)
+    job_id = jobs.create(conn, "loudness")
+
+    probes: list[int] = []
+    monkeypatch.setattr(loudness, "measure_available", lambda: probes.append(1) or True)
+
+    result = worker.run_loudness(conn, job_id, log=lambda *args, **kwargs: None)
+
+    assert result["tracks"] == 0
+    assert "measurement is off" in result["note"]
+    assert probes == []
