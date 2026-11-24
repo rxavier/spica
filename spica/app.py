@@ -145,20 +145,6 @@ class RequestBody(BaseModel):
     songs: int | None = None
 
 
-def _station(station_id: str) -> config.Station:
-    for st in store.stations():
-        if st.id == station_id:
-            return st
-    raise HTTPException(404, f"unknown station {station_id}")
-
-
-def _pool_size(st: config.Station) -> int:
-    try:
-        return sum(1 for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip())
-    except FileNotFoundError:
-        return 0
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     bootstrap.ensure()
@@ -229,16 +215,7 @@ async def status(request: Request) -> dict:
             art = f"{base}/art/{now['album_id']}"
             if now.get("cover_tag"):
                 art += f"?v={now['cover_tag']}"
-        streams = [
-            {
-                "codec": c,
-                "label": config.CODEC_LABEL[c],
-                "mount": st.mount_for(c),
-                "live": st.mount_for(c) in states,
-                "listeners": states[st.mount_for(c)].listeners if st.mount_for(c) in states else 0,
-            }
-            for c in st.stream_set
-        ]
+        streams = web.stream_states(st, states)
         out[st.id] = {
             "name": st.name,
             "mount": st.mount,
@@ -254,7 +231,7 @@ async def status(request: Request) -> dict:
             # for everyone, since stations do not have their own yet.
             "logo": f"{base}/logo/{st.id}.png",
             "queued": queue.queued(st),
-            "pool": _pool_size(st),
+            "pool": web.pool_size(st),
             "last": LAST.get(st.id, {}),
             "presence": {
                 **presence.relay_summary(st.id),
@@ -281,7 +258,7 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
 @app.post("/request")
 async def request_track(body: RequestBody) -> dict:
     """Free text -> one track, pushed to the named station (default: first)."""
-    st = _station(body.station or store.stations()[0].id)
+    st = web.station_or_404(body.station or store.stations()[0].id)
     if not (config.llm_settings()["key"] and config.llm_settings()["base"]):
         raise HTTPException(503, "LLM not configured — cannot interpret a request")
     # Recorded BEFORE the pick, so this pick already sees it as "0 songs ago"
@@ -301,20 +278,20 @@ async def request_track(body: RequestBody) -> dict:
 @app.get("/requests/{station_id}")
 async def list_requests(station_id: str) -> dict:
     """Requests still remembered on a station, with age and remaining songs."""
-    st = _station(station_id)
+    st = web.station_or_404(station_id)
     return {"station": st.id, "requests": await asyncio.to_thread(requests_mod.active, st)}
 
 
 @app.delete("/requests/{station_id}")
 async def clear_requests(station_id: str) -> dict:
-    st = _station(station_id)
+    st = web.station_or_404(station_id)
     await asyncio.to_thread(requests_mod.clear, st)
     return {"ok": True, "station": st.id, "requests": []}
 
 
 @app.post("/pick/{station_id}")
 async def force_pick(station_id: str) -> dict:
-    st = _station(station_id)
+    st = web.station_or_404(station_id)
     p = await asyncio.to_thread(picker.pick_next, store.library(), st, None, queue.recent_ids(st))
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")

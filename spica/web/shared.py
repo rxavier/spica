@@ -247,6 +247,20 @@ def station_context(st) -> dict:
     }
 
 
+def stream_states(st, states: dict) -> list[dict]:
+    """One row per stream the station publishes, for the page and the API alike."""
+    return [
+        {
+            "codec": codec,
+            "label": config.CODEC_LABEL[codec],
+            "mount": st.mount_for(codec),
+            "listeners": states[st.mount_for(codec)].listeners if st.mount_for(codec) in states else 0,
+            "live": st.mount_for(codec) in states,
+        }
+        for codec in st.stream_set
+    ]
+
+
 def pool_size(st) -> int:
     try:
         return sum(1 for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip())

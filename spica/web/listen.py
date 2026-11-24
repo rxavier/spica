@@ -32,6 +32,7 @@ from .shared import (
     history_of,
     request_rows,
     station_context,
+    stream_states,
 )
 
 log = logging.getLogger("radio")
@@ -179,16 +180,7 @@ async def station_state(station_id: str, stream: str = ""):
             "listeners": icecast.total_listeners(states, st),
             "stream": chosen,
             "stream_live": st.mount_for(chosen) in states,
-            "streams": [
-                {
-                    "codec": c,
-                    "label": config.CODEC_LABEL[c],
-                    "mount": st.mount_for(c),
-                    "listeners": states[st.mount_for(c)].listeners if st.mount_for(c) in states else 0,
-                    "live": st.mount_for(c) in states,
-                }
-                for c in st.stream_set
-            ],
+            "streams": stream_states(st, states),
         }
     )
 
