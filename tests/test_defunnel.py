@@ -341,3 +341,22 @@ def test_missing_musicbrainz_counts_album_artists(db):
             ("band", "mbid", "[]", int(time.time())),
         )
     assert worker.missing_musicbrainz(db) == 0
+
+
+def test_labels_and_the_station_matcher_are_built_once_per_index(db, station, monkeypatch):
+    """A pick asks for the label map from every tool; it is built once, not once per call."""
+    seed(db, [track("1" * 22, "Disco Band")], [label("1" * 22, "Nu Disco")])
+    builds: list[int] = []
+    real = navidrome.labels_by_track
+
+    def counted(conn):
+        builds.append(1)
+        return real(conn)
+
+    monkeypatch.setattr(navidrome, "labels_by_track", counted)
+    lib = picker_library.Library(db)
+    lib.filter(station=station)
+    lib.roster(station)
+    lib.recent_labels(station, 2)
+
+    assert len(builds) == 1

@@ -76,7 +76,7 @@ def _seed_key(seed: int, key: str) -> bytes:
 
 def _profiles(lib, rows: list) -> dict[str, dict]:
     """What each artist on the station is made of: weight, label, era, standing."""
-    labels = navidrome.labels_by_track(lib.conn)
+    labels = lib.labels_by_track()
     ranks = lib.popularity_ranks(rows)
     standing = _standing(lib.conn)
     raw: dict[str, dict] = {}

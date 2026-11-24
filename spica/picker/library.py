@@ -151,6 +151,41 @@ class Library:
             _analysis_error(exc)
             return []
 
+    def _index_stamp(self) -> int | None:
+        """When the index was last written, to key the caches that read it."""
+        try:
+            return (config.STATE_DIR / "index.db").stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def labels_by_track(self) -> dict[str, list[str]]:
+        """The stored label of every track, cached until the index changes.
+
+        Rebuilt for every tool call before this, and building it canonicalises every
+        label in the library — which stats the operator alias file each time.
+        """
+        stamp = self._index_stamp()
+        cached = getattr(self, "_labels_cache", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        data = navidrome.labels_by_track(self.conn)
+        self._labels_cache = (stamp, data)
+        return data
+
+    def _matcher(self, station: config.Station):
+        """This station's rule predicate, cached until the index or aliases change."""
+        try:
+            aliases = genres_module._FILE.stat().st_mtime_ns
+        except OSError:
+            aliases = None
+        key = (station.id, self._index_stamp(), aliases)
+        cached = getattr(self, "_matcher_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        ok = navidrome.station_matcher(self.conn, station, self.labels_by_track())
+        self._matcher_cache = (key, ok)
+        return ok
+
     def rows_on_station(self, rows: list, station: config.Station | None) -> list:
         """Drop whatever the station's rules would not let on air.
 
@@ -160,7 +195,7 @@ class Library:
         """
         if station is None:
             return rows
-        ok = navidrome.station_matcher(self.conn, station)
+        ok = self._matcher(station)
         return [r for r in rows if ok(r)]
 
     def search(self, query: str, limit: int = 20, station: config.Station | None = None, **_):
@@ -348,7 +383,7 @@ class Library:
             # Fine labels, not the operator's station rollup: "Nu Disco" answers the
             # nu-disco shelf, not everything the station files under Electronic.
             target = genres_module.targets_fine([want])
-            by_track = navidrome.labels_by_track(self.conn)
+            by_track = self.labels_by_track()
             rows = [r for r in rows if genres_module.matches(by_track.get(r["id"], ()), target)]
 
         # A shuffle keyed to this pick, not to this call. `offset` can only mean
@@ -400,7 +435,7 @@ class Library:
         for row in rows:
             artists[(row["album_artist"] or row["artist"]) or "?"] += 1
         labels: Counter = Counter()
-        by_track = navidrome.labels_by_track(self.conn)
+        by_track = self.labels_by_track()
         for row in rows:
             for label in by_track.get(row["id"], ()):
                 labels[label] += 1
@@ -503,7 +538,7 @@ class Library:
                 break
         self._remember_dealt(picks)
 
-        labels = navidrome.labels_by_track(self.conn)
+        labels = self.labels_by_track()
         ranks = self.popularity_ranks([r for album in picks for r in by_album[album]])
         # How many tracks in the library carry each genre: the rarer the genre, the
         # more specific it is about this record. "Stoner Rock" says something about a
@@ -551,7 +586,7 @@ class Library:
         night: not what he meant to play, what actually went out.
         """
         plays = queue.recent(station, n)
-        labels = navidrome.labels_by_track(self.conn)
+        labels = self.labels_by_track()
         rows = {
             row["id"]: row
             for row in track_queries.tracks_by_ids(
@@ -605,7 +640,7 @@ class Library:
         row = track_queries.track_by_id(self.conn, track_id)
         if row is None:
             return False
-        ok = navidrome.station_matcher(self.conn, station)
+        ok = self._matcher(station)
         if ok(row):
             return True
         return not any(ok(r) for r in track_queries.playable_tracks(self.conn))
@@ -844,7 +879,7 @@ class Library:
         now = time.monotonic()
         if cached and cached[0] is station and now - cached[1] < 5.0:
             return cached[2]
-        rows = navidrome.rows_for_station(self.conn, station)
+        rows = navidrome.rows_for_station(self.conn, station, matcher=self._matcher(station))
         self._rows_cache = (station, now, rows)
         return rows
 
@@ -862,7 +897,7 @@ class Library:
         except Exception:
             queued = set()
         return {
-            "labels": navidrome.labels_by_track(self.conn),
+            "labels": self.labels_by_track(),
             "ranks": self.popularity_ranks(rows),
             "played": played,
             "queued": queued,
