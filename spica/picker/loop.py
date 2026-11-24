@@ -298,10 +298,10 @@ def plan_pick(
     # the list of past picks read as one wall of text.
     recent_lines = "\n".join(lines)
 
-    live = requests_mod.active(station)
+    active_requests = requests_mod.active(station)
     live_lines = "\n".join(
         f'- "{r["text"]}" — asked {r["songs_ago"]} song(s) ago'
-        for r in live
+        for r in active_requests
     )
 
     messages: list[dict] = [
