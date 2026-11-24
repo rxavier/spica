@@ -19,6 +19,7 @@ from .shared import (
     COVER_SIZE,
     ALBUM_ID,
     ART_DIR,
+    station_or_404,
 )
 
 router = APIRouter()
@@ -64,9 +65,7 @@ def all_playlist(request: Request):
 @router.get("/{station_id}.m3u")
 def station_playlist(station_id: str, request: Request):
     """One station, for pasting into a player that wants a single favourite."""
-    st = store.station(station_id)
-    if st is None:
-        raise HTTPException(404, "no such station")
+    st = station_or_404(station_id)
     return _playlist(request, [st])
 
 
