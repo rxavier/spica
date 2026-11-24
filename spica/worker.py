@@ -372,6 +372,9 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
     """
     if not config.LOUDNESS:
         return {"tracks": 0, "note": "loudness is off (set SPICA_LOUDNESS=1)"}
+    if not config.LOUDNESS_MEASURE:
+        return {"tracks": 0,
+                "note": "measurement is off (SPICA_LOUDNESS_MEASURE=0); using tags only"}
     if not loudness.measure_available():
         return {"tracks": 0,
                 "note": "this worker image has no ffmpeg; run the -worker image"}
