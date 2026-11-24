@@ -7,6 +7,7 @@ import re
 import socket
 
 from . import config, subsonic
+from .atomic import atomic_write
 
 
 def command(line: str, timeout: float = 3.0) -> str:
@@ -153,7 +154,7 @@ def _load_offset(station, size: int) -> int:
 
 def _save_offset(station, offset: int) -> None:
     try:
-        _offset_file(station).write_text(f"{offset}\n", encoding="utf-8")
+        atomic_write(_offset_file(station), f"{offset}\n")
     except OSError:
         pass
 

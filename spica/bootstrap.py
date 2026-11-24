@@ -18,6 +18,7 @@ import os
 import secrets
 
 from . import config
+from .atomic import atomic_write
 
 ICECAST_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <icecast>
@@ -115,7 +116,7 @@ def ensure(verbose: bool = True) -> list[str]:
 
     stations = config.CONFIG_DIR / "stations.json"
     if not stations.exists():
-        stations.write_text(json.dumps(STARTER_STATIONS, indent=2) + "\n", encoding="utf-8")
+        atomic_write(stations, json.dumps(STARTER_STATIONS, indent=2) + "\n")
         made.append("stations.json")
 
     script = config.CONFIG_DIR / "spica.liq"
@@ -130,7 +131,7 @@ def ensure(verbose: bool = True) -> list[str]:
                 password = text.split("<source-password>")[1].split("</source-password>")[0]
             except (OSError, IndexError):
                 password = ""
-        script.write_text(liqgen.render(config.load_stations(stations), password), encoding="utf-8")
+        atomic_write(script, liqgen.render(config.load_stations(stations), password))
         made.append("spica.liq")
 
     if made and verbose:
