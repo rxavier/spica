@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 from . import config, navidrome
+from .names import norm, norm_loose, wildcard_match
 from .queries import tracks as track_queries
 
 
@@ -42,35 +43,6 @@ def reload_stations() -> list[config.Station]:
 
 
 _tracks: dict | None = None
-
-
-def norm(text: str) -> str:
-    """Compare titles the way Icecast mangles them: it turns "Jane’s" into
-    "Jane*s", so anything outside letters and digits is noise."""
-    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
-
-
-# Letters that are alphanumeric but not ASCII: Icecast turns punctuation into
-# "*", and a title with a Polish ł then has nothing left to match on.
-_FOLD = str.maketrans({
-    "ł": "l", "Ł": "L", "ø": "o", "Ø": "O", "đ": "d", "Đ": "D", "ð": "d",
-    "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ß": "ss", "þ": "th", "ı": "i",
-})
-
-
-def norm_loose(text: str) -> str:
-    """norm() with the extended-Latin letters folded to ASCII."""
-    return norm((text or "").translate(_FOLD))
-
-
-def _wildcard_match(mangled: str, candidate: str) -> bool:
-    """Icecast replaces a character it cannot carry with "*", so a title comes
-    back with a hole in it: "Fikołek" arrives as "Fiko*ek". Same length, every
-    position equal except where the mangled copy holds a non-letter."""
-    a, b = (mangled or "").casefold(), (candidate or "").casefold()
-    if not a or len(a) != len(b):
-        return False
-    return all(x == y or not x.isalnum() for x, y in zip(a, b))
 
 
 def tracks() -> dict:
@@ -142,7 +114,7 @@ def find_track(artist: str, title: str):
     # Last resort: the same artist, and a title that matches once the holes
     # Icecast punched are allowed to stand for anything.
     for row in idx["by_artist"].get(norm(artist), ()):
-        if _wildcard_match(title, row["title"]):
+        if wildcard_match(title, row["title"]):
             return row
     return None
 
