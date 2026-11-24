@@ -547,7 +547,8 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
     """
     vectors: dict[str, list] = {}
     names: dict[str, str] = {}
-    for row in analysis_queries.candidate_rows(index_conn):
+    candidates = analysis_queries.candidate_rows(index_conn)
+    for row in candidates:
         name = row["album_artist"] or row["artist"] or ""
         if not name:
             continue
@@ -559,7 +560,7 @@ def refresh_artists(index_conn: sqlite3.Connection, store: sqlite3.Connection) -
         row["track_id"]: row
         for row in analysis_queries.artist_track_rows(store, MODEL_VERSION)
     }
-    for row in analysis_queries.candidate_rows(index_conn):
+    for row in candidates:
         hit = by_track.get(row["id"])
         if hit is None or not hit["vec"]:
             continue

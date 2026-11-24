@@ -103,7 +103,6 @@ never one from several songs back, even if it is in the timeline."""
 
 
 _guidance_cache: dict[str, tuple[float, str]] = {}
-_rules_cache: tuple[float, str] = (-1.0, DEFAULT_PERSONA)
 
 
 def _read_or_default(path: Path, default: str) -> str:
@@ -133,22 +132,7 @@ def track_guidance() -> str:
 
 def persona() -> str:
     """The global prompt, editable from the admin (config/dj-persona.md)."""
-    global _rules_cache
-    path = config.DJ_PERSONA_FILE
-    try:
-        mtime = path.stat().st_mtime
-    except OSError:
-        _rules_cache = (-1.0, DEFAULT_PERSONA)
-        return DEFAULT_PERSONA
-    if mtime == _rules_cache[0]:
-        return _rules_cache[1]
-    try:
-        text = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        text = ""
-    text = text or DEFAULT_PERSONA
-    _rules_cache = (mtime, text)
-    return text
+    return _read_or_default(config.DJ_PERSONA_FILE, DEFAULT_PERSONA)
 
 
 def system_prompt(station: config.Station, catalog_summary: dict, track_candidates: bool = False) -> str:
