@@ -44,6 +44,33 @@ def open_db(
     return conn
 
 
+def open_store(
+    path: str | Path,
+    *,
+    create: bool = False,
+    readonly: bool = False,
+    timeout: float = 30.0,
+    ensure=None,
+) -> sqlite3.Connection | None:
+    """Open an optional store: None when it does not exist, created when asked.
+
+    The analysis and loudness stores both outlive the index and are optional, so a
+    missing file means "that feature never ran" rather than an error. ``ensure`` is
+    the schema/migration step, run only when the store is being created.
+    """
+    target = Path(path)
+    if readonly and not target.exists():
+        return None
+    if not create and not target.exists():
+        return None
+    if create:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    conn = open_db(target, readonly=readonly, timeout=timeout)
+    if create and ensure is not None:
+        ensure(conn)
+    return conn
+
+
 def coverage(known: int, total: int) -> dict:
     """The four numbers every cover widget needs."""
     known, total = int(known), int(total)

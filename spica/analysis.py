@@ -107,15 +107,13 @@ def connect(path: Path | None = None, *, create: bool = False,
     The picker only ever reads: a missing file means "analysis never ran", which is
     the normal state of an installation that did not turn it on.
     """
-    path = Path(path or store_path())
-    if readonly and not path.exists():
-        return None
-    if not create and not path.exists():
-        return None
-    conn = db.open_db(path, readonly=readonly, timeout=10 if readonly else 30)
-    if create:
-        analysis_queries.ensure_schema(conn)
-    return conn
+    return db.open_store(
+        Path(path or store_path()),
+        create=create,
+        readonly=readonly,
+        timeout=10 if readonly else 30,
+        ensure=analysis_queries.ensure_schema,
+    )
 
 
 # ------------------------------------------------------------------ model files

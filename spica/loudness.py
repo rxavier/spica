@@ -142,15 +142,9 @@ def store_path() -> Path:
 
 def connect(*, create: bool = False) -> sqlite3.Connection | None:
     """The measured-loudness store, or None before the worker has made one."""
-    path = store_path()
-    if not path.exists():
-        if not create:
-            return None
-        path.parent.mkdir(parents=True, exist_ok=True)
-    conn = db.open_db(path, timeout=30)
-    if create:
-        loudness_queries.ensure_schema(conn)
-    return conn
+    return db.open_store(
+        store_path(), create=create, timeout=30, ensure=loudness_queries.ensure_schema
+    )
 
 
 def save(conn: sqlite3.Connection, track_id: str, lufs: float | None,

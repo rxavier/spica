@@ -123,3 +123,16 @@ def test_jobs_coverage_is_counted_once_per_few_seconds(tmp_path, monkeypatch):
 
     assert len(calls) == 1
     assert "analysis" not in second, "the caller's additions do not enter the cache"
+
+
+def test_open_store_is_optional_and_creates_when_asked(tmp_path):
+    path = tmp_path / "optional.db"
+    assert db.open_store(path) is None
+    assert db.open_store(path, readonly=True) is None
+
+    ensured: list[int] = []
+    conn = db.open_store(path, create=True, ensure=lambda c: ensured.append(1))
+    assert conn is not None
+    assert ensured == [1]
+    assert path.exists()
+    conn.close()
