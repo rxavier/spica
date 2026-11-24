@@ -633,10 +633,10 @@ class Library:
         row = track_queries.track_by_id(self.conn, track_id)
         if row is None:
             return False
-        ok = self._matcher(station)
-        if ok(row):
+        if self._matcher(station)(row):
             return True
-        return not any(ok(r) for r in track_queries.playable_tracks(self.conn))
+        _rows, fallback = self._station_state(station)
+        return fallback
 
     def similar(self, artist: str, limit: int = 12, station: config.Station | None = None) -> dict:
         """Tracks by artists that sound like this one.
@@ -858,23 +858,29 @@ class Library:
         except Exception as exc:  # a tool must never take the pick down with it
             return {"error": f"{name} failed: {exc}"}
 
+    def _station_state(self, station: config.Station | None) -> tuple[list, bool]:
+        """The station's playable rows and whether its rules matched nothing."""
+        if station is None:
+            return track_queries.playable_tracks(self.conn), False
+        cached = getattr(self, "_rows_cache", None)
+        now = time.monotonic()
+        if cached and cached[0] is station and now - cached[1] < 5.0:
+            return cached[2], cached[3]
+        rows, fallback = navidrome.station_match(
+            self.conn, station, matcher=self._matcher(station)
+        )
+        self._rows_cache = (station, now, rows, fallback)
+        return rows, fallback
+
     def _station_rows(self, station: config.Station | None) -> list:
         """The station's playable rows, remembered for a few seconds.
 
-        `rows_for_station` runs the station's rules over every track — 47 ms on this
+        `station_match` runs the station's rules over every track — 47 ms on this
         library — and a single pick asks for it in every tool call. The rules only
         change on a rebuild, so a short memo turns four calls into one without ever
         serving a stale index for long.
         """
-        if station is None:
-            return track_queries.playable_tracks(self.conn)
-        cached = getattr(self, "_rows_cache", None)
-        now = time.monotonic()
-        if cached and cached[0] is station and now - cached[1] < 5.0:
-            return cached[2]
-        rows = navidrome.rows_for_station(self.conn, station, matcher=self._matcher(station))
-        self._rows_cache = (station, now, rows)
-        return rows
+        return self._station_state(station)[0]
 
     def _context(self, station: config.Station | None) -> dict:
         """Everything a track row needs, gathered once per call rather than per row.
