@@ -10,6 +10,7 @@ from .. import navidrome
 from .. import pool
 from .. import store
 from .. import auth
+from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import (
@@ -98,12 +99,7 @@ async def admin_station_form(request: Request, station_id: str):
         raise HTTPException(404, "no such station")
     # Most-used first: the genre you want is nearly always near the top, and the
     # counts say how much a station is about to gain.
-    labels = [
-        (row["label"], row["n"])
-        for row in _conn().execute(
-            "SELECT label, COUNT(*) n FROM track_genres GROUP BY label ORDER BY n DESC, label"
-        )
-    ]
+    labels = [(row["label"], row["c"]) for row in label_queries.counts_by_tracks(_conn())]
     # The two dropdowns list the record's artists, most recorded first. Any name
     # already selected is kept even if the index no longer has it under that
     # spelling, so saving the form does not silently drop a rule.

@@ -9,6 +9,7 @@ from .. import navidrome
 from .. import pool
 from .. import store
 from .. import auth
+from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import (
@@ -113,10 +114,7 @@ async def admin_genres_delete(request: Request, source: str = Form(...)):
 
 
 def _all_labels(conn) -> list[str]:
-    return [
-        row["label"]
-        for row in conn.execute("SELECT label FROM track_genres GROUP BY label ORDER BY label")
-    ]
+    return label_queries.distinct(conn)
 
 
 @router.post("/admin/genres/unassign", response_class=HTMLResponse)
@@ -135,14 +133,8 @@ async def admin_genres_unassign(
     name = genre_lib.pretty(label.strip())
     if tracks and name:
         with conn:
-            conn.executemany(
-                "INSERT OR IGNORE INTO track_genre_veto (track_id, label) VALUES (?,?)",
-                [(track, name) for track in tracks],
-            )
-            conn.executemany(
-                "DELETE FROM track_genres WHERE track_id = ? AND lower(label) = lower(?)",
-                [(track, name) for track in tracks],
-            )
+            label_queries.veto(conn, [(track, name) for track in tracks])
+            label_queries.delete_for_tracks(conn, tracks, name)
         pool.write_pools(conn, store.stations())
     return templates.TemplateResponse(
         request,
@@ -186,10 +178,7 @@ async def admin_genres_assign(
     name = genre_lib.pretty(label.strip())
     if tracks and name:
         with conn:
-            conn.executemany(
-                "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?, 'manual')",
-                [(track, name) for track in tracks],
-            )
+            label_queries.insert(conn, [(track, name) for track in tracks], "manual")
         pool.write_pools(conn, store.stations())
     return templates.TemplateResponse(
         request,

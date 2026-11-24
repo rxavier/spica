@@ -39,6 +39,7 @@ import re
 from pathlib import Path
 
 from . import config
+from .queries import labels as label_queries
 
 # ---------------------------------------------------------------- layer 1: fold
 
@@ -291,7 +292,7 @@ def unify_spellings(conn) -> int:
     "Progressive Rock" and "Progressive rock" are the same genre to a listener and to
     the matcher, but they split the vocabulary in two and make the counts lie.
     """
-    rows = conn.execute("SELECT label, count(*) c FROM track_genres GROUP BY label").fetchall()
+    rows = label_queries.counts(conn)
     if not rows:
         return 0
     best: dict[str, tuple[str, int]] = {}
@@ -314,12 +315,7 @@ def unify_spellings(conn) -> int:
         target = pretty(winner[0])
         if label == target:
             continue
-        conn.execute(
-            "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
-            " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
-            (target, label),
-        )
-        conn.execute("DELETE FROM track_genres WHERE label = ?", (label,))
+        label_queries.relabel(conn, target, label)
         merged += 1
     return merged
 
@@ -364,16 +360,11 @@ def merge(conn, labels, into, *, relabel: bool = False) -> int:
             continue  # already there: nothing to move, nothing worth remembering
         _add_alias(label, target)
         keys = {fold(canon), fold(canonical(label))}
-        for row in conn.execute("SELECT label, COUNT(*) c FROM track_genres GROUP BY label"):
+        for row in label_queries.counts(conn):
             if fold(row["label"]) in keys:
                 covered += 1
         if relabel:
             with conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO track_genres (track_id, label, source)"
-                    " SELECT track_id, ?, source FROM track_genres WHERE label = ?",
-                    (target, canon),
-                )
-                conn.execute("DELETE FROM track_genres WHERE label = ?", (canon,))
+                label_queries.relabel(conn, target, canon)
     return covered
 

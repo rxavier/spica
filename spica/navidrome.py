@@ -21,6 +21,7 @@ from pathlib import Path
 from . import config
 from . import genres as genre_lib
 from . import subsonic
+from .queries import labels as label_queries
 
 
 @dataclass
@@ -401,10 +402,7 @@ def rebuild_index(conn: sqlite3.Connection, log=print, page_error: bool = True) 
 
 def labels_by_track(conn: sqlite3.Connection) -> dict[str, list[str]]:
     """Every track's canonical genre labels, in one pass."""
-    out: dict[str, list[str]] = {}
-    for r in conn.execute("SELECT track_id, label FROM track_genres"):
-        out.setdefault(r["track_id"], []).append(r["label"])
-    return out
+    return label_queries.by_track(conn)
 
 
 def mb_genres_by_artist(conn: sqlite3.Connection) -> dict[str, list[dict]]:
@@ -484,42 +482,27 @@ def apply_genre_precedence(conn: sqlite3.Connection, log=print) -> dict:
             # No MusicBrainz answer: whatever Last.fm said stands.
             continue
         # MusicBrainz is consulted for every artist it knows, file tag or not.
-        conn.execute(
-            "DELETE FROM track_genres WHERE track_id = ? AND source NOT IN ('tag', 'manual')",
-            (row["id"],),
-        )
-        conn.executemany(
-            "INSERT OR IGNORE INTO track_genres (track_id, label, source) VALUES (?,?, 'musicbrainz')",
-            [(row["id"], name) for name in names],
-        )
+        label_queries.replace_non_tag(conn, row["id"], names)
         informed += 1
-        tagged += int(
-            conn.execute(
-                "SELECT COUNT(*) c FROM track_genres WHERE track_id = ? AND source = 'tag'",
-                (row["id"],),
-            ).fetchone()["c"]
-            > 0
-        )
+        tagged += int(label_queries.has_tag(conn, row["id"]))
     # Vetoes are placed from the console, which offers the collapsed vocabulary, so a
     # refusal has to be compared the same way station matching compares labels —
     # through canonical(). A literal string match stopped biting the moment the stored
     # label was the fine one ("Electronic" vetoed, row stored as "Nu Disco").
     vetoes: dict[str, set[str]] = {}
-    for row in conn.execute("SELECT track_id, label FROM track_genre_veto"):
+    for row in label_queries.vetoes(conn):
         vetoes.setdefault(row["track_id"], set()).add(genre_lib.fold(genre_lib.canonical(row["label"])))
     removed = 0
     if vetoes:
         doomed = []
-        for row in conn.execute("SELECT track_id, label FROM track_genres"):
+        for row in label_queries.all_rows(conn):
             keys = vetoes.get(row["track_id"])
             if not keys:
                 continue
             if genre_lib.fold(genre_lib.canonical(row["label"])) in keys:
                 doomed.append((row["track_id"], row["label"]))
         if doomed:
-            removed = conn.executemany(
-                "DELETE FROM track_genres WHERE track_id = ? AND label = ?", doomed
-            ).rowcount
+            removed = label_queries.delete(conn, doomed)
     if removed:
         log(f"genres: {removed} label(s) kept out by hand")
     log(f"genres: musicbrainz informed {informed} track(s), {tagged} of them also carry a file tag")
@@ -634,7 +617,7 @@ def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:
     the console's view: `{collapsed name: {tracks, members}}`.
     """
     out: dict[str, dict] = {}
-    for row in conn.execute("SELECT label, COUNT(*) c FROM track_genres GROUP BY label"):
+    for row in label_queries.counts(conn):
         name = genre_lib.pretty(genre_lib.canonical(row["label"]))
         entry = out.setdefault(name, {"tracks": 0, "members": {}})
         entry["tracks"] += row["c"]
@@ -646,9 +629,9 @@ def _member_labels(conn: sqlite3.Connection, label: str) -> list[str]:
     """Every stored label that the console shows under `label`."""
     want = genre_lib.fold(genre_lib.canonical(label))
     return [
-        row["label"]
-        for row in conn.execute("SELECT label FROM track_genres GROUP BY label")
-        if genre_lib.fold(genre_lib.canonical(row["label"])) == want
+        label
+        for label in label_queries.distinct(conn)
+        if genre_lib.fold(genre_lib.canonical(label)) == want
     ]
 
 
@@ -666,23 +649,17 @@ def genre_report(conn: sqlite3.Connection) -> dict:
     because the console exists to build stations; `raw` and `unmapped` still describe
     the library's own words, which is what a merge rule is written against.
     """
-    raw = conn.execute(
-        "SELECT raw AS genre, COUNT(*) c FROM track_raw_genres GROUP BY raw ORDER BY c DESC"
-    ).fetchall()
+    raw = label_queries.raw_counts(conn)
     collapsed = _collapsed(conn)
     unmapped = [
         {"raw": r["genre"], "tracks": r["c"], "canonical": genre_lib.canonical(r["genre"])}
         for r in raw
         if genre_lib.explain(r["genre"])["source"] == "library"
     ]
-    source_rows = conn.execute(
-        "SELECT source, COUNT(DISTINCT track_id) tracks, COUNT(*) labels "
-        "FROM track_genres GROUP BY source ORDER BY tracks DESC"
-    ).fetchall()
-    untagged = conn.execute(
-        "SELECT COUNT(*) c FROM tracks t WHERE NOT EXISTS "
-        "(SELECT 1 FROM track_genres g WHERE g.track_id = t.id)"
-    ).fetchone()["c"]
+    source_rows = label_queries.source_counts(conn)
+    from .queries import tracks as track_queries
+
+    untagged = track_queries.untagged_count(conn)
     return {
         "labels": [
             {"label": name, "tracks": entry["tracks"],
@@ -708,10 +685,7 @@ def genre_counts(conn: sqlite3.Connection) -> list[dict]:
     collapsed = _collapsed(conn)
     albums: dict[str, set] = {}
     sources: dict[str, set] = {}
-    for row in conn.execute(
-        "SELECT g.label AS label, t.album_id AS album_id, g.source AS source"
-        " FROM track_genres g JOIN tracks t ON t.id = g.track_id"
-    ):
+    for row in label_queries.album_genre_sources(conn):
         name = genre_lib.pretty(genre_lib.canonical(row["label"]))
         albums.setdefault(name, set()).add(row["album_id"])
         sources.setdefault(name, set()).add(row["source"])
@@ -732,29 +706,13 @@ def genre_counts(conn: sqlite3.Connection) -> list[dict]:
 
 
 def label_albums(conn: sqlite3.Connection, label: str) -> list[sqlite3.Row]:
-    marks = ", ".join("?" * max(1, len(_member_labels(conn, label))))
-    return conn.execute(
-        f"""SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                  t.album AS album, COUNT(*) AS tracks, MIN(t.year) AS year
-           FROM track_genres g JOIN tracks t ON t.id = g.track_id
-           WHERE g.label IN ({marks})
-           GROUP BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album
-           ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album""",
-        _member_labels(conn, label) or [label],
-    ).fetchall()
+    return label_queries.album_rows(conn, _member_labels(conn, label) or [label])
 
 
 def label_tracks(conn: sqlite3.Connection, label: str, limit: int = 300) -> list[sqlite3.Row]:
-    marks = ", ".join("?" * max(1, len(_member_labels(conn, label))))
-    return conn.execute(
-        f"""SELECT COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                  t.album AS album, t.title AS title, t.year AS year
-           FROM track_genres g JOIN tracks t ON t.id = g.track_id
-           WHERE g.label IN ({marks})
-           ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album, t.track_no
-           LIMIT ?""",
-        (_member_labels(conn, label) or [label]) + [limit],
-    ).fetchall()
+    return label_queries.track_rows(
+        conn, _member_labels(conn, label) or [label], limit
+    )
 
 
 _SOURCE_WORDS = {
@@ -781,40 +739,17 @@ def label_explorer(conn: sqlite3.Connection, labels: list[str], limit: int = 500
             if found not in members:
                 members.append(found)
     labels = members
-    marks = ",".join("?" * len(labels))
-    total = conn.execute(
-        f"SELECT COUNT(DISTINCT track_id) c FROM track_genres WHERE label IN ({marks})", labels
-    ).fetchone()["c"]
-    albums = conn.execute(
-        f"""SELECT COUNT(DISTINCT t.album_id) c FROM track_genres g
-            JOIN tracks t ON t.id = g.track_id WHERE g.label IN ({marks})""",
-        labels,
-    ).fetchone()["c"]
-    rows = conn.execute(
-        f"""SELECT t.id AS id, COALESCE(NULLIF(t.album_artist, ''), t.artist) AS artist,
-                   t.album AS album, t.title AS title, t.year AS year
-            FROM tracks t
-            WHERE t.id IN (SELECT track_id FROM track_genres WHERE label IN ({marks}))
-            ORDER BY COALESCE(NULLIF(t.album_artist, ''), t.artist), t.album, t.track_no
-            LIMIT ?""",
-        labels + [limit],
-    ).fetchall()
+    total = label_queries.explorer_total(conn, labels)
+    albums = label_queries.explorer_albums(conn, labels)
+    rows = label_queries.explorer_rows(conn, labels, limit)
 
     ids = [r["id"] for r in rows]
     by_track: dict[str, list[str]] = {}
-    for chunk_start in range(0, len(ids), 400):
-        chunk = ids[chunk_start : chunk_start + 400]
-        marks2 = ",".join("?" * len(chunk))
-        for g in conn.execute(
-            f"""SELECT track_id, label, GROUP_CONCAT(DISTINCT source) AS sources
-                FROM track_genres WHERE track_id IN ({marks2})
-                GROUP BY track_id, label""",
-            chunk,
-        ):
-            words = [_SOURCE_WORDS.get(s, s) for s in (g["sources"] or "").split(",") if s]
-            by_track.setdefault(g["track_id"], []).append(
-                f"{g['label']} ({', '.join(words)})" if words else g["label"]
-            )
+    for g in label_queries.genres_for_tracks(conn, ids):
+        words = [_SOURCE_WORDS.get(s, s) for s in (g["sources"] or "").split(",") if s]
+        by_track.setdefault(g["track_id"], []).append(
+            f"{g['label']} ({', '.join(words)})" if words else g["label"]
+        )
 
     tracks = []
     for r in rows:
