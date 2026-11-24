@@ -43,9 +43,10 @@ uv run pytest
 The project targets Python 3.14 (`.python-version`); `uv` picks it up, and the
 analysis extra is not needed for the tests.
 
-Hermetic on purpose: no model, no network, no Navidrome and no station. Every test
-points `SPICA_STATE` at a temporary directory, so none of them can touch a real
-`state/` — the directory that is on air. What is covered is the part that has to be
+Hermetic on purpose: no model, no network, no Navidrome and no station. The shared
+fixtures point `config.STATE_DIR` at a temporary directory, so no test can touch a real
+`state/` — the directory that is on air. A fixture that moves the state must move
+`genres.alias_path()` and the other import-time paths with it. What is covered is the part that has to be
 right: what the code accepts as an answer and what it refuses, the set's life on disk,
 the picker's flow when a set exists or a request arrives, and the arithmetic behind the
 shelf and the table — which artists it excludes, how the slots are shared out, the five
