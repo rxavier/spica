@@ -155,61 +155,23 @@ deployment story: [`deploy/README.md`](deploy/README.md).
   one cheap answer — the nearest thing to what is already playing — so a set costs one
   decision per stretch of night instead of one per record. A listener request throws the rest of the
   set away, because it was chosen for the mood they asked to leave.
-- **LLM picks with real tools, when a set needs them.** Six of them: `history` (what
-  the station just played, with how many songs ago), `redraw` (three more records from the
-  racks, never the ones already dealt), `search` (word-wise, and a name that plays
-  nowhere here answers with the artists that sound like it), `filter` (a draw from the
-  station, narrowed by genre and years, with totals and paging), `catalogue` (an
-  artist's holdings or one album in running order), and `similar`. The station's genre
-  weights and its size are in the system prompt; the artists are not — in the tool path
-  the shelf names the only ones that can play, and a second list of names beside it is
-  one the model can name from. Every result is filtered through the station's rules, so
-  a narrow station cannot return something outside its palette. In the tool path track
-  ids exist only inside tool results, so a pick is always grounded in a lookup rather
-  than a remembered name; a table set carries its ids in the brief instead, already
-  checked against the table. The toolbox and its contract are in
-  [`docs/dj-tools.md`](docs/dj-tools.md). With analysis on, a normal set is one call and
-  no tools; the tools are for listener requests and the analysis-off path.
-- **The shelf, and the table.** With analysis off, each set is drawn from a named shelf of
-  about twelve artists, and the reply is checked against it — an artist that is not on the
-  shelf is dropped like a track that is not on the station, and no artist appears twice
-  in a set. The shelf leaves out what played in the last five tracks, the artists the DJ
-  picked in its last eight, what is queued,
-  and the three closest neighbours of the records either side of the set (Last.fm match
-  ≥ 0.15, edges taken both ways), then fills ten slots by label weight with a cap of
-  three per label, at least two decades and one artist from each third of the roster.
-  Two more slots go to whoever has been off the air longest, so a record that has not
-  had its turn in hours is not excluded by a stratification that never thinks about
-  time. The point is that a smaller version of the station is a better brief than a
-  larger version of the model's taste: given a list, the DJ plays from the list. With
-  analysis on, a normal set is drawn from the record table instead (see below); the
-  shelf remains the analysis-off path and the fallback for a station with no usable
-  anchor.
+- **LLM picks with real tools, when a set needs them.** Six tools — `history`,
+  `redraw`, `search`, `filter`, `catalogue` and `similar` — all grounded in tool results
+  and filtered through the station's rules. With analysis on, a normal set is one call
+  and no tools. The toolbox and its contract are in
+  [`docs/dj-tools.md`](docs/dj-tools.md).
+- **Artist candidates, or track candidates.** With analysis off, each set comes from a
+  short list of artists; an off-list artist is dropped and no artist appears twice. With
+  analysis on, the offer is records grouped by how they move from what is on air. The
+  rules for both are in [`docs/dj-tools.md`](docs/dj-tools.md).
 - **Audio analysis, optional and off by default.** With `SPICA_ANALYSIS=1` the worker
-  reads each track once through Navidrome — the original file, not a transcode — and stores what it sounds like:
-  a Discogs-EffNet embedding, the 400 Discogs style probabilities, ten mood/danceability/
-  timbre/voice heads, tempo with confidence and key (plus EBU R128 loudness and dynamic
-  range, opt-in). The offer to the DJ becomes **records, not artists**: about thirty-two
-  tracks in five directions — continue the flow, move one axis, change it up, land it,
-  and the one everyone knows — each with style, tempo, key, energy and how well known it
-  is, and the ids written in front, so a set is one model call and no lookups. A record
-  stays out of the table for sixty DJ picks or eight hours of air, whichever is longer,
-  and for four sets after it was merely *offered*: being offered is having had a turn,
-  so a record that never played does not return on table after table. Absence also
-  lifts a candidate inside its direction, so near neighbours that have not had a turn come
-  first instead of the same few orbiting what is on air. The familiar option is the top
-  third of the artist's catalogue, ordered by whoever has been off the air longest rather
-  than by how famous the single is; the station's own popularity lean decides how much of
-  the table it gets. Listener
-  requests still go through the tools, where a name can be searched. `similar` answers
-  from the vectors first, and the fallback shelf's "sounds too like what is playing"
-  rule stops depending on whether Last.fm happens to name an artist you own. Readiness
-  is per station: while a backfill is partial the table is drawn from what has been
-  measured and gains a *not measured yet* group (recent arrivals, no sonic numbers), and
-  with no usable anchor it falls back to the artist shelf. ONNX on the CPU, about 4 s of
-  CPU per track
-  (four-minute cap, extra DSP off) — roughly 2–3 h for a 5,000-track library on four
-  cores — models downloaded once. Off, nothing below changes.
+  analyses each track once and stores an embedding, styles, moods, tempo and key. The
+  picker then offers about thirty-two records in five directions with style, tempo, key,
+  energy and popularity in front, so a set is one model call and no lookups. Partial
+  coverage adds a *not measured yet* group; with no usable anchor the artist candidates
+  take over. About 4 s of CPU per track, models downloaded once; off, nothing changes.
+  The analysis itself is described in
+  [`docs/dj-tools.md`](docs/dj-tools.md).
 - **Similarity without a hard dependency.** Cached, then artist MBID from Navidrome,
   then MusicBrainz, then ListenBrainz, then Last.fm by name, then local genre. No
   provider is required; a library with no ids and no API key still gets an answer. The
