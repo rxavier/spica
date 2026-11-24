@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from spica import analysis, config, mixer, navidrome, queue
+from spica import analysis, config, ledger, mixer, navidrome, queue
 from spica.picker import loop, table
 from spica.picker.library import Library
 from tests.factories import insert_tracks
@@ -176,7 +176,7 @@ def test_a_pick_stays_out_of_the_table_when_nobody_was_listening(rig, monkeypatc
     victim = baseline["ids"][0]
     # Nobody listened: the ledger holds nothing the DJ chose.
     monkeypatch.setattr(queue, "recent_ids", lambda st, n=40: set())
-    monkeypatch.setattr(queue, "recent_pick_ids", lambda st, n=60: {victim})
+    monkeypatch.setattr(ledger, "recent_pick_ids", lambda st, n=60: {victim})
     built = table.build(lib, config.Station(id="t", name="T"))
     assert built is not None
     assert victim not in built["ids"]
