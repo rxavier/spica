@@ -125,6 +125,51 @@ async def admin_station_form(request: Request, station_id: str):
     )
 
 
+def _rename_station(raw: list[dict], station_id: str, new_id: str):
+    """Apply a requested rename. Returns (rack, id, note, error)."""
+    wanted_id = _slug(new_id) or station_id
+    if wanted_id == station_id:
+        return raw, station_id, "", ""
+    if any(item.get("id") == wanted_id for item in raw):
+        return raw, station_id, "", f"There is already a station called “{wanted_id}”. Nothing was saved."
+    moved = _move_state(station_id, wanted_id)
+    raw = [
+        {**item, "id": wanted_id} if item.get("id") == station_id else item for item in raw
+    ]
+    note = (" Moved " + ", ".join(moved) + ".") if moved else ""
+    return raw, wanted_id, note, ""
+
+
+def _apply_form(item: dict, station_id: str, *, name: str, description: str,
+                genres: list[str], exclude_genres: list[str],
+                include_artists: list[str], exclude_artists: list[str],
+                popularity: str, year_from: str, year_to: str,
+                stream_codec: list[str]) -> bool:
+    """Write the form onto one station. True when its stream set changed."""
+    # Checkboxes: whatever arrived, in the canonical order, and never nothing.
+    wanted_streams = config.parse_codecs(stream_codec) or config.DEFAULT_CODECS
+    before = config.parse_codecs(item.get("streams"))
+    item.update(
+        {
+            "streams": list(wanted_streams),
+            "name": name.strip() or station_id,
+            "description": description.strip(),
+            "include_genres": known_labels(genres),
+            "exclude_genres": known_labels(exclude_genres),
+            "include_artists": [a.strip() for a in include_artists if a.strip()],
+            "exclude_artists": [a.strip() for a in exclude_artists if a.strip()],
+            "popularity": popularity if popularity in ("deep", "balanced", "hits") else "balanced",
+            "year_from": _int_or_none(year_from),
+            "year_to": _int_or_none(year_to),
+        }
+    )
+    return before != wanted_streams
+
+
+def _rebuild_pools() -> dict[str, int]:
+    return pool.write_pools(store.conn(), store.reload_stations())
+
+
 @router.post("/admin/stations/{station_id}", response_class=HTMLResponse)
 async def admin_station_save(
     request: Request,
@@ -141,52 +186,24 @@ async def admin_station_save(
     new_id: str = Form(""),
     stream_codec: list[str] = Form(default=[]),
 ):
-    raw = _raw_stations()
-    wanted_id = _slug(new_id) or station_id
-    renamed = wanted_id != station_id
-    if renamed:
-        if any(item.get("id") == wanted_id for item in raw):
-            return templates.TemplateResponse(
-                request,
-                "_saved.html",
-                {"message": f"There is already a station called “{wanted_id}”. Nothing was saved.",
-                 "station_id": station_id},
-            )
-        moved = _move_state(station_id, wanted_id)
-        raw = [
-            {**item, "id": wanted_id} if item.get("id") == station_id else item for item in raw
-        ]
-        station_id = wanted_id
-        note = (" Moved " + ", ".join(moved) + ".") if moved else ""
-    else:
-        note = ""
-
-    # Checkboxes: whatever arrived, in the canonical order, and never nothing.
-    wanted_streams = config.parse_codecs(stream_codec) or config.DEFAULT_CODECS
+    original_id = station_id
+    raw, station_id, note, error = _rename_station(_raw_stations(), station_id, new_id)
+    if error:
+        return templates.TemplateResponse(
+            request, "_saved.html", {"message": error, "station_id": original_id}
+        )
     streams_changed = False
     for item in raw:
-        if item.get("id") != station_id:
-            continue
-        before = config.parse_codecs(item.get("streams"))
-        streams_changed = before != wanted_streams
-        item.update(
-            {
-                "streams": list(wanted_streams),
-                "name": name.strip() or station_id,
-                "description": description.strip(),
-                "include_genres": known_labels(genres),
-                "exclude_genres": known_labels(exclude_genres),
-                "include_artists": [a.strip() for a in include_artists if a.strip()],
-                "exclude_artists": [a.strip() for a in exclude_artists if a.strip()],
-                "popularity": popularity if popularity in ("deep", "balanced", "hits") else "balanced",
-                "year_from": _int_or_none(year_from),
-                "year_to": _int_or_none(year_to),
-            }
-        )
+        if item.get("id") == station_id:
+            streams_changed = _apply_form(
+                item, station_id,
+                name=name, description=description, genres=genres,
+                exclude_genres=exclude_genres, include_artists=include_artists,
+                exclude_artists=exclude_artists, popularity=popularity,
+                year_from=year_from, year_to=year_to, stream_codec=stream_codec,
+            )
+            break
     write_stations(raw)
-
-    def _rebuild_pools() -> dict[str, int]:
-        return pool.write_pools(store.conn(), store.reload_stations())
 
     counts = await asyncio.to_thread(_rebuild_pools)
     if note or streams_changed:
@@ -197,7 +214,7 @@ async def admin_station_save(
     response = templates.TemplateResponse(
         request, "_saved.html", {"message": message, "station_id": station_id}
     )
-    if renamed:
+    if station_id != original_id:
         # The form on screen still posts the old id, and still holds it in `new_id`,
         # so the next save would quietly write nothing or rename it back. Land the
         # page on the new id and let it flash what happened.
