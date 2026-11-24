@@ -152,7 +152,6 @@ def run_popularity(conn, job_id: int, log=print) -> dict:
         if i % 20 == 0 or i == len(rest):
             jobs.progress(conn, job_id, done + i, total)
             log(f"popularity: lastfm {i}/{len(rest)} ({stored} stored)")
-        time.sleep(0.35)
     return {"tracks": total, "stored": stored}
 
 
