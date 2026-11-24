@@ -76,11 +76,9 @@ def order(station: config.Station, rows: list[sqlite3.Row], percentile: dict[str
           seed_album: str = "") -> list[sqlite3.Row]:
     """A fresh random order for every rebuild.
 
-    It used to be keyed by the day, which bought reproducibility and cost variety:
-    every rebuild inside one day produced the same sequence, and since a rewrite
-    restarts a playlist from its head, the same few tracks came round again. The
-    order is not something anyone needs to reproduce — the file on disk is the
-    record of it.
+    The salt is fresh on every rebuild: reproducibility is not wanted here, because a
+    rewrite restarts the playlist from its head and a stable order would put the same
+    few tracks at the top again. The file on disk is the record of what was chosen.
     """
     salt = secrets.randbits(64) if salt is None else salt
     scored = sorted(rows, key=lambda r: _score(station, r, salt, percentile or {}))

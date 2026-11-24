@@ -95,8 +95,6 @@ def _stations_view() -> list[dict]:
 
 @router.get("/admin/queue", response_class=HTMLResponse)
 def admin_queue(request: Request):
-    # Every admin handler carries its own gate; this one shipped without it, so the
-    # pane — titles, reasons, briefs — was readable by anyone who asked for it.
     views = _stations_view()
     wanted = (request.query_params.get("station") or "").strip()
     selected = next((v for v in views if v["station"].id == wanted), views[0] if views else None)

@@ -189,9 +189,8 @@ class Library:
     def rows_on_station(self, rows: list, station: config.Station | None) -> list:
         """Drop whatever the station's rules would not let on air.
 
-        Every tool result goes through this. The block was copy-pasted into five
-        handlers, and the branch that missed it handed the DJ a track the station
-        cannot play.
+        Every tool result goes through this, so the station's rules constrain what the
+        model can return instead of being a suggestion in the prompt.
         """
         if station is None:
             return rows
@@ -201,11 +200,10 @@ class Library:
     def search(self, query: str, limit: int = 20, station: config.Station | None = None, **_):
         """Tracks whose name matches the query, or what the library has that is close.
 
-        Two things used to make this a dead end. The query had to appear as one
-        substring in one column, so "Ride Vapour Trail" — an artist and a title, the
-        way anybody would write it — matched nothing; and a name that simply is not in
-        the library came back as an empty list, which reads the same as a typo, so the
-        DJ would try the next name it remembered and lose the round.
+        Every word has to land somewhere, in any column, so "Ride Vapour Trail" — an
+        artist and a title, the way anybody would write it — finds the record. A name
+        that simply is not in the library answers with what does sound like it: an
+        empty list reads the same as a typo and sends the DJ to the next remembered name.
         """
         text = html.unescape(str(query or "")).strip()
         limit = clamp(limit, 20, 200)
@@ -333,8 +331,8 @@ class Library:
         if not key:
             return []
 
-        # Acts only. Album titles were tried too and produced noise: "Parcels" reached
-        # "Parachutes", "Jungle" reached "Singles" — matches on shape, not on sense.
+        # Acts only: matching album titles admits shape, not sense — "Parcels" reaches
+        # "Parachutes", "Jungle" reaches "Singles".
         scored = []
         for name in track_queries.album_artist_names(self.conn):
             folded = navidrome.name_key(name)

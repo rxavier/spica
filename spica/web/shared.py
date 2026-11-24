@@ -44,9 +44,8 @@ ALBUM_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 templates = Jinja2Templates(directory=str(PACKAGE / "templates"))
 # The sizes the templates ask the art route for: the hero wants the big one, a
-# 38-pixel ledger stamp does not. Two `templates.env.globals[...]` lines used to sit
-# in web.py beside this constructor and the split dropped them without a word, so
-# every <img> asked for `size=` and FastAPI answered 422 — no artwork anywhere.
+# 38-pixel ledger stamp does not. Both have to be registered on the Jinja environment
+# or every <img size=...> is a 422 and no artwork renders.
 templates.env.globals["hero"] = COVER_SIZE
 templates.env.globals["thumb"] = THUMB_SIZE
 
