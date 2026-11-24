@@ -148,6 +148,7 @@ def test_an_empty_requests_fragment_is_empty_on_purpose(console):
     login(client)
     response = client.get("/s/alt/requests")
     assert response.status_code == 200
+    assert response.text.strip() == "", "htmx swaps an empty fragment, not a placeholder"
 
 
 def test_an_unknown_station_is_404_not_a_traceback(console):

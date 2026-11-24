@@ -200,12 +200,14 @@ def test_exploring_a_label_lists_its_tracks(console):
     client, _, _, _ = console
     response = client.get("/admin/genres/tracks", params=[("label", "Rock")])
     assert response.status_code == 200
-    assert "First" in response.text or "Indie" in response.text
+    assert "First" in response.text and "Third" in response.text
 
 
 def test_exploring_nothing_is_not_an_error(console):
     client, _, _, _ = console
-    assert client.get("/admin/genres/tracks").status_code == 200
+    response = client.get("/admin/genres/tracks")
+    assert response.status_code == 200
+    assert "Pick one or more genres" in response.text
 
 
 # --- jobs ---------------------------------------------------------------------
