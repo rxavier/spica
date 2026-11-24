@@ -81,8 +81,8 @@ def next_up(st) -> str:
     return queue.queued(st)
 
 
-def now_playing(st) -> dict:
-    live = icecast.live_mount(icecast.listen_states(), st)
+def now_playing(st, states: dict | None = None) -> dict:
+    live = icecast.live_mount(states if states is not None else icecast.listen_states(), st)
     state = live[1] if live else None
     raw = ((state.title if state else "") or "").strip()
     if not raw:
@@ -130,9 +130,8 @@ def now_playing(st) -> dict:
     track_id = entry.get("id", "")
     if not album_id and track_id:
         album_id = store.album_for(track_id)
-    if not album_id and song:
-        found = store.find_track(artist, song)
-        album_id = found["album_id"] if found else ""
+    if not album_id and found:
+        album_id = found["album_id"]
 
     album = ""
     if album_id:

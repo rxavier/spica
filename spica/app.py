@@ -209,7 +209,7 @@ async def status(request: Request) -> dict:
     for st in store.stations():
         live = icecast.live_mount(states, st)
         mount = live[1] if live else None
-        now = await asyncio.to_thread(web.now_playing, st)
+        now = await asyncio.to_thread(web.now_playing, st, states)
         art = ""
         if now.get("album_id"):
             art = f"{base}/art/{now['album_id']}"
