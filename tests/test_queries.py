@@ -103,3 +103,23 @@ def test_enrichment_caches_roundtrip(tmp_path):
     assert enrichment.cached_mbid(conn, "Band") == "mbid-1"
     assert enrichment.cached_scores(conn, "Band") == [("Other", 0.5)]
     assert enrichment.popularity(conn)[0]["playcount"] == 10
+
+
+def test_jobs_coverage_is_counted_once_per_few_seconds(tmp_path, monkeypatch):
+    from spica import jobs
+
+    conn = navidrome.connect(tmp_path / "index.db")
+    calls: list[int] = []
+    real = jobs.job_queries.coverage_counts
+    monkeypatch.setattr(
+        jobs.job_queries, "coverage_counts",
+        lambda c: calls.append(1) or real(c),
+    )
+    monkeypatch.setattr(jobs, "_coverage_cache", None)
+
+    first = jobs.coverage(conn)
+    first["analysis"] = {"added": True}
+    second = jobs.coverage(conn)
+
+    assert len(calls) == 1
+    assert "analysis" not in second, "the caller's additions do not enter the cache"

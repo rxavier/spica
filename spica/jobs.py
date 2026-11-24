@@ -151,8 +151,21 @@ def recent(conn: sqlite3.Connection, limit: int = 10) -> list[dict]:
     return out
 
 
+_coverage_cache: tuple[object, float, dict] | None = None
+_COVERAGE_TTL_S = 5.0
+
+
 def coverage(conn: sqlite3.Connection) -> dict:
-    """What the DJ actually knows — the numbers the library page acts on."""
+    """What the DJ actually knows — the numbers the library page acts on.
+
+    Five full-table counts, and the page polls them. Kept for a few seconds per
+    connection; a caller that adds to the returned dict gets its own copy.
+    """
+    global _coverage_cache
+    now = time.monotonic()
+    if (_coverage_cache is not None and _coverage_cache[0] is conn
+            and now - _coverage_cache[1] < _COVERAGE_TTL_S):
+        return dict(_coverage_cache[2])
     counts = job_queries.coverage_counts(conn)
     total = counts["total"]
     genre_known = counts["genre_known"]
@@ -169,8 +182,10 @@ def coverage(conn: sqlite3.Connection) -> dict:
             "percent": math.floor(known * 1000.0 / of) / 10 if of else 0.0,
         }
 
-    return {
+    out = {
         "genres": pack(genre_known),
         "popularity": pack(popularity_known),
         "similarity": pack(similarity_known, artists_total),
     }
+    _coverage_cache = (conn, now, out)
+    return dict(out)
