@@ -17,6 +17,7 @@ import time
 import pytest
 
 from spica import config, enrich, genres, mixer, navidrome, queue, worker
+from spica.queries import labels as label_queries
 from tests.factories import insert_tracks
 from spica.picker import library as picker_library
 
@@ -272,11 +273,11 @@ def test_the_console_shows_one_row_per_shelf(db, station):
     seed(db, [track("1" * 22, "Disco Band"), track("2" * 22, "Other")],
          [label("1" * 22, "Nu Disco"), label("1" * 22, "Electronic", "musicbrainz"),
           label("2" * 22, "Jazz Fusion")])
-    counts = {row["label"]: row for row in navidrome.genre_counts(db)}
+    counts = {row["label"]: row for row in label_queries.genre_counts(db)}
     assert "Electronic" in counts
     assert counts["Electronic"]["members"], "the fine labels are nested under the shelf"
     assert {m["label"] for m in counts["Electronic"]["members"]} == {"Nu Disco"}
-    assert navidrome.genre_counts(db)[0]["label"] in {"Electronic", "Jazz Fusion"}
+    assert label_queries.genre_counts(db)[0]["label"] in {"Electronic", "Jazz Fusion"}
 
 
 def test_a_station_genre_written_as_the_shelf_name_survives_a_save(db, station, monkeypatch):

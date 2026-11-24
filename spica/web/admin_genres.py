@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from .. import genres as genre_lib
 from .. import navidrome
-from ..navidrome import genre_counts
 from .. import pool
 from .. import store
 from .. import auth
@@ -31,7 +30,7 @@ async def admin_genres(request: Request, msg: str = "", merged: str = "", into: 
 
     conn = store.conn()
     untagged = await asyncio.to_thread(track_queries.untagged_count, conn)
-    counts = await asyncio.to_thread(genre_counts, conn)
+    counts = await asyncio.to_thread(label_queries.genre_counts, conn)
     operator = await asyncio.to_thread(genre_lib.operator_aliases)
     total = await asyncio.to_thread(
         lambda: track_queries.library_size(conn, playable=False)
