@@ -18,11 +18,10 @@ import time
 
 from .queries import jobs as job_queries
 
-KINDS = ("genre_tags", "refresh", "popularity", "musicbrainz", "similarity", "analysis", "loudness")
-
-# What the operator calls each job. The raw kind stays visible beside it, because
-# that is the string in the logs and in the URLs.
-KIND_LABELS = {
+# The one list of job kinds: database/log/URL name -> what the operator calls it.
+# `worker.HANDLERS` is validated against this at import, and the admin page's
+# buttons are checked against it by the tests, so a new kind cannot half-exist.
+KIND_LABELS: dict[str, str] = {
     "genre_tags": "Genres from Last.fm",
     "refresh": "Library refresh",
     "popularity": "Popularity",
@@ -31,6 +30,7 @@ KIND_LABELS = {
     "analysis": "Audio analysis",
     "loudness": "Loudness",
 }
+KINDS = tuple(KIND_LABELS)
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
