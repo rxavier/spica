@@ -10,6 +10,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+# (device, inode) of stores already migrated in this process. SQLite writes change
+# mtime, so the inode is the stable identity of one store file.
+_READY: set[tuple[int, int]] = set()
+
 # A track can only air when the station has something to fetch.
 PLAYABLE = "uri != ''"
 
@@ -62,6 +66,7 @@ def open_store(
     the schema/migration step, run only when the store is being created.
     """
     target = Path(path)
+    existed = target.exists()
     if readonly and not target.exists():
         return None
     if not create and not target.exists():
@@ -73,7 +78,10 @@ def open_store(
         check_same_thread=False if readonly else True,
     )
     if create and ensure is not None:
-        ensure(conn)
+        key = (str(target), target.stat().st_ino)
+        if not existed or key not in _READY:
+            ensure(conn)
+            _READY.add(key)
     return conn
 
 
