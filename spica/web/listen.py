@@ -7,11 +7,11 @@ import logging
 
 import httpx
 
+from .. import air
 from .. import config
 from .. import icecast
 from .. import mixer
 from .. import picker
-from .. import pool
 from .. import presence
 from .. import queue
 from .. import store
@@ -230,16 +230,11 @@ async def station_request(request: Request, station_id: str, text: str = Form(..
         # A request is a person in the room: it airs next, ahead of the DJ's pick.
         # The pick is not lost — it moves behind the request, in the queue it is
         # already in, so it airs straight after instead of after a whole rotation.
-        position = queue.append_request(st, pick.track.uri, pick.track.as_line())
-        queue.promote_requests(st)
-        queue.record_pick(st, pick.track.id, pick.track.title, pick.track.artist, pick.why,
-                          presence=presence.reason(
-                              st.id, icecast.total_listeners(icecast.listen_states(), st)),
-                          detail=pick.detail())
+        aired = await asyncio.to_thread(air.air_pick, st, pick, as_request=True, log=log.info)
         requests_mod.attach_track(st, entry, pick.track)
         message = f"{pick.track.as_line()} — {pick.why}"
-        if position > 1:
-            message += f" Toca después de {position - 1} pedido(s) más."
+        if aired.position > 1:
+            message += f" Toca después de {aired.position - 1} pedido(s) más."
     return templates.TemplateResponse(
         request,
         "_request_result.html",
