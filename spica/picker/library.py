@@ -504,12 +504,9 @@ class Library:
         size = size or self.CRATE_ALBUMS
         tracks_shown = tracks_shown or self.CRATE_TRACKS
         skip = {navidrome.name_key(a) for a in (avoid_acts or set()) if a}
-        self._crate_skip = set(avoid_acts or set())
         # Never deal the same record twice in one pick: a flip is a new pile, not the
         # same three covers with one swapped.
-        if getattr(self, "_dealt_seed", None) != self.draw_seed:
-            self._dealt_seed = self.draw_seed
-            self._dealt_albums = set()
+        self._remember_dealt(())
         dealt = set(self._dealt_albums)
 
         by_album: dict[str, list] = {}
