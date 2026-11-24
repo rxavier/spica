@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from . import config
+from .atomic import atomic_write
 
 
 def encoder(codec: str) -> str:
@@ -134,10 +135,14 @@ def render(stations: list[config.Station], password: str) -> str:
 
 
 def main() -> int:
+    password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
+    if not password:
+        print("ICECAST_SOURCE_PASSWORD is not set; refusing to write a script with no source password",
+              file=sys.stderr)
+        return 2
     stations = config.load_stations()
-    password = os.environ.get("ICECAST_SOURCE_PASSWORD", "hackme")
     target = Path(os.environ.get("SPICA_LIQ", str(config.CONFIG_DIR / "spica.liq")))
-    target.write_text(render(stations, password), encoding="utf-8")
+    atomic_write(target, render(stations, password))
     print(f"wrote {target} with {len(stations)} station(s): {', '.join(s.id for s in stations)}")
     return 0
 

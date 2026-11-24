@@ -96,3 +96,18 @@ def test_the_station_name_is_escaped_too(station):
     assert _read(_argument(line, "name")) == 'The "Good" Station'
     # An empty description falls back to the name, not to an empty literal.
     assert _read(_argument(line, "description")) == 'The "Good" Station · MP3 192k'
+
+
+def test_main_refuses_to_default_the_source_password(tmp_path, monkeypatch, capsys):
+    from spica import liqgen
+
+    monkeypatch.setattr(liqgen.config, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(liqgen.config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("ICECAST_SOURCE_PASSWORD", "")
+    monkeypatch.setenv("SPICA_LIQ", str(tmp_path / "spica.liq"))
+
+    code = liqgen.main()
+
+    assert code == 2
+    assert not (tmp_path / "spica.liq").exists()
+    assert "ICECAST_SOURCE_PASSWORD" in capsys.readouterr().err
