@@ -191,9 +191,7 @@ def pending(index_conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
     """
     if limit <= 0:
         return []
-    done = _done_ids()
-    rows = loudness_queries.candidates(index_conn, limit + len(done))
-    return [row for row in rows if row["id"] not in done][:limit]
+    return loudness_queries.pending(index_conn, _done_ids(), limit)
 
 
 def backlog(index_conn: sqlite3.Connection) -> int:
