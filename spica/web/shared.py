@@ -10,6 +10,8 @@ from collections import Counter
 from pathlib import Path
 
 from .. import config
+from .. import genres as genre_lib
+from .. import liqgen
 from .. import icecast
 from .. import mixer
 from .. import navidrome
@@ -298,10 +300,6 @@ def _move_state(old: str, new: str) -> list[str]:
 
 def _apply_station_script() -> str:
     """Regenerate spica.liq and ask the mixer to come back with it."""
-    import os
-
-    from .. import liqgen
-
     password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
     (config.CONFIG_DIR / "spica.liq").write_text(
         liqgen.render(store.reload_stations(), password), encoding="utf-8"
@@ -335,8 +333,6 @@ def known_labels(names: list[str]) -> list[str]:
     any stored label canonicalises to it — otherwise saving a station quietly drops the
     genre whose tracks are only stored fine.
     """
-    from .. import genres as genre_lib
-
     conn = _conn()
     shelf = {
         genre_lib.fold(genre_lib.canonical(label))

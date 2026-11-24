@@ -17,8 +17,14 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import air
+from . import analysis
 from . import bootstrap
 from . import config, icecast, mixer, navidrome, picker, plays, pool, presence, queue, store, web
+from . import enrich as enrich_mod
+from . import genres as genre_lib
+from . import jobs
+from . import liqgen
+from . import loudness
 from . import requests as requests_mod
 from .queries import tracks as track_queries
 
@@ -336,8 +342,6 @@ async def rebuild() -> dict:
 @app.post("/liq")
 async def render_liq() -> dict:
     """Regenerate the Liquidsoap config from stations.json (then restart `mixer`)."""
-    from . import liqgen
-
     def _run() -> str:
         password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
         if not password:
@@ -353,8 +357,6 @@ async def render_liq() -> dict:
 @app.post("/enrich")
 async def enrich_ids(limit: int = 0) -> dict:
     """Fill artist MBIDs from Navidrome's own artist records, then MusicBrainz."""
-    from . import enrich as en
-
     def _run() -> dict:
         conn = store.library().conn
         outstanding = track_queries.artists_missing_mbid(conn)
@@ -364,18 +366,18 @@ async def enrich_ids(limit: int = 0) -> dict:
         # else: one call per artist, and no search that can land on a namesake.
         resolved = 0
         for row in outstanding:
-            mbid = en.navidrome_artist_mbid(row["artist_id"])
+            mbid = enrich_mod.navidrome_artist_mbid(row["artist_id"])
             if mbid:
-                en.remember_mbid(conn, row["artist"], mbid, "navidrome")
+                enrich_mod.remember_mbid(conn, row["artist"], mbid, "navidrome")
                 resolved += 1
         todo = track_queries.artists_missing_mbid_with_album(conn)
         if limit:
             todo = todo[:limit]
         ok = 0
         for row in todo:
-            mbid, _ = en.mb_release_artist(row["album"])
+            mbid, _ = enrich_mod.mb_release_artist(row["album"])
             if mbid:
-                en.remember_mbid(conn, row["artist"], mbid, "musicbrainz-release")
+                enrich_mod.remember_mbid(conn, row["artist"], mbid, "musicbrainz-release")
                 ok += 1
         return {"from_navidrome": resolved, "musicbrainz_resolved": ok, "requested": len(todo)}
 
@@ -397,20 +399,16 @@ async def genres() -> dict:
 @app.get("/aliases")
 async def aliases() -> dict:
     """The operator merge rules currently in force (empty until you add some)."""
-    from . import genres as g
-
     return {
-        "file": str(g._FILE),
-        "operator": await asyncio.to_thread(lambda: g.operator_aliases()),
-        "builtin": g.BUILTIN,
+        "file": str(genre_lib._FILE),
+        "operator": await asyncio.to_thread(lambda: genre_lib.operator_aliases()),
+        "builtin": genre_lib.BUILTIN,
     }
 
 
 @app.get("/coverage")
 async def coverage() -> dict:
     """What the DJ knows: genre coverage, plus analysis and loudness when on."""
-    from . import analysis, jobs, loudness
-
     def _run() -> dict:
         out = jobs.coverage(store.library().conn)
         extra = analysis.coverage_for(store.library().conn)
@@ -427,8 +425,6 @@ async def coverage() -> dict:
 @app.post("/jobs")
 async def create_job(body: dict) -> dict:
     """Queue background work: {"kind": "genre_tags"}."""
-    from . import jobs
-
     kind = str(body.get("kind") or "")
     try:
         job_id = await asyncio.to_thread(jobs.create, store.library().conn, kind)
@@ -439,8 +435,6 @@ async def create_job(body: dict) -> dict:
 
 @app.get("/jobs")
 async def list_jobs(limit: int = 10) -> dict:
-    from . import jobs
-
     return {"jobs": await asyncio.to_thread(jobs.recent, store.library().conn, limit)}
 
 
