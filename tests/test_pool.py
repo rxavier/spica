@@ -75,3 +75,37 @@ def test_a_tiny_station_keeps_a_rotation_even_when_everything_is_recent(
 
     pool.write_pools(conn, [station], log=lambda *args, **kwargs: None)
     assert station.pool_file.read_text(encoding="utf-8").strip()
+
+
+def test_the_global_tables_are_read_once_for_all_stations(tmp_path, monkeypatch, station):
+    """The popularity table and loudness store do not depend on the station."""
+    from spica import loudness
+    from spica.queries import enrichment as enrich_queries
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        insert_tracks(
+            conn,
+            [_track("a1", "Band A", "First", "al1"), _track("b1", "Band B", "Other", "al2")],
+            columns=("id", "uri", "title", "artist", "album", "album_id"),
+        )
+    other = config.Station(id="other", name="Other")
+
+    popularity_calls: list[int] = []
+    measured_calls: list[int] = []
+    real_popularity = enrich_queries.popularity
+    real_measured = loudness.all_measured
+    monkeypatch.setattr(
+        enrich_queries, "popularity",
+        lambda c: popularity_calls.append(1) or real_popularity(c),
+    )
+    monkeypatch.setattr(
+        loudness, "all_measured",
+        lambda: measured_calls.append(1) or real_measured(),
+    )
+
+    pool.write_pools(conn, [station, other], log=lambda *args, **kwargs: None)
+
+    assert len(popularity_calls) == 1
+    assert len(measured_calls) == 1
