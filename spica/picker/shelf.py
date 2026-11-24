@@ -14,12 +14,12 @@ which of these ten to play, and in what order, is still the DJ's.
 from __future__ import annotations
 
 import bisect
-import hashlib
 import statistics
 from collections import Counter, defaultdict
 
 from .. import analysis, enrich, mixer, navidrome, queue
 from ..queries import enrichment as enrich_queries
+from ..names import seed_key
 from ..queries import tracks as track_queries
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
@@ -58,7 +58,7 @@ def build(lib, station) -> list[dict]:
 
     # Present it unordered. A list in a meaningful order gets read top-down and turned
     # into a cast; a handful of names has to be sorted out by the DJ.
-    chosen.sort(key=lambda p: _seed_key(lib.draw_seed, p["key"]))
+    chosen.sort(key=lambda p: seed_key(lib.draw_seed, p["key"]))
     if len(chosen) < MIN_SHELF:
         # A small library after a night of plays can leave two or three names. Handing
         # those over as the only thing that can air would stop the station rather than
@@ -68,10 +68,6 @@ def build(lib, station) -> list[dict]:
 
 
 # ------------------------------------------------------------------ the ingredients
-
-
-def _seed_key(seed: int, key: str) -> bytes:
-    return hashlib.blake2b(f"{seed}|{key}".encode(), digest_size=8).digest()
 
 
 def _profiles(lib, rows: list) -> dict[str, dict]:
@@ -261,7 +257,7 @@ def _stratified(pool: list[dict], size: int, seed: int) -> list[dict]:
     if len(pool) <= size:
         return [dict(p, why="shelf") for p in pool]
 
-    order = sorted(pool, key=lambda p: _seed_key(seed, p["key"]))
+    order = sorted(pool, key=lambda p: seed_key(seed, p["key"]))
     chosen: list[dict] = []
     taken: set[str] = set()
 
@@ -356,5 +352,5 @@ def _longest_absent(lib, station, pool: list[dict], k: int) -> list[dict]:
         if ago is not None and ago < ABSENCE:
             continue
         scored.append((ago if ago is not None else never, item))
-    scored.sort(key=lambda pair: (-pair[0], _seed_key(lib.draw_seed, pair[1]["key"])))
+    scored.sort(key=lambda pair: (-pair[0], seed_key(lib.draw_seed, pair[1]["key"])))
     return [dict(item, why="absent") for _, item in scored[:k]]
