@@ -461,54 +461,47 @@ def run_loudness(conn, job_id: int, log=print) -> dict:
             "seconds": int(time.time() - started)}
 
 
-def _analysis_due(conn) -> bool:
-    """The optional backfill has work and nothing is pending for it.
+def _due(conn, kind: str, enabled: bool, backlog) -> bool:
+    """A backfill has work, the feature is on, and a recent failure is not blocking.
 
-    Deliberately not one of FOLLOWUPS: that rule fires on a backlog *growing*, and
-    an analysis backlog shrinking is progress, so it would never start. A recent
-    failure waits an hour, like any other job.
+    The shape is the same for every sliced kind: a shrinking backlog is progress, so
+    unlike FOLLOWUPS this ignores growth; a failure waits an hour. ``backlog`` is a
+    zero-argument callable so the kind-specific store can be opened and closed here.
     """
-    from . import analysis
-
-    if not config.ANALYSIS or not analysis.installed():
+    if not enabled:
         return False
-    if job_queries.pending(conn, "analysis"):
+    if job_queries.pending(conn, kind):
         return False
-    last = jobs.last(conn, "analysis")
+    last = jobs.last(conn, kind)
     if last is not None and last["status"] == "failed":
         if time.time() - float(last["finished_at"] or 0) < 3600:
             return False
-    store = analysis.connect(readonly=True)
     try:
-        return analysis.backlog(conn, store) > 0
+        return backlog() > 0
     except Exception as exc:
-        print(f"analysis: could not count the backlog: {exc}", flush=True)
+        print(f"{kind}: could not count the backlog: {exc}", flush=True)
         return False
-    finally:
-        if store is not None:
-            store.close()
+
+
+def _analysis_due(conn) -> bool:
+    """The optional audio backfill has work and nothing is pending for it."""
+    from . import analysis
+
+    def backlog() -> int:
+        store = analysis.connect(readonly=True)
+        try:
+            return analysis.backlog(conn, store)
+        finally:
+            if store is not None:
+                store.close()
+
+    return _due(conn, "analysis", config.ANALYSIS and analysis.installed(), backlog)
 
 
 def _loudness_due(conn) -> bool:
-    """There are untagged tracks to measure and a worker that can measure them.
-
-    Same shape as the analysis rule: a shrinking backlog must not need to grow
-    before it starts, and a recent failure waits an hour. Off when the operator
-    has asked for tags only, or when the image has no ffmpeg.
-    """
-    if not (config.LOUDNESS and config.LOUDNESS_MEASURE and loudness.measure_available()):
-        return False
-    if job_queries.pending(conn, "loudness"):
-        return False
-    last = jobs.last(conn, "loudness")
-    if last is not None and last["status"] == "failed":
-        if time.time() - float(last["finished_at"] or 0) < 3600:
-            return False
-    try:
-        return loudness.backlog(conn) > 0
-    except Exception as exc:
-        print(f"loudness: could not count the backlog: {exc}", flush=True)
-        return False
+    """There are untagged tracks to measure and a worker that can measure them."""
+    enabled = config.LOUDNESS and config.LOUDNESS_MEASURE and loudness.measure_available()
+    return _due(conn, "loudness", enabled, lambda: loudness.backlog(conn))
 
 
 def missing_similarity(conn) -> int:
