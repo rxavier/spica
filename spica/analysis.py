@@ -484,10 +484,17 @@ def todo(index_conn: sqlite3.Connection, store: sqlite3.Connection,
 
 
 def backlog(index_conn: sqlite3.Connection, store: sqlite3.Connection | None) -> int:
-    """How many tracks still need analysis (0 when the store does not exist yet)."""
+    """How many tracks still need analysis (0 when the store does not exist yet).
+
+    The index and the analysis store are separate files, so this cannot be one join.
+    Count the playable rows and subtract the analysed ids that are still present,
+    rather than building the whole todo list just to take its length.
+    """
     if store is None:
         return analysis_queries.playable_count(index_conn)
-    return len(todo(index_conn, store, limit=1_000_000))
+    analysed = analysis_queries.track_ids(store, MODEL_VERSION)
+    present = analysis_queries.playable_ids(index_conn)
+    return analysis_queries.playable_count(index_conn) - len(analysed & present)
 
 
 def coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) -> dict:

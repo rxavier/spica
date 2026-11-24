@@ -470,11 +470,15 @@ def _analysis_due(conn) -> bool:
     if last is not None and last["status"] == "failed":
         if time.time() - float(last["finished_at"] or 0) < 3600:
             return False
+    store = analysis.connect(readonly=True)
     try:
-        return analysis.backlog(conn, analysis.connect(readonly=True)) > 0
+        return analysis.backlog(conn, store) > 0
     except Exception as exc:
         print(f"analysis: could not count the backlog: {exc}", flush=True)
         return False
+    finally:
+        if store is not None:
+            store.close()
 
 
 def _loudness_due(conn) -> bool:
