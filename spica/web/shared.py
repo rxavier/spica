@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .. import config
+from .. import analysis, config, jobs, loudness
 from ..atomic import atomic_write
 from .. import genres as genre_lib
 from .. import liqgen
@@ -264,6 +264,18 @@ def pool_size(st) -> int:
         return sum(1 for line in st.pool_file.read_text(encoding="utf-8").splitlines() if line.strip())
     except FileNotFoundError:
         return 0
+
+
+def coverage_context(conn) -> dict:
+    """Genre, analysis and loudness coverage in one payload for both surfaces."""
+    out = jobs.coverage(conn)
+    extra = analysis.coverage_for(conn)
+    if extra is not None:
+        out["analysis"] = extra
+    levels = loudness.coverage(conn)
+    if levels is not None:
+        out["loudness"] = levels
+    return out
 
 
 def write_stations(items: list[dict]) -> None:

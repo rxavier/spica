@@ -214,9 +214,9 @@ def test_rebuilding_reports_what_the_index_holds(console, monkeypatch):
 
 def test_reloading_writes_the_mixer_script(console, monkeypatch):
     client, cfg, _, _ = console
-    from spica.web import admin_home
+    from spica.web import shared
 
-    monkeypatch.setattr(admin_home, "_restart_mixer", lambda: "the mixer was told to restart")
+    monkeypatch.setattr(shared, "_restart_mixer", lambda: "the mixer was told to restart")
     response = client.post("/admin/reload")
     assert response.status_code == 200
     assert (cfg / "spica.liq").exists()

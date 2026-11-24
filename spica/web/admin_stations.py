@@ -259,9 +259,6 @@ async def admin_station_create(
     )
     write_stations(raw)
 
-    def _rebuild_pools() -> None:
-        pool.write_pools(store.conn(), store.reload_stations())
-
     await asyncio.to_thread(_rebuild_pools)
     await asyncio.to_thread(_apply_station_script)
     return RedirectResponse(f"/admin/stations/{station_id}?made=1", status_code=303)
@@ -287,9 +284,6 @@ async def admin_station_delete(request: Request, station_id: str):
     for stray in (config.STATE_DIR / "pools" / f"{station_id}.m3u",
                   config.STATE_DIR / "queue" / f"{station_id}.txt"):
         stray.unlink(missing_ok=True)
-    def _rebuild_pools() -> None:
-        pool.write_pools(store.conn(), store.reload_stations())
-
     await asyncio.to_thread(_rebuild_pools)
     await asyncio.to_thread(_apply_station_script)
     return RedirectResponse(f"/admin/stations?deleted={station_id}", status_code=303)
