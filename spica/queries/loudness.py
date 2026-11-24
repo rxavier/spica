@@ -54,12 +54,16 @@ def measured_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT track_id, lufs FROM track_loudness").fetchall()
 
 
-def candidates(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Playable tracks in album order, with whatever tag ReplayGain already gave them."""
-    return index_conn.execute(
-        "SELECT id, uri, replaygain_gain FROM tracks WHERE uri != ''"
+def candidates(index_conn: sqlite3.Connection, limit: int | None = None) -> list[sqlite3.Row]:
+    """Untagged playable tracks in album order, optionally only the first `limit`."""
+    sql = (
+        "SELECT id, uri, replaygain_gain FROM tracks"
+        " WHERE uri != '' AND replaygain_gain IS NULL"
         " ORDER BY album_artist, album, track_no, id"
-    ).fetchall()
+    )
+    if limit is not None:
+        return index_conn.execute(sql + " LIMIT ?", (limit,)).fetchall()
+    return index_conn.execute(sql).fetchall()
 
 
 def gain_rows(index_conn: sqlite3.Connection) -> list[sqlite3.Row]:

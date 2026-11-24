@@ -203,16 +203,17 @@ def _done_ids() -> set[str]:
 
 
 def pending(index_conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
-    """Tracks with neither a ReplayGain tag nor an attempt, in album order."""
+    """Tracks with neither a ReplayGain tag nor an attempt, in album order.
+
+    The tag filter and the LIMIT are in SQL; the attempt set lives in the other
+    database, so the query fetches `limit + len(done)` rows — enough that skip-past
+    cannot leave fewer than `limit` — instead of loading the whole library.
+    """
+    if limit <= 0:
+        return []
     done = _done_ids()
-    out: list[sqlite3.Row] = []
-    for row in loudness_queries.candidates(index_conn):
-        if row["id"] in done or row["replaygain_gain"] is not None:
-            continue
-        out.append(row)
-        if len(out) >= limit:
-            break
-    return out
+    rows = loudness_queries.candidates(index_conn, limit + len(done))
+    return [row for row in rows if row["id"] not in done][:limit]
 
 
 def backlog(index_conn: sqlite3.Connection) -> int:
