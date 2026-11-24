@@ -326,6 +326,52 @@ a.key { text-decoration: none; }
 .ledger li.is-current .title { font-weight: 600; }
 .ledger li.is-current .src { color: var(--leather-deep); }
 
+/* A set is one decision: the DJ's tracks sit together, the line it chose is the
+   label, and opening the block shows the line in full plus the airings. */
+.ledger li.set {
+  display: block; padding: 0; margin: .45rem 0;
+  background: var(--paper-2);
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--line);
+  border-radius: 8px;
+}
+.ledger li.set.is-current { border-left-color: var(--leather); padding-left: 0; }
+.ledger .set-details { padding: .1rem .6rem .2rem; }
+.ledger .set-summary {
+  display: flex; flex-wrap: wrap; gap: .2rem .75rem; align-items: baseline;
+  padding: .55rem .15rem .5rem; cursor: pointer; list-style: none;
+}
+.ledger .set-summary::-webkit-details-marker { display: none; }
+.ledger .set-summary::before {
+  content: "▸"; color: var(--leather-deep); font: .8rem/1 var(--mono);
+}
+.ledger .set-details[open] .set-summary::before { content: "▾"; }
+.ledger .set-label {
+  font: 600 .58rem/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--leather-deep);
+}
+.ledger .set-span { font: .7rem/1 var(--mono); color: var(--faint); letter-spacing: .04em; }
+.ledger .set-preview {
+  flex: 1 1 100%; min-width: 0; color: var(--soft);
+  font: .88rem/1.35 var(--serif);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ledger .set-details[open] .set-preview { display: none; }
+.ledger .set-reason {
+  margin: .05rem .15rem .45rem; color: var(--soft);
+  font: .95rem/1.45 var(--serif);
+}
+.ledger .set-tracks { list-style: none; margin: 0; padding: 0; }
+.ledger .set-tracks li {
+  grid-template-columns: 3.8rem 2rem 1fr auto;
+  padding: .5rem .15rem; border-bottom: 1px solid var(--line-soft);
+}
+.ledger .set-tracks li:last-child { border-bottom: 0; }
+
+.source-tag {
+  font: 600 .58rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--leather-deep);
+}
+
 /* ------------------------------------------------------------------ requests */
 
 .slip {

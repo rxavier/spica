@@ -223,6 +223,7 @@ async def status(request: Request) -> dict:
             "artist": now.get("artist", ""),
             "title": now.get("song", ""),
             "album": now.get("album", ""),
+            "source": now.get("source_label", ""),
             "art": art,
             # Per-station URL that answers with the station's picture; the Spica mark
             # for everyone, since stations do not have their own yet.

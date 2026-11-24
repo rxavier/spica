@@ -130,6 +130,27 @@ def test_an_empty_requests_fragment_is_empty_on_purpose(console):
     assert response.text.strip() == "", "htmx swaps an empty fragment, not a placeholder"
 
 
+def test_the_ledger_groups_a_dj_set_and_labels_rotation(console):
+    client, _, state = console
+    history = state / "history" / "alt.jsonl"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"t": "2026-11-24T18:00:00Z", "id": "c", "title": "Rotation", "artist": "C",
+         "source": "fallback_rotation", "why": ""},
+        {"t": "2026-11-24T18:05:00Z", "id": "a", "title": "One", "artist": "A",
+         "source": "dj", "why": "One line"},
+        {"t": "2026-11-24T18:10:00Z", "id": "b", "title": "Two", "artist": "B",
+         "source": "dj", "why": "One line"},
+    ]
+    history.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    page = client.get("/s/alt").text
+    assert "DJ set · 2 tracks" in page
+    assert "One line" in page
+    assert "Rotation" in page
+    assert "DJ pick" in page
+
+
 def test_an_unknown_station_is_404_not_a_traceback(console):
     client, _, _ = console
     login(client)

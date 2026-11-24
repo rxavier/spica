@@ -145,6 +145,10 @@ def now_playing(st, states: dict | None = None) -> dict:
         "album": album,
         "queued": next_up(st),
         "why": entry.get("why", ""),
+        "source": entry.get("source", ""),
+        "source_label": SOURCE_LABELS.get(
+            str(entry.get("source") or ""), str(entry.get("source") or "")
+        ),
         "track_id": track_id,
         "album_id": album_id,
         "cover_tag": store.cover_tag(album_id),
@@ -152,10 +156,10 @@ def now_playing(st, states: dict | None = None) -> dict:
 
 
 SOURCE_LABELS = {
-    "dj": "picker pick",
-    "llm": "picker pick",          # entries written before the rename
-    "fallback_rotation": "Fallback rotation",
-    "pool": "Fallback rotation",
+    "dj": "DJ pick",
+    "llm": "DJ pick",              # entries written before the rename
+    "fallback_rotation": "Rotation",
+    "pool": "Rotation",
     "request": "Request",
     "manual": "Manual",
 }
@@ -197,11 +201,58 @@ def history_of(st, limit: int = 25, now: dict | None = None) -> list[dict]:
                 row["title"] = found["title"]
         row["album_id"] = album_id
         row["current"] = bool(live) and store.norm(f"{row.get('artist', '')} {row.get('title', '')}") == live
-        row["source"] = SOURCE_LABELS.get(row.get("source", ""), row.get("source", ""))
+        raw_source = str(row.get("source") or "")
+        row["source_raw"] = raw_source
+        row["is_dj"] = raw_source in ("dj", "llm") and bool(str(row.get("why") or "").strip())
+        row["source"] = SOURCE_LABELS.get(raw_source, raw_source)
     tags = store.cover_tags(row.get("album_id", "") for row in rows)
     for row in rows:
         row["cover_tag"] = tags.get(row.get("album_id", ""), "0")
     return rows
+
+
+def history_blocks(rows: list[dict]) -> list[dict]:
+    """Group contiguous DJ airings that share a set line into one expandable block.
+
+    ``rows`` is newest first. A set is the run of DJ picks with the same reason;
+    a rotation airing, a request or a change of line ends it. A single pick stays a
+    plain row, because a one-track block is only extra chrome.
+    """
+    blocks: list[dict] = []
+    at = 0
+    while at < len(rows):
+        row = rows[at]
+        why = str(row.get("why") or "").strip()
+        if row.get("is_dj") and why:
+            end = at + 1
+            while (
+                end < len(rows)
+                and rows[end].get("is_dj")
+                and str(rows[end].get("why") or "").strip() == why
+            ):
+                end += 1
+            group = rows[at:end]
+            if len(group) >= 2:
+                blocks.append({
+                    "kind": "set",
+                    "why": why,
+                    "rows": group,
+                    "count": len(group),
+                    # The oldest stamp stays put while the set grows, so the open/closed
+                    # state survives the ledger's ten-second refresh.
+                    "key": str(group[-1].get("stamp") or group[-1].get("clock") or ""),
+                    "start": group[-1].get("clock") or "",
+                    "end": group[0].get("clock") or "",
+                    "current": any(entry.get("current") for entry in group),
+                })
+                at = end
+                continue
+        blocks.append({"kind": "track", "row": row})
+        at += 1
+    return blocks
+
+
+templates.env.globals["history_blocks"] = history_blocks
 
 
 def request_rows(st, limit: int = 5) -> list[dict]:

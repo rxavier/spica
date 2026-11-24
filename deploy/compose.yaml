@@ -15,7 +15,7 @@ name: spica
 
 services:
   init:
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.4}
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.5}
     command: ["python", "-m", "spica.bootstrap"]
     user: "${PUID:-1000}:${PGID:-1000}"
     env_file: [.env]
@@ -65,7 +65,7 @@ services:
         condition: service_completed_successfully
 
   picker:
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.4}
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.5}
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]
@@ -92,7 +92,7 @@ services:
     # The -worker image is the lean one plus ffmpeg, for the loudness measurement
     # job. For SPICA_ANALYSIS=1 use compose.analysis.yaml: the worker then runs the
     # -analysis image, which also carries onnxruntime and essentia (and ffmpeg).
-    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.4}-worker
+    image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.5}-worker
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]
