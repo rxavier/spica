@@ -77,9 +77,10 @@ async def loop() -> None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "why": "off air — no mount"}
                     continue
                 n = icecast.total_listeners(states, st)
-                if not presence.listening(st.id, n):
+                presence_now = presence.report(st.id, n)
+                if not presence_now["listening"]:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n,
-                                   "why": presence.reason(st.id, n)}
+                                   "why": presence_now["reason"]}
                     continue
                 # Keep exactly one track waiting: the queue holds what is on air
                 # too, so 1 means "playing, nothing after it". Picking further
