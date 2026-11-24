@@ -303,18 +303,6 @@ def test_similar_matches_the_album_artist_not_the_guest_credit(db, station, monk
     assert [r["artist"] for r in res["tracks"]] == ["Band"]
 
 
-def test_label_albums_group_by_album_artist(db):
-    from spica.queries import labels as label_queries
-
-    seed(db, [track("1" * 22, "Band & Guest", album_artist="Band"),
-              track("2" * 22, "Band", album_artist="Band")],
-         [label("1" * 22, "Rock"), label("2" * 22, "Rock")])
-    rows = label_queries.album_rows(db, ["Rock"])
-    assert len(rows) == 1
-    assert rows[0]["artist"] == "Band"
-    assert rows[0]["tracks"] == 2
-
-
 def test_musicbrainz_precedence_matches_the_album_artist(db):
     seed(db, [track("1" * 22, "Band & Guest", album_artist="Band")], [])
     with db:

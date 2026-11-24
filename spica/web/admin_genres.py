@@ -20,7 +20,6 @@ from fastapi.responses import (
 )
 
 from .shared import (
-    known_labels,
     templates,
 )
 

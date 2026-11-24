@@ -123,7 +123,6 @@ for _pair in filter(None, (p.strip() for p in os.environ.get("LLM_HEADERS", "").
         LLM_HEADERS[_k.strip()] = _v.strip()
 
 # How far ahead the picker keeps each listened-to station.
-QUEUE_TARGET = int(os.environ.get("QUEUE_TARGET", "1"))
 # Poll interval for the loop, seconds.
 POLL_S = int(os.environ.get("POLL_S", "20"))
 # Only used when Liquidsoap's control server is unreachable: without it the loop

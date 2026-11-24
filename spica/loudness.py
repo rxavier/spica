@@ -156,20 +156,6 @@ def save(conn: sqlite3.Connection, track_id: str, lufs: float | None,
         )
 
 
-def measured(track_id: str) -> tuple[float | None, float | None] | None:
-    """A stored measurement for one id, or None."""
-    if not config.LOUDNESS or not track_id:
-        return None
-    conn = connect()
-    if conn is None:
-        return None
-    try:
-        row = loudness_queries.measured(conn, track_id)
-    finally:
-        conn.close()
-    return (row["lufs"], row["peak"]) if row and row["lufs"] is not None else None
-
-
 def all_measured() -> dict[str, tuple[float | None, float | None]]:
     """The whole store as id -> (lufs, peak), for a pool write."""
     if not config.LOUDNESS:

@@ -54,10 +54,6 @@ class FakeLibrary:
     def run_tool(self, name, args, station=None):
         return []
 
-    def count(self, station):
-        return 3
-
-
 def fake_shelf(lib, station):
     """Every track on the fake station, one artist each, so sets survive validation."""
     return [{"artist": f"artist {i}", "reason": "candidate"} for i in lib.ids]

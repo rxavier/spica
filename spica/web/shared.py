@@ -6,7 +6,6 @@ import json
 import os
 import re
 from datetime import datetime
-from collections import Counter
 from pathlib import Path
 
 from .. import config
@@ -23,7 +22,7 @@ from .. import store
 from .. import requests as requests_mod
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
