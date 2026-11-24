@@ -439,14 +439,21 @@ def station_matcher(conn: sqlite3.Connection, st: config.Station, by_track=None)
     return ok
 
 
-def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None) -> list[sqlite3.Row]:
+def station_match(conn: sqlite3.Connection, st: config.Station,
+                  matcher=None) -> tuple[list[sqlite3.Row], bool]:
+    """The station's playable rows, and whether its rules matched nothing.
+
+    `True` means the rows are the whole library because the rules were empty or a
+    typo: callers that ask "may this track play?" have to allow anything, the same
+    way the pool and the tools do.
+    """
     from .queries import tracks as track_queries
 
     rows = track_queries.playable_tracks(conn)
     ok = matcher if matcher is not None else station_matcher(conn, st)
     picked = [r for r in rows if ok(r)]
     if picked:
-        return picked
+        return picked, False
 
     # A station whose rules match nothing must never go on air empty: say so
     # loudly and fall back to the whole library. This is what a typo, or a
@@ -456,7 +463,11 @@ def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None)
         f"({len(rows)} candidates) — falling back to the whole library",
         flush=True,
     )
-    return rows
+    return rows, True
+
+
+def rows_for_station(conn: sqlite3.Connection, st: config.Station, matcher=None) -> list[sqlite3.Row]:
+    return station_match(conn, st, matcher)[0]
 
 
 def _collapsed(conn: sqlite3.Connection) -> dict[str, dict]:

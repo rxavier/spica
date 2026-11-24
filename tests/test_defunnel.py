@@ -406,3 +406,15 @@ def test_canonical_and_explain_share_the_resolver_and_a_merge_invalidates_it(db)
     assert genres.canonical("Indie") == "Rock"
     info = genres.explain("Indie")
     assert info["canonical"] == "Rock" and info["source"] == "operator"
+
+
+def test_on_station_follows_the_empty_rules_fallback(db):
+    """A station whose rules match nothing plays the whole library, picks included."""
+    seed(db, [track("1" * 22, "Rock Band")], [label("1" * 22, "Rock")])
+    lib = picker_library.Library(db)
+
+    empty = config.Station(id="empty", name="Empty", genres=("Nonsense",))
+    tight = config.Station(id="tight", name="Tight", genres=("Rock",))
+
+    assert lib.on_station(empty, "1" * 22) is True
+    assert lib.on_station(tight, "1" * 22) is True
