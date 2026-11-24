@@ -263,12 +263,17 @@ def _fetch_audio(track_id: str, target: Path) -> Path:
     return subsonic.download(track_id, target)
 
 
-def _analysis_task(track_id: str) -> tuple[str, dict]:
-    """One track in a worker process: fetch the audio, analyse it, hand it back."""
+def _fetch_and_analyze(analyzer, track_id: str) -> dict:
+    """Fetch one track's audio into a temp file and hand it to the analyser."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "track"
         _fetch_audio(track_id, path)
-        return track_id, _ANALYZER.analyze(path)
+        return analyzer.analyze(path)
+
+
+def _analysis_task(track_id: str) -> tuple[str, dict]:
+    """One track in a worker process: fetch the audio, analyse it, hand it back."""
+    return track_id, _fetch_and_analyze(_ANALYZER, track_id)
 
 
 def run_analysis(conn, job_id: int, log=print) -> dict:
@@ -310,12 +315,6 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
             analysis.save(store, track_id, navidrome.name_key(artist), features)
             done += 1
 
-        def fetch_and_analyze(analyzer, track_id: str) -> dict:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "track"
-                _fetch_audio(track_id, path)
-                return analyzer.analyze(path)
-
         if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
             context = multiprocessing.get_context("fork")
             with ProcessPoolExecutor(
@@ -342,7 +341,7 @@ def run_analysis(conn, job_id: int, log=print) -> dict:
             analyzer = Analyzer(config.ANALYSIS_MODELS_DIR, threads=min(4, os.cpu_count() or 1))
             for i, (track_id, artist) in enumerate(tasks, 1):
                 try:
-                    take(track_id, artist, fetch_and_analyze(analyzer, track_id))
+                    take(track_id, artist, _fetch_and_analyze(analyzer, track_id))
                 except Exception as exc:
                     failed += 1
                     errors.append(str(exc))
