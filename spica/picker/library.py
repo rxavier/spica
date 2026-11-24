@@ -555,7 +555,9 @@ class Library:
         rows = {
             row["id"]: row
             for row in track_queries.tracks_by_ids(
-                self.conn, [entry.get("id") or "" for entry in plays]
+                self.conn,
+                [entry.get("id") or "" for entry in plays],
+                "id, album_artist, artist",
             )
         }
         artists: list[str] = []
@@ -579,6 +581,16 @@ class Library:
         """The same lookup for many ids in one query, keyed by id."""
         rows = track_queries.tracks_by_ids(self.conn, list(track_ids))
         return {row["id"]: self._full(row) for row in rows}
+
+    def artists_by_ids(self, track_ids) -> dict[str, str]:
+        """Record artist per id, without building a full Track (or reading gains)."""
+        rows = track_queries.tracks_by_ids(
+            self.conn, list(track_ids), "id, album_artist, artist"
+        )
+        return {
+            row["id"]: (row["album_artist"] or row["artist"] or "")
+            for row in rows
+        }
 
     def count(self, station: config.Station) -> int:
         return len(navidrome.rows_for_station(self.conn, station))
@@ -698,7 +710,9 @@ class Library:
         rows = {
             row["id"]: row
             for row in track_queries.tracks_by_ids(
-                self.conn, [entry.get("id") or "" for entry in plays]
+                self.conn,
+                [entry.get("id") or "" for entry in plays],
+                "id, title, album_artist, artist, album, year, genre, duration",
             )
         }
         out: list[dict] = []
