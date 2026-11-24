@@ -7,7 +7,7 @@ request). One call = one pick, so the token bill tracks use.
   llm      the HTTP call, result trimming, reply parsing
   prompt   what the model is told
   library  the six read-only queries the tools run
-  loop     one pick: brief, tools, answer, validate
+  loop     one pick: prompt context, tools, answer, validate
 """
 
 from __future__ import annotations

@@ -35,7 +35,7 @@ SEEN_SETS = 4
 # longer starves it — there are only so many artists with a known record in one family.
 FAMILIAR_SETS = 2
 # How much "not been on in ages" can move a candidate up its direction. Similarity
-# alone is what made the station orbit one sound: `-absence` sat after `-sim` in the
+# alone lets the station drift back to one sound: `-absence` sat after `-sim` in the
 # sort key, so it only ever broke an exact tie.
 ABSENCE_WEIGHT = 0.12
 # Readiness for full candidates, per station. Below this they still run, but with
@@ -296,7 +296,7 @@ def _absent(candidate: dict) -> float:
 def _candidate_rank(candidate: dict, lean: float) -> float:
     """Where a candidate sits in its direction: what it sounds like, and when it aired.
 
-    Similarity alone is why the station orbited one corner of the library. A record that
+    Similarity alone lets the station drift back to one corner of the library. A record that
     aired three songs ago beat one that had not been on all day by a thousandth of a
     cosine, because `-absence` came after `-sim` in the sort key as a tiebreak that never
     fired. Absence is a term of its own now: a bonus, capped, so it lifts a record that
@@ -393,7 +393,7 @@ def _groups(candidates: list[dict], anchor: dict, seed: int, station,
     groups = []
     for name, size in build_order:
         if not plans[name]:
-            # Nothing honest to offer in this direction: drop it rather than hand over
+            # Nothing honest in this direction: drop it rather than hand over
             # a block whose label is a lie. "Land it" on a track already at the floor
             # of the station's energy is the case that made this necessary.
             continue

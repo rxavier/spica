@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from .. import mixer, navidrome, queue
 
-# How many plays count as "off the air" when an offer is scoring absence.
+# How many plays count as "off the air" when candidates are scoring absence.
 ABSENCE = 40
 
 
@@ -54,13 +54,13 @@ def queued_artists(lib, station, limit: int | None = None) -> list[str]:
 
 def spread_decades(chosen, candidates, *, key, decade, decades=None,
                    accept=None, replaceable=None):
-    """Put two eras in an offer when the candidates can pay for it.
+    """Put two eras in a candidate set when the candidates can pay for it.
 
     Replaces one item from `chosen` with the first candidate from a different era,
     returning `(index, previous, replacement)` or None. `accept` can veto a candidate
     (the track candidates exclude ids and artists already used); `replaceable` can veto the slot
     (the artist candidates keep the last record of a label). `decades` is the eras already on the
-    offer when it spans more than one list.
+    candidate set when it spans more than one list.
     """
     seen = set(decades) if decades is not None else {
         decade(item) for item in chosen if decade(item)
@@ -92,7 +92,7 @@ class Blocklist:
 
 def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = None,
                     include_picks: bool = False) -> Blocklist:
-    """Artists that may not be offered: just played, queued, or on the last offer.
+    """Artists that may not be offered: just played, queued, or in the last candidates.
 
     ``include_picks`` adds the picker's own recent choices. The artist candidates set it
     because a quiet station's ledger is mostly fallback airings, so without it an artist

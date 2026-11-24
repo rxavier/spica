@@ -36,7 +36,7 @@ walks its own pool.
 The answer is a set, not a track:
 
 ```json
-{"theme": "Out of the guitar bands and into the synths: awake and twitchy first, then the floor, then a slow, sun-drunk landing.",
+{"rationale": "Out of the guitar bands and into the synths: awake and twitchy first, then the floor, then a slow, sun-drunk landing.",
  "ids": ["53dkqGZQDnFJZuPX0HqkXE", "2XU1uFbkWKinwLX7woyDpN", "…"]}
 ```
 
