@@ -436,3 +436,14 @@ def test_an_unauthenticated_write_is_401_not_a_login_page(console):
     client, _, _ = console
     response = client.post("/admin/jobs", data={"kind": "refresh"}, follow_redirects=False)
     assert response.status_code == 401
+
+
+def test_the_llm_probe_says_what_is_missing():
+    import asyncio
+
+    from spica.web.admin_settings import _llm_probe
+
+    result = asyncio.run(_llm_probe({"base": "", "key": "x", "model": "", "headers": {}}))
+
+    assert result["ok"] is False
+    assert "No endpoint or key" in result["detail"]
