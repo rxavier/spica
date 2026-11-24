@@ -50,9 +50,9 @@ async def loop() -> None:
                 fresh = await asyncio.to_thread(mixer.now_lines, st)
                 if st.now_file.exists():
                     for line in fresh:
-                        plays.note(st, line)
+                        plays.record(st, line)
                 else:
-                    plays.note(st, states.get(st.mount).title if states.get(st.mount) else "")
+                    plays.observe(st, states.get(st.mount).title if states.get(st.mount) else "")
                 _close_if_silent(st, states)
                 if queue.queued(st):
                     continue

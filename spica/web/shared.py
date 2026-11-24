@@ -16,7 +16,6 @@ from .. import icecast
 from .. import ledger
 from .. import mixer
 from .. import navidrome
-from .. import plays
 from .. import queue
 from .. import store
 from .. import requests as requests_mod
@@ -93,9 +92,6 @@ def now_playing(st, states: dict | None = None) -> dict:
     # of credentials under the cover.
     if "://" in raw:
         raw = ""
-    # Log it here too: the page polls every five seconds and must not show the
-    # previous track's line under the new one while the background loop catches up.
-    plays.note(st, raw)
     artist, song = queue.split_title(raw)
 
     # Icecast rewrites punctuation ("Jane's" becomes "Jane*s"), so prefer the
@@ -124,11 +120,21 @@ def now_playing(st, states: dict | None = None) -> dict:
             f"{last.get('artist', '')} {last.get('title', '')}"
         ) == store.norm(f"{artist} {song}") else {}
 
-    track_id = entry.get("id", "")
+    track_id = entry.get("id") or (found["id"] if found else "")
     if not album_id and track_id:
         album_id = store.album_for(track_id)
     if not album_id and found:
         album_id = found["album_id"]
+
+    # The loop writes the ledger on its own tick, so a track that has just started
+    # may not be there yet. Ask the pick log for its source and line instead of
+    # writing history from the page: two writers interleave at a track change.
+    if not entry and (song or raw):
+        pick = ledger.pick_for(st, str(track_id or ""), song or raw)
+        if pick:
+            entry = {"source": "dj", "why": pick.get("reason", "")}
+        else:
+            entry = {"source": "fallback_rotation", "why": ""}
 
     album = ""
     if album_id:
@@ -137,6 +143,7 @@ def now_playing(st, states: dict | None = None) -> dict:
         except Exception:
             album = ""
 
+    source = str(entry.get("source") or "")
     return {
         "listeners": state.listeners if state else 0,
         "title": raw,
@@ -145,10 +152,8 @@ def now_playing(st, states: dict | None = None) -> dict:
         "album": album,
         "queued": next_up(st),
         "why": entry.get("why", ""),
-        "source": entry.get("source", ""),
-        "source_label": SOURCE_LABELS.get(
-            str(entry.get("source") or ""), str(entry.get("source") or "")
-        ),
+        "source": source,
+        "source_label": SOURCE_LABELS.get(source, source),
         "track_id": track_id,
         "album_id": album_id,
         "cover_tag": store.cover_tag(album_id),
@@ -159,6 +164,7 @@ SOURCE_LABELS = {
     "dj": "DJ pick",
     "llm": "DJ pick",              # entries written before the rename
     "fallback_rotation": "Rotation",
+    "standby": "Rotation",         # entries written before the rename
     "pool": "Rotation",
     "request": "Request",
     "manual": "Manual",

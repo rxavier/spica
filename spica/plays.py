@@ -1,61 +1,26 @@
 """The play log.
 
-History records what played, not what was chosen: Icecast names the track that is
-on air, so a change there is a real play. Both the background loop and the page use
-this, because the page polls every few seconds and would otherwise show yesterday's
-reason under today's song until the loop caught up.
+History records what played, not what was chosen. The mixer writes one line to the
+station's now file when a track starts, and the background loop is the only writer
+of the ledger: one line is one airing, so a genuine repeat is kept and a track is
+not recorded twice just because a page poll also saw it. The page only reads.
 """
 
 from __future__ import annotations
 
-import time
-
 from . import config, ledger, queue, store
 
-_played: dict[str, str] = {}
-_played_at: dict[str, float] = {}
-
-# A track cannot legitimately come round again inside this window, so the same
-# title still on air is the poll loop, not a second play. This is much longer than
-# queue.DUPE_ANNOUNCE_S: that one only collapses a restart's re-announce, while a
-# normal track can stay on air for several minutes.
-REPEAT_WINDOW_S = 15 * 60
-
-
-def _stamp(row: dict) -> float:
-    return ledger.parse_stamp(row.get("t")) or 0.0
+# The last title an Icecast-only station showed us. Used only on the fallback path,
+# so a station with no now file records each change once rather than every poll.
+_observed: dict[str, str] = {}
 
 
 def _key(artist: str, title: str) -> str:
     return store.norm(f"{artist} {title}")
 
 
-def note(st: config.Station, raw_title: str) -> None:
-    """Record a play if the track on air is not the one already recorded."""
-    raw = (raw_title or "").strip()
-    if not raw:
-        return
-
+def _record(st: config.Station, raw: str) -> None:
     artist, song = queue.split_title(raw)
-    key = _key(artist, song)
-    now = time.time()
-    # This process already noted the same airing and it is still inside the window.
-    if _played.get(st.id) == key and now - _played_at.get(st.id, 0.0) < REPEAT_WINDOW_S:
-        return
-    # The in-memory key can be missing or stale after a restart, or while an old
-    # process is shutting down. Ask the ledger before writing a second copy.
-    last = queue.recent(st, 1)
-    if last:
-        entry = last[-1]
-        if _key(entry.get("artist", ""), entry.get("title", "")) == key:
-            at = _stamp(entry)
-            if at and now - at < REPEAT_WINDOW_S:
-                _played[st.id] = key
-                _played_at[st.id] = at
-                return
-    _played[st.id] = key
-    _played_at[st.id] = now
-
     row = store.find_track(artist, song or raw)
     why = ledger.reason_for(st, song or raw)
     queue.record(
@@ -66,3 +31,34 @@ def note(st: config.Station, raw_title: str) -> None:
         "dj" if why else "fallback_rotation",
         why,
     )
+
+
+def record(st: config.Station, raw_title: str) -> None:
+    """Record one airing: one line from the mixer's now file."""
+    raw = (raw_title or "").strip()
+    if not raw or "://" in raw:
+        return
+    _record(st, raw)
+
+
+def observe(st: config.Station, raw_title: str) -> None:
+    """Record a title seen on Icecast, once per change.
+
+    Only for a station without a now file. The first observation is seeded from the
+    newest ledger entry, so a restart does not record the track that was already on
+    air; after that, a change of title is a new airing.
+    """
+    raw = (raw_title or "").strip()
+    if not raw or "://" in raw:
+        return
+    artist, song = queue.split_title(raw)
+    key = _key(artist, song)
+    if st.id not in _observed:
+        last = queue.recent(st, 1)
+        _observed[st.id] = (
+            _key(last[-1].get("artist", ""), last[-1].get("title", "")) if last else ""
+        )
+    if _observed.get(st.id) == key:
+        return
+    _observed[st.id] = key
+    _record(st, raw)
