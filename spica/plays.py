@@ -8,11 +8,9 @@ reason under today's song until the loop caught up.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import time
 
-from . import config, queue, store
+from . import config, ledger, queue, store
 
 # A track cannot legitimately come round again inside this window, so seeing the
 # same title sooner than this is the poll loop, not a new play. Past it, the same
@@ -26,10 +24,7 @@ _played_at: dict[str, float] = {}
 
 
 def _stamp(row: dict) -> float:
-    try:
-        return datetime.fromisoformat(str(row.get("t", "")).replace("Z", "+00:00")).timestamp()
-    except (TypeError, ValueError):
-        return 0.0
+    return ledger.parse_stamp(row.get("t")) or 0.0
 
 
 def _key(artist: str, title: str) -> str:

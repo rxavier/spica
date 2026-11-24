@@ -10,9 +10,8 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from datetime import datetime, timezone
 
-from .. import analysis, config, icecast, mixer, navidrome, plan, queue
+from .. import analysis, config, icecast, ledger, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
 from . import shelf as shelf_module
 from . import table as table_module
@@ -66,10 +65,8 @@ def _enough_runway(lib, station) -> bool:
     duration = int(getattr(track, "duration", 0) or 0)
     if track is None or not duration or not stamp:
         return True
-    try:
-        started = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=timezone.utc).timestamp()
-    except ValueError:
+    started = ledger.parse_stamp(stamp)
+    if started is None:
         return True
     return duration - (time.time() - started) >= MIN_LEAD_S
 

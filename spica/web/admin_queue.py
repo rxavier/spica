@@ -19,7 +19,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 
 from .. import auth
-from .. import config
+from .. import config, ledger
 from .. import icecast
 from .. import mixer
 from .. import plan
@@ -40,12 +40,10 @@ ROWS = 100
 
 def _local(iso: str) -> str:
     """An ISO stamp in the station's own clock, or the raw string if it will not parse."""
-    try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(
-            LOCAL_TZ
-        ).strftime("%Y-%m-%d %H:%M:%S")
-    except (TypeError, ValueError):
+    moment = ledger.parse_stamp(iso)
+    if moment is None:
         return iso or ""
+    return datetime.fromtimestamp(moment, tz=LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _stations_view() -> list[dict]:
