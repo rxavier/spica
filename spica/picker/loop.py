@@ -11,7 +11,7 @@ import json
 import secrets
 import time
 
-from .. import analysis, config, icecast, ledger, mixer, navidrome, plan, queue
+from .. import air, analysis, config, icecast, ledger, mixer, navidrome, plan, queue
 from .. import requests as requests_mod
 from . import artists
 from . import tracks
@@ -398,6 +398,24 @@ def _tool_rounds(lib: Library, station: config.Station, messages: list[dict],
             )
 
     return None
+
+
+
+
+def pick_and_air(station, text: str | None = None, *, displace: bool = False,
+                 as_request: bool = False, log=print):
+    """Pick one track for `station`, air it, and return (pick, airing).
+
+    One guard and one order for the REST request, the forced pick and the listener
+    form; the callers only decide how the slot is taken.
+    """
+    from .. import store
+
+    pick = pick_next(store.library(), station, text, queue.recent_ids(station))
+    if pick is None:
+        return None, None
+    aired = air.air_pick(station, pick, displace=displace, as_request=as_request, log=log)
+    return pick, aired
 
 
 def plan_pick(
