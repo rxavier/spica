@@ -9,3 +9,4 @@
 services:
   worker:
     image: ghcr.io/rxavier/spica:${SPICA_TAG:-0.15.2}-analysis
+    platform: linux/amd64
