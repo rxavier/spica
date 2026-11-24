@@ -112,7 +112,9 @@ def _station_form_context(item: dict, station) -> dict:
 
 @router.get("/admin/stations/{station_id}", response_class=HTMLResponse)
 async def admin_station_form(request: Request, station_id: str):
-    items = {item.get("id"): item for item in _raw_stations()}
+    items = await asyncio.to_thread(
+        lambda: {item.get("id"): item for item in _raw_stations()}
+    )
     item = items.get(station_id)
     if item is None:
         raise HTTPException(404, "no such station")

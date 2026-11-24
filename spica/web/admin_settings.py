@@ -92,8 +92,9 @@ async def admin_settings_dj(request: Request, mode: str = Form(...)):
         raise HTTPException(400, str(exc)) from exc
     # A set already waiting was chosen under the previous mode; drop it so the next
     # pick reflects what the operator just chose.
-    for station in config.load_stations():
-        plan.clear(station)
+    await asyncio.to_thread(
+        lambda: [plan.clear(station) for station in config.load_stations()]
+    )
     response = templates.TemplateResponse(
         request,
         "_saved.html",
@@ -210,14 +211,18 @@ async def admin_settings_test(
 
 @router.get("/admin/prompt", response_class=HTMLResponse)
 async def admin_prompt(request: Request):
-    try:
-        text = config.DJ_PERSONA_FILE.read_text(encoding="utf-8")
-    except OSError:
-        text = ""
-    try:
-        stations = config.load_stations()
-    except Exception:
-        stations = []
+    def _read_prompt():
+        try:
+            persona_text = config.DJ_PERSONA_FILE.read_text(encoding="utf-8")
+        except OSError:
+            persona_text = ""
+        try:
+            loaded = config.load_stations()
+        except Exception:
+            loaded = []
+        return persona_text, loaded
+
+    text, stations = await asyncio.to_thread(_read_prompt)
     wanted = (request.query_params.get("station") or "").strip()
     selected = next((st for st in stations if st.id == wanted), stations[0] if stations else None)
     track_prompt = artist_prompt = ""
