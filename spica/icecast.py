@@ -56,13 +56,17 @@ def refresh() -> dict[str, MountState]:
         return _snapshot
     out: dict[str, MountState] = {}
     for src in _as_list(body.get("source")):
-        listen_url = src.get("listenurl") or ""
+        listen_url = str(src.get("listenurl") or "")
         mount = "/" + listen_url.rsplit("/", 1)[-1] if listen_url else ""
         if not mount:
             continue
+        try:
+            listeners = int(src.get("listeners") or 0)
+        except (TypeError, ValueError):
+            listeners = 0  # one malformed mount must not drop the whole snapshot
         out[mount] = MountState(
             mount=mount,
-            listeners=int(src.get("listeners") or 0),
+            listeners=listeners,
             title=str(src.get("title") or src.get("yp_currently_playing") or ""),
         )
     _snapshot, _fetched_at = out, time.monotonic()
