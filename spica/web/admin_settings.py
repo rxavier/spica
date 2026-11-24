@@ -8,6 +8,7 @@ import httpx
 from .. import config
 from .. import picker
 from .. import plan
+from .. import store
 from .. import auth
 from ..picker import prompt as prompt_mod
 from fastapi import APIRouter, Form, HTTPException, Request, Depends
@@ -209,8 +210,6 @@ async def admin_prompt(request: Request):
     table_prompt = shelf_prompt = ""
     if selected is not None:
         try:
-            from .. import store
-            from ..picker import prompt as prompt_mod
 
             roster = store.library().roster(selected)
             table_prompt = prompt_mod.system_prompt(selected, roster, table=True)

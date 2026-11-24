@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from urllib.parse import urlencode
 
+from .. import genres as genre_lib
 from .. import navidrome
+from ..navidrome import genre_counts
 from .. import pool
 from .. import store
 from .. import auth
@@ -29,8 +31,6 @@ router = APIRouter(dependencies=[Depends(auth.require_admin_page)])
 
 @router.get("/admin/genres", response_class=HTMLResponse)
 async def admin_genres(request: Request, msg: str = "", merged: str = "", into: str = ""):
-    from .. import genres as genre_lib
-    from ..navidrome import genre_counts
 
     conn = _conn()
     untagged = await asyncio.to_thread(track_queries.untagged_count, conn)
@@ -71,7 +71,6 @@ async def admin_genres_merge(
     into: str = Form(""),
     relabel: str = Form(""),
 ):
-    from .. import genres as genre_lib
 
     conn = _conn()
     covered = 0
@@ -94,7 +93,6 @@ async def admin_genres_merge(
 
 @router.post("/admin/genres/add", response_class=HTMLResponse)
 async def admin_genres_add(request: Request, source: str = Form(...), target: str = Form(...)):
-    from .. import genres as genre_lib
 
     conn = _conn()
     await asyncio.to_thread(genre_lib.merge, conn, [source], target)
@@ -103,7 +101,6 @@ async def admin_genres_add(request: Request, source: str = Form(...), target: st
 
 @router.post("/admin/genres/delete", response_class=HTMLResponse)
 async def admin_genres_delete(request: Request, source: str = Form(...)):
-    from .. import genres as genre_lib
 
     conn = _conn()
     removed = await asyncio.to_thread(genre_lib.remove_alias, source)
@@ -126,7 +123,6 @@ async def admin_genres_unassign(
 ):
     """Take a label off the chosen tracks, and remember the refusal so a rebuild
     does not quietly put it back."""
-    from .. import genres as genre_lib
 
     conn = _conn()
     name = genre_lib.pretty(label.strip())
@@ -177,7 +173,6 @@ async def admin_genres_assign(
     labels: list[str] = Form(default=[]),
 ):
     """Put a label on the chosen tracks by hand: it outranks every provider."""
-    from .. import genres as genre_lib
 
     conn = _conn()
     name = genre_lib.pretty(label.strip())
