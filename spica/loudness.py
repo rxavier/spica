@@ -97,14 +97,6 @@ def gain_db(
     return round(raw, 1)
 
 
-def for_tag(track_gain, track_peak) -> float | None:
-    """The gain for one track's raw ReplayGain fields, or None without a tag."""
-    if not config.LOUDNESS:
-        return None
-    lufs, peak_db = from_replaygain({"trackGain": track_gain, "trackPeak": track_peak})
-    return gain_db(lufs, peak_db)
-
-
 def for_row(row, measured: tuple[float | None, float | None] | None = None) -> float | None:
     """The gain for an index row: its tag first, then a stored measurement.
 
@@ -115,7 +107,11 @@ def for_row(row, measured: tuple[float | None, float | None] | None = None) -> f
     if not config.LOUDNESS:
         return None
     try:
-        gain = for_tag(row["replaygain_gain"], row["replaygain_peak"])
+        lufs, peak_db = from_replaygain({
+            "trackGain": row["replaygain_gain"],
+            "trackPeak": row["replaygain_peak"],
+        })
+        gain = gain_db(lufs, peak_db)
     except (KeyError, IndexError, TypeError):
         gain = None
     if gain is not None:

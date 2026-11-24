@@ -63,7 +63,7 @@ def test_song_id_survives_the_annotation():
 
 def test_loudness_can_be_switched_off(monkeypatch):
     monkeypatch.setattr(config, "LOUDNESS", False)
-    assert loudness.for_tag(6, 0.5) is None
+    assert loudness.for_row({"replaygain_gain": 6, "replaygain_peak": 0.5}) is None
 
 
 def test_picker_hands_the_mixer_an_annotated_uri(tmp_path, monkeypatch):
