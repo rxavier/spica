@@ -108,7 +108,7 @@ def for_tag(track_gain, track_peak) -> float | None:
 def for_row(row, measured: tuple[float | None, float | None] | None = None) -> float | None:
     """The gain for an index row: its tag first, then a stored measurement.
 
-    ``measured`` is passed in by the callers that already hold the lookup table
+    ``measured`` is passed in by the callers that already hold the lookup map
     (the pool writes thousands of rows) so this stays a pure function. A row
     without either source plays untouched.
     """

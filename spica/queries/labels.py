@@ -82,7 +82,7 @@ def vetoes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def album_genre_sources(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """label, album id and source for every stored label, for the console table."""
+    """label, album id and source for every stored label, for the console view."""
     return conn.execute(
         "SELECT g.label AS label, t.album_id AS album_id, g.source AS source"
         " FROM track_genres g JOIN tracks t ON t.id = g.track_id"

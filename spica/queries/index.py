@@ -25,7 +25,7 @@ def ensure_schema(conn: sqlite3.Connection, db_path: str | Path | None = None) -
     if key is not None and key in _READY:
         return
     # Indexes built before the API rewrite stored a filesystem path. The track
-    # table is a rebuildable projection, so an old shape is dropped rather than
+    # index is a rebuildable projection, so an old shape is dropped rather than
     # migrated: POST /rebuild repopulates it from the API.
     have = {row["name"] for row in conn.execute("PRAGMA table_info(tracks)")}
     if have and "uri" not in have:
@@ -87,7 +87,7 @@ def ensure_schema(conn: sqlite3.Connection, db_path: str | Path | None = None) -
     # ledger once per row; without this it is a scan of the whole library each time.
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_id ON tracks(album_id)")
     # Canonical genre labels, one row per (track, label). `tracks.genre` keeps
-    # only the first label for display; every filter walks this table instead,
+    # only the first label for display; every filter walks the label rows instead,
     # because matching is not SQL-expressible (see genres.py).
     #
     # `source` records where the label came from: "tag" when Navidrome reports it,

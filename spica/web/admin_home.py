@@ -1,4 +1,4 @@
-"""The console's front page, the job table and the library page."""
+"""The console's front page, the job list and the library page."""
 
 from __future__ import annotations
 
