@@ -20,6 +20,7 @@ from .. import genres as genres_module
 from ..names import seed_key
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
+from .memory import recent_artists
 from .schemas import TOOLS
 
 
@@ -567,33 +568,18 @@ class Library:
         return out
 
     def recent_labels(self, station: config.Station, n: int = 5) -> tuple[list[str], list[str]]:
-        """The labels and artists of the last few songs, newest first.
+        """The labels and artists of the last few songs, oldest first.
 
-        This is the evidence a picker would use to notice he has been in one corner all
-        night: not what he meant to play, what actually went out.
+        The evidence a picker uses to notice it has been in one corner all night: not
+        what it meant to play, what actually went out.
         """
         plays = queue.recent(station, n)
         labels = self.labels_by_track()
-        rows = {
-            row["id"]: row
-            for row in track_queries.tracks_by_ids(
-                self.conn,
-                [entry.get("id") or "" for entry in plays],
-                "id, album_artist, artist",
-            )
-        }
-        artists: list[str] = []
         counted: Counter = Counter()
         for entry in plays:
-            track_id = entry.get("id") or ""
-            row = rows.get(track_id)
-            if row is not None:
-                artists.append(row["album_artist"] or row["artist"] or "")
-                for label in labels.get(track_id, ()):
-                    counted[label] += 1
-            elif entry.get("artist"):
-                artists.append(entry["artist"])
-        return [label for label, _ in counted.most_common(3)], artists
+            for label in labels.get(entry.get("id") or "", ()):
+                counted[label] += 1
+        return [label for label, _ in counted.most_common(3)], recent_artists(self, station, n)
 
     def by_id(self, track_id: str) -> navidrome.Track | None:
         row = track_queries.track_by_id(self.conn, track_id)
