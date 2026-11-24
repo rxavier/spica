@@ -18,6 +18,8 @@ import json
 import os
 import re
 import secrets
+import shutil
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -85,12 +87,32 @@ def _base() -> str:
     return config.NAVIDROME_URL.rstrip("/")
 
 
+_RETRYABLE = {429, 500, 502, 503, 504}
+
+
+def _open(url: str, *, timeout: float, attempts: int = 1):
+    """Open a Navidrome URL, retrying only the statuses that mean "later"."""
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(url, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in _RETRYABLE:
+                raise
+        except Exception as exc:  # timeout, DNS reset
+            last = exc
+        if attempt + 1 < attempts:
+            time.sleep(2 + attempt * 4)
+    raise last if last is not None else RuntimeError("no Navidrome response")
+
+
 def call(method: str, **params) -> dict:
     """One API call, returning the `subsonic-response` body. Raises on failure."""
     query = urllib.parse.urlencode({**_auth(), **params})
     url = f"{_base()}/rest/{method}?{query}"
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
+        with _open(url, timeout=30, attempts=3) as r:
             body = json.loads(r.read())
     except urllib.error.HTTPError as exc:  # includes 401 on bad credentials
         raise RuntimeError(f"{method}: HTTP {exc.code}") from exc
@@ -183,7 +205,7 @@ def cover_art(cover_id: str, size: int = 300) -> bytes:
         return b""
     query = urllib.parse.urlencode({**_auth(), "id": cover_id, "size": str(size)})
     try:
-        with urllib.request.urlopen(f"{_base()}/rest/getCoverArt?{query}", timeout=15) as r:
+        with _open(f"{_base()}/rest/getCoverArt?{query}", timeout=15, attempts=2) as r:
             return r.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
@@ -195,8 +217,8 @@ def cover_art(cover_id: str, size: int = 300) -> bytes:
 
 def download(song_id: str, target: Path) -> Path:
     """Fetch a track to disk, for anything that needs the bytes rather than a stream."""
-    with urllib.request.urlopen(stream_url(song_id), timeout=120) as r:
-        target.write_bytes(r.read())
+    with _open(stream_url(song_id), timeout=120, attempts=2) as r, target.open("wb") as fh:
+        shutil.copyfileobj(r, fh)
     return target
 
 
@@ -210,6 +232,6 @@ def download_transcoded(song_id: str, target: Path, bitrate: int = 96,
     query = urllib.parse.urlencode({
         **_auth(), "id": song_id, "format": fmt, "maxBitRate": str(int(bitrate)),
     })
-    with urllib.request.urlopen(f"{_base()}/rest/stream?{query}", timeout=120) as r:
-        target.write_bytes(r.read())
+    with _open(f"{_base()}/rest/stream?{query}", timeout=120, attempts=2) as r, target.open("wb") as fh:
+        shutil.copyfileobj(r, fh)
     return target

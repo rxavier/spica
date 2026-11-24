@@ -27,3 +27,34 @@ def test_an_empty_salt_file_is_replaced(tmp_path, monkeypatch):
     salt = subsonic._salt()
     assert len(salt) == 16
     assert (tmp_path / ".subsonic-salt").read_text(encoding="utf-8").strip() == salt
+
+
+def test_a_transient_navidrome_status_is_retried(monkeypatch):
+    import json
+    import urllib.error
+
+    calls: list[str] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"subsonic-response": {"status": "ok", "scanStatus": {}}}).encode()
+
+    def fake_urlopen(url, timeout=0):
+        calls.append(url)
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(url, 503, "busy", {}, None)
+        return _Response()
+
+    monkeypatch.setattr(subsonic.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(subsonic.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(subsonic.config, "NAVIDROME_USER", "u")
+    monkeypatch.setattr(subsonic.config, "NAVIDROME_PASS", "p")
+
+    assert subsonic.scan_status() == {}
+    assert len(calls) == 3
