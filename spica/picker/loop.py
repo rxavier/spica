@@ -405,16 +405,7 @@ def _tool_rounds(lib: Library, station: config.Station, messages: list[dict],
                 }
             )
 
-    # Out of rounds with nothing usable: one last ask, no tools at all, so the model
-    # cannot keep exploring instead of answering.
-    messages.append(
-        {
-            "role": "user",
-            "content": ANSWER_NOW + " Keep the set to tracks that are not in the recent list.",
-        }
-    )
-    final = chat(messages, TOOLS, no_tools=True)
-    return finish(final.get("content") or "")
+    return None
 
 
 def plan_pick(
