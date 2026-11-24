@@ -37,7 +37,10 @@ def open_db(
 ) -> sqlite3.Connection:
     path = Path(path)
     if readonly:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=timeout)
+        conn = sqlite3.connect(
+            f"file:{path}?mode=ro", uri=True, timeout=timeout,
+            check_same_thread=check_same_thread,
+        )
     else:
         conn = sqlite3.connect(path, timeout=timeout, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
@@ -65,7 +68,10 @@ def open_store(
         return None
     if create:
         target.parent.mkdir(parents=True, exist_ok=True)
-    conn = open_db(target, readonly=readonly, timeout=timeout)
+    conn = open_db(
+        target, readonly=readonly, timeout=timeout,
+        check_same_thread=False if readonly else True,
+    )
     if create and ensure is not None:
         ensure(conn)
     return conn

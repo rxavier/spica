@@ -278,7 +278,7 @@ def recent(station: config.Station, n: int = 20) -> list[dict]:
             if out and (out[-1].get("artist"), out[-1].get("title")) == (
                 entry.get("artist"), entry.get("title")
             ):
-                first, second = _when(out[-1]), _when(entry)
+                first, second = parse_stamp(out[-1].get("t")), parse_stamp(entry.get("t"))
                 if first is None or second is None or second - first <= DUPE_ANNOUNCE_S:
                     continue  # the same announce twice, not a second play
             out.append(entry)

@@ -15,14 +15,6 @@ from .. import mixer, navidrome, queue
 ABSENCE = 40
 
 
-def artist_of(lib, track_id: str, fallback: str = "") -> str:
-    """The record's artist for a ledger id, or the ledger's own name when it is gone."""
-    row = lib.by_id(track_id) if track_id else None
-    if row is not None:
-        return row.album_artist or row.artist or ""
-    return fallback
-
-
 def artist_absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
     """For each artist, how many songs ago it last aired (absent from the map = never)."""
     plays = queue.recent(station, look)
@@ -38,9 +30,11 @@ def artist_absence(lib, station, look: int = ABSENCE * 6) -> dict[str, int]:
 
 def recent_artists(lib, station, n: int) -> list[str]:
     """The artists behind the last n plays, oldest first."""
+    entries = queue.recent(station, n)
+    names = lib.artists_by_ids(str(entry.get("id") or "") for entry in entries)
     out: list[str] = []
-    for entry in queue.recent(station, n):
-        name = artist_of(lib, str(entry.get("id") or ""), str(entry.get("artist") or ""))
+    for entry in entries:
+        name = names.get(str(entry.get("id") or "")) or str(entry.get("artist") or "")
         if name:
             out.append(name)
     return out
@@ -54,12 +48,8 @@ def queued_artists(lib, station, limit: int | None = None) -> list[str]:
         return []
     if limit is not None:
         waiting = waiting[:limit]
-    out: list[str] = []
-    for track_id in waiting:
-        name = artist_of(lib, track_id)
-        if name:
-            out.append(name)
-    return out
+    names = lib.artists_by_ids(waiting)
+    return [names[track_id] for track_id in waiting if names.get(track_id)]
 
 
 def spread_decades(chosen, candidates, *, key, decade, decades=None,

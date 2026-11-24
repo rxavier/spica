@@ -120,20 +120,22 @@ def record_artist_albums(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def album_artists(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Distinct album artists, for the similarity job."""
+    """Distinct record artists, for the similarity job."""
+    artist = db.artist_expr()
     return conn.execute(
-        "SELECT DISTINCT album_artist AS name FROM tracks"
-        " WHERE album_artist != '' ORDER BY 1"
+        f"SELECT DISTINCT {artist} AS name FROM tracks"
+        f" WHERE {artist} != '' ORDER BY 1"
     ).fetchall()
 
 
 def album_artist_names(conn: sqlite3.Connection) -> list[str]:
-    """Distinct non-empty album artists, for fuzzy artist matching."""
+    """Distinct non-empty record artists, for fuzzy artist matching."""
+    artist = db.artist_expr()
     return [
         row["name"]
         for row in conn.execute(
-            "SELECT album_artist AS name FROM tracks"
-            " WHERE album_artist != '' GROUP BY 1"
+            f"SELECT {artist} AS name FROM tracks"
+            f" WHERE {artist} != '' GROUP BY 1"
         )
     ]
 
@@ -255,7 +257,7 @@ def search(
     ).fetchall()
     if not rows and len(tokens) > 1:
         rows = conn.execute(
-            "SELECT * FROM tracks WHERE " + SEARCH_COLUMNS
+            "SELECT * FROM tracks WHERE (" + SEARCH_COLUMNS + f") AND {db.PLAYABLE}"
             + " ORDER BY album_artist, album, track_no LIMIT ?",
             (*_search_args(text), fetch_limit),
         ).fetchall()

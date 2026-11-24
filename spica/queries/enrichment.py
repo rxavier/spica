@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .. import db
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(
@@ -198,10 +200,10 @@ def missing_popularity(conn: sqlite3.Connection) -> int:
 
 
 def missing_similarity(conn: sqlite3.Connection) -> int:
+    artist = db.artist_expr()
     row = conn.execute(
-        """SELECT count(*) FROM (
-             SELECT DISTINCT album_artist AS name FROM tracks WHERE album_artist != ''
-           ) a
-           WHERE NOT EXISTS (SELECT 1 FROM artist_similarity s WHERE s.name = a.name)"""
+        f"SELECT count(*) FROM ("
+        f"  SELECT DISTINCT {artist} AS name FROM tracks WHERE {artist} != ''"
+        f") a WHERE NOT EXISTS (SELECT 1 FROM artist_similarity s WHERE s.name = a.name)"
     ).fetchone()
     return int(row[0] or 0)

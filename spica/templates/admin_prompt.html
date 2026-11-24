@@ -18,10 +18,10 @@
 {% if not custom %}<p class="sub">No custom voice saved — the built-in voice below is what the DJ is using.</p>{% endif %}
 
 <h2>Artist-led path</h2>
-<p class="sub">Used when the DJ works without audio analysis, or on a station the analyser has not measured enough. The DJ is given a list of artists and searches their catalogues for tracks.{% if shelf_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
+<p class="sub">Used when the DJ works without audio analysis, or on a station the analyser has not measured enough. The DJ is given a list of artists and searches their catalogues for tracks.{% if artist_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
 <form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="artists">
-  <textarea name="text" rows="18">{{ shelf_text }}</textarea>
+  <textarea name="text" rows="18">{{ artist_text }}</textarea>
   <div class="inline">
     <button class="primary" type="submit">Save artist-led path</button>
     <button class="link" type="submit" name="reset" value="1">Restore the built-in path</button>
@@ -29,10 +29,10 @@
 </form>
 
 <h2>Track-led path</h2>
-<p class="sub">Used when the DJ works from audio analysis. The DJ is given a table of tracks grouped by how they relate to the current song; this is the more guided path and usually makes for more fluid sets.{% if table_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
+<p class="sub">Used when the DJ works from audio analysis. The DJ is given a table of tracks grouped by how they relate to the current song; this is the more guided path and usually makes for more fluid sets.{% if track_custom %} <strong>This path has a custom text.</strong>{% endif %}</p>
 <form hx-post="/admin/prompt/path" hx-target="#path-result" hx-swap="innerHTML">
   <input type="hidden" name="kind" value="tracks">
-  <textarea name="text" rows="18">{{ table_text }}</textarea>
+  <textarea name="text" rows="18">{{ track_text }}</textarea>
   <div class="inline">
     <button class="primary" type="submit">Save track-led path</button>
     <button class="link" type="submit" name="reset" value="1">Restore the built-in path</button>

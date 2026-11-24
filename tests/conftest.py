@@ -10,16 +10,22 @@ from __future__ import annotations
 
 import pytest
 
-from spica import config
+from spica import config, genres
+
+
+def _isolate(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(genres, "alias_path", lambda: tmp_path / "genre-aliases.json")
+    genres.reset_cache()
 
 
 @pytest.fixture
 def station(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    _isolate(tmp_path, monkeypatch)
     return config.Station(id="test", name="Test station")
 
 
 @pytest.fixture
 def other_station(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    _isolate(tmp_path, monkeypatch)
     return config.Station(id="other", name="Another station")

@@ -83,6 +83,9 @@ def ensure_schema(conn: sqlite3.Connection, db_path: str | Path | None = None) -
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_year ON tracks(year)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_artist ON tracks(artist)")
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_artist ON tracks(album_artist)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS tracks_album_artist_key ON tracks(album_artist_key)"
+    )
     # now_playing() looks a track's album up by album_id on every poll, and the
     # ledger once per row; without this it is a scan of the whole library each time.
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_album_id ON tracks(album_id)")

@@ -145,6 +145,9 @@ def test_an_artist_the_dj_just_chose_is_off_the_shelf(monkeypatch, station, tmp_
         def by_id(self, track_id):
             return None
 
+        def artists_by_ids(self, track_ids):
+            return {}
+
     monkeypatch.setattr(artists.queue, "recent", lambda st, n=20: [])
     monkeypatch.setattr(artists.queue, "recent_pick_artists", lambda st, n=12: ["Just Played"])
     monkeypatch.setattr(artists.queue, "last_candidate_artists", lambda st, look=6: [])

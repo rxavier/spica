@@ -506,12 +506,17 @@ def station_coverage(index_conn: sqlite3.Connection, store: sqlite3.Connection) 
     Readiness is decided per station, not per library: a narrow prog station can be
     fully analysed while the rest of the collection is not.
     """
+    from .queries import tracks as track_queries
+
     known = analysis_queries.track_ids(store, MODEL_VERSION)
+    rows = track_queries.playable_tracks(index_conn)
+    by_track = navidrome.labels_by_track(index_conn)
     out = {}
     for station in config.load_stations():
-        rows = navidrome.rows_for_station(index_conn, station)
-        total = len(rows)
-        got = sum(1 for row in rows if row["id"] in known)
+        ok = navidrome.station_matcher(index_conn, station, by_track=by_track)
+        picked = [row for row in rows if ok(row)] or rows
+        total = len(picked)
+        got = sum(1 for row in picked if row["id"] in known)
         out[station.id] = {
             "known": got, "total": total,
             "percent": round(got * 100.0 / total, 1) if total else 0.0,
