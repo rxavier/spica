@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from spica import db, navidrome
-from spica.queries import jobs, labels, tracks
+from spica.queries import enrichment, jobs, labels, tracks
 
 
 def test_artist_expr_follows_the_alias():
@@ -74,3 +74,17 @@ def test_job_lifecycle(tmp_path):
         jobs.finish(conn, job_id, 2, "{}")
     assert jobs.get(conn, job_id)["status"] == "done"
     assert jobs.recent(conn, 1)[0]["id"] == job_id
+
+
+def test_enrichment_caches_roundtrip(tmp_path):
+    conn = navidrome.connect(tmp_path / "index.db")
+    with conn:
+        enrichment.remember_mbid(conn, "Band", "mbid-1", "navidrome", 1)
+        enrichment.remember_scores(conn, "Band", [("Other", 0.5)], "lastfm", 2)
+        enrichment.replace_popularity(
+            conn, [("a", 10, 1, "lastfm", 3)]
+        )
+
+    assert enrichment.cached_mbid(conn, "Band") == "mbid-1"
+    assert enrichment.cached_scores(conn, "Band") == [("Other", 0.5)]
+    assert enrichment.popularity(conn)[0]["playcount"] == 10

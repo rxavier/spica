@@ -19,6 +19,7 @@ import statistics
 from collections import Counter, defaultdict
 
 from .. import analysis, enrich, mixer, navidrome, queue
+from ..queries import enrichment as enrich_queries
 from ..queries import tracks as track_queries
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
@@ -114,7 +115,7 @@ def _standing(conn) -> dict[str, float]:
     """
     stats = {
         r["track_id"]: (float(r["playcount"] or 0), r["source"] or "")
-        for r in conn.execute("SELECT track_id, playcount, source FROM track_popularity")
+        for r in enrich_queries.popularity(conn)
     }
     by_source: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for row in track_queries.tracks_with_album_artist(conn):
@@ -225,7 +226,7 @@ def _neighbours(conn, profiles: dict[str, dict], anchors: list[str]) -> dict[str
         if anchor in owned and not enrich.cached_scores(conn, anchor):
             enrich.similarity_for(conn, anchor)
     out: dict[str, dict[str, float]] = defaultdict(dict)
-    for row in conn.execute("SELECT name, similar, match FROM artist_similarity"):
+    for row in enrich_queries.similarity_edges(conn):
         a, b = navidrome.name_key(row["name"]), navidrome.name_key(row["similar"])
         if a == b or a not in profiles or b not in profiles:
             continue

@@ -21,6 +21,7 @@ from pathlib import Path
 from . import config
 from . import genres as genre_lib
 from . import subsonic
+from .queries import enrichment as enrich_queries
 from .queries import labels as label_queries
 
 
@@ -409,7 +410,7 @@ def mb_genres_by_artist(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     import json as _json
 
     out: dict[str, list[dict]] = {}
-    for row in conn.execute("SELECT artist_key, genres FROM mb_artist_genres"):
+    for row in enrich_queries.mb_genre_rows(conn):
         try:
             entries = _json.loads(row["genres"] or "[]")
         except ValueError:

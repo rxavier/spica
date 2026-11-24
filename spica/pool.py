@@ -17,6 +17,7 @@ import sqlite3
 import time
 
 from . import config, loudness, navidrome, queue, subsonic
+from .queries import enrichment as enrich_queries
 from .queries import tracks as track_queries
 
 ARTIST_WINDOW = 12
@@ -32,7 +33,7 @@ def _popularity_percentiles(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -
     """
     stats = {
         r["track_id"]: (int(r["playcount"] or 0), r["source"] or "")
-        for r in conn.execute("SELECT track_id, playcount, source FROM track_popularity")
+        for r in enrich_queries.popularity(conn)
     }
     by_group: dict[tuple[str, str], list[tuple[int, str]]] = {}
     for row in rows:
