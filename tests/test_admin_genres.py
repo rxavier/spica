@@ -37,8 +37,10 @@ def console(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SESSION_SECRET_FILE", state / ".session-secret")
     monkeypatch.setattr(config, "DJ_PERSONA_FILE", cfg / "dj-persona.md")
     monkeypatch.setattr(config, "ADMIN_PASSWORD", PASSWORD)
-    # the alias file's path is bound at import time, so it has to be moved by hand
+    # the alias file's path is bound at import time, so it has to be moved by hand,
+    # and its cache outlives a test that does not reset it.
     monkeypatch.setattr(genres, "_FILE", state / "genre-aliases.json")
+    monkeypatch.setattr(genres, "_cache", (-1.0, {}))
 
     monkeypatch.setattr(mixer, "close", lambda: None)
     monkeypatch.setattr(mixer, "queued_ids", lambda st: [])
