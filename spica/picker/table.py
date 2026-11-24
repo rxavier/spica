@@ -18,6 +18,7 @@ can never become the same thirty-two records every twenty minutes.
 
 from __future__ import annotations
 
+import statistics
 from collections import Counter
 
 from .. import analysis, mixer, navidrome, queue
@@ -554,9 +555,9 @@ def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:
         row = lib.by_id(track_id)
         name = (row.album_artist or row.artist) if row is not None else ""
         if name:
-            vector = _artist_vector(lib, name, vectors)
+            vector, artist_feature = _artist_analysis(lib, name, vectors, features)
             if vector is not None:
-                feature = _artist_feature(lib, name, features) or feature
+                feature = artist_feature or feature
     if vector is None:
         return None
     return {
@@ -568,32 +569,21 @@ def _anchor(lib, station, features: dict, vectors: dict) -> dict | None:
     }
 
 
-def _artist_vector(lib, name: str, vectors: dict):
+def _artist_analysis(lib, name: str, vectors: dict, features: dict):
+    """One artist's mean vector and median-ish feature, from a single id lookup."""
     key = navidrome.name_key(name)
-    parts = [
-        vectors[track_id] for track_id in
-        track_queries.track_ids_for_artist(lib.conn, key)
-        if track_id in vectors
-    ]
-    return _mean_vector(parts) if parts else None
-
-
-def _artist_feature(lib, name: str, features: dict) -> dict:
-    """Median-ish feature of an artist's analysed tracks, for an unanalysed on-air one."""
-    key = navidrome.name_key(name)
-    rows = [
-        features[track_id] for track_id in
-        track_queries.track_ids_for_artist(lib.conn, key)
-        if track_id in features
-    ]
+    ids = track_queries.track_ids_for_artist(lib.conn, key)
+    parts = [vectors[track_id] for track_id in ids if track_id in vectors]
+    rows = [features[track_id] for track_id in ids if track_id in features]
+    vector = _mean_vector(parts)
+    if not rows:
+        return vector, {}
     energies = [r["energy"] for r in rows if r.get("energy") is not None]
     bpms = [r["bpm"] for r in rows if r.get("bpm")]
     families = [r["family"] for r in rows if r.get("family")]
-    if not rows:
-        return {}
-    return {
+    return vector, {
         "energy": sum(energies) / len(energies) if energies else None,
-        "bpm": _median(bpms),
+        "bpm": statistics.median(bpms) if bpms else None,
         "family": families[0] if families else "",
     }
 
@@ -606,13 +596,6 @@ def _mean_vector(vectors: list):
         total += vector
     norm = float((total @ total) ** 0.5)
     return total / norm if norm else total
-
-
-def _median(values: list) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    return float(ordered[len(ordered) // 2])
 
 
 def _percentile(values: list, pct: int) -> float:
