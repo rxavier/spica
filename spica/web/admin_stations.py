@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from urllib.parse import quote
 
@@ -73,10 +74,11 @@ async def admin_station_artists(request: Request, station_id: str, q: str = "", 
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
     station = station_or_404(station_id)
+    context = await asyncio.to_thread(_station_artist_page, _conn(), station, q, page)
     return templates.TemplateResponse(
         request,
         "_station_artists.html",
-        _station_artist_page(_conn(), station, q, page),
+        context,
     )
 
 
@@ -84,19 +86,13 @@ async def admin_station_artists(request: Request, station_id: str, q: str = "", 
 async def admin_stations(request: Request):
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
+    items = await asyncio.to_thread(_raw_stations)
     return templates.TemplateResponse(
-        request, "admin_stations.html", {"items": _raw_stations(), "stations": stations()}
+        request, "admin_stations.html", {"items": items, "stations": stations()}
     )
 
 
-@router.get("/admin/stations/{station_id}", response_class=HTMLResponse)
-async def admin_station_form(request: Request, station_id: str):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
-    items = {item.get("id"): item for item in _raw_stations()}
-    item = items.get(station_id)
-    if item is None:
-        raise HTTPException(404, "no such station")
+def _station_form_context(item: dict, station) -> dict:
     # Most-used first: the genre you want is nearly always near the top, and the
     # counts say how much a station is about to gain.
     labels = [(row["label"], row["c"]) for row in label_queries.counts_by_tracks(_conn())]
@@ -107,21 +103,33 @@ async def admin_station_form(request: Request, station_id: str):
     chosen = set(item.get("include_artists") or ()) | set(item.get("exclude_artists") or ())
     have = set(artists)
     artists.extend(sorted(chosen - have, key=str.casefold))
+    return {
+        "item": item,
+        "station": station,
+        "preview": pool_preview(station),
+        "all_labels": labels,
+        "all_artists": artists,
+        "station_artists_page": _station_artist_page(_conn(), station),
+        "codecs": config.CODECS,
+        "labels": config.CODEC_LABEL,
+        "extensions": config.CODEC_EXT,
+    }
+
+
+@router.get("/admin/stations/{station_id}", response_class=HTMLResponse)
+async def admin_station_form(request: Request, station_id: str):
+    if not auth.is_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    items = {item.get("id"): item for item in _raw_stations()}
+    item = items.get(station_id)
+    if item is None:
+        raise HTTPException(404, "no such station")
     station = station_or_404(station_id)
+    context = await asyncio.to_thread(_station_form_context, item, station)
     return templates.TemplateResponse(
         request,
         "admin_station.html",
-        {
-            "item": item,
-            "station": station,
-            "preview": pool_preview(station),
-            "all_labels": labels,
-            "all_artists": artists,
-            "station_artists_page": _station_artist_page(_conn(), station),
-            "codecs": config.CODECS,
-            "labels": config.CODEC_LABEL,
-            "extensions": config.CODEC_EXT,
-        },
+        context,
     )
 
 
@@ -185,11 +193,15 @@ async def admin_station_save(
             }
         )
     write_stations(raw)
-    counts = pool.write_pools(_conn(), store.reload_stations())
+
+    def _rebuild_pools() -> dict[str, int]:
+        return pool.write_pools(_conn(), store.reload_stations())
+
+    counts = await asyncio.to_thread(_rebuild_pools)
     if note or streams_changed:
         # A new or changed stream is a new Liquidsoap output, so the mixer has to
         # come back with a regenerated script.
-        note += " " + _apply_station_script()
+        note += " " + await asyncio.to_thread(_apply_station_script)
     message = f"Saved. Rotation: {counts.get(station_id, 0)} tracks.{note}"
     response = templates.TemplateResponse(
         request, "_saved.html", {"message": message, "station_id": station_id}
@@ -239,8 +251,12 @@ async def admin_station_create(
         }
     )
     write_stations(raw)
-    pool.write_pools(_conn(), store.reload_stations())
-    _apply_station_script()
+
+    def _rebuild_pools() -> None:
+        pool.write_pools(_conn(), store.reload_stations())
+
+    await asyncio.to_thread(_rebuild_pools)
+    await asyncio.to_thread(_apply_station_script)
     return RedirectResponse(f"/admin/stations/{station_id}?made=1", status_code=303)
 
 
@@ -265,6 +281,9 @@ async def admin_station_delete(request: Request, station_id: str):
     for stray in (config.STATE_DIR / "pools" / f"{station_id}.m3u",
                   config.STATE_DIR / "queue" / f"{station_id}.txt"):
         stray.unlink(missing_ok=True)
-    pool.write_pools(_conn(), store.reload_stations())
-    note = _apply_station_script()
+    def _rebuild_pools() -> None:
+        pool.write_pools(_conn(), store.reload_stations())
+
+    await asyncio.to_thread(_rebuild_pools)
+    await asyncio.to_thread(_apply_station_script)
     return RedirectResponse(f"/admin/stations?deleted={station_id}", status_code=303)

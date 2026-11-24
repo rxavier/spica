@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from .. import analysis
@@ -41,30 +42,27 @@ async def admin_home(request: Request):
 async def admin_jobs(request: Request):
     if not auth.is_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
-    return templates.TemplateResponse(
-        request, "_jobs.html", {"jobs": jobs.recent(_conn(), 10)}
-    )
+    recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
+    return templates.TemplateResponse(request, "_jobs.html", {"jobs": recent})
 
 
 @router.post("/admin/jobs", response_class=HTMLResponse)
 async def admin_job_create(request: Request, kind: str = Form(...)):
     auth.require_admin(request)
-    conn = _conn()
     try:
-        jobs.create(conn, kind)
+        await asyncio.to_thread(jobs.create, _conn(), kind)
     except ValueError as exc:
+        recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
         return templates.TemplateResponse(
-            request, "_jobs.html", {"jobs": jobs.recent(conn, 10), "error": str(exc)}
+            request, "_jobs.html", {"jobs": recent, "error": str(exc)}
         )
+    recent = await asyncio.to_thread(jobs.recent, _conn(), 10)
     return templates.TemplateResponse(
-        request, "_jobs.html", {"jobs": jobs.recent(conn, 10)}
+        request, "_jobs.html", {"jobs": recent}
     )
 
 
-@router.get("/admin/library", response_class=HTMLResponse)
-async def admin_library(request: Request):
-    if not auth.is_admin(request):
-        return RedirectResponse("/admin/login", status_code=303)
+def _library_context() -> dict:
     conn = _conn()
     try:
         status = subsonic.scan_status()
@@ -100,24 +98,32 @@ async def admin_library(request: Request):
         else:
             use, note = "Artists", f"falls back while analysis is {pct or 0}%"
         dj.append({"station": st, "use": use, "note": note, "analysis": a})
+    return {
+        "coverage": coverage,
+        "analysis_enabled": analysis_on,
+        "providers": config.provider_settings(),
+        "dj": dj,
+        "dj_mode": mode,
+        "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
+        "has_model": has_model,
+        "jobs": jobs.recent(conn, 10),
+        "index_tracks": track_queries.library_size(conn),
+        "library_tracks": library_tracks,
+        "library_scan": scan,
+        "library_error": library_error,
+        "check_minutes": max(1, config.REFRESH_CHECK_S // 60),
+    }
+
+
+@router.get("/admin/library", response_class=HTMLResponse)
+async def admin_library(request: Request):
+    if not auth.is_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    context = await asyncio.to_thread(_library_context)
     return templates.TemplateResponse(
         request,
         "admin_library.html",
-        {
-            "coverage": coverage,
-            "analysis_enabled": analysis_on,
-            "providers": config.provider_settings(),
-            "dj": dj,
-            "dj_mode": mode,
-            "mode_label": config.DJ_MODE_LABELS.get(mode, mode),
-            "has_model": has_model,
-            "jobs": jobs.recent(conn, 10),
-            "index_tracks": track_queries.library_size(conn),
-            "library_tracks": library_tracks,
-            "library_scan": scan,
-            "library_error": library_error,
-            "check_minutes": max(1, config.REFRESH_CHECK_S // 60),
-        },
+        context,
     )
 
 
@@ -125,10 +131,14 @@ async def admin_library(request: Request):
 async def admin_rebuild(request: Request):
     auth.require_admin(request)
 
-    conn = _conn()
-    n = navidrome.rebuild_index(conn, log=lambda *_: None)
-    store.forget_tracks()
-    counts = pool.write_pools(conn, store.reload_stations())
+    def _run() -> tuple[int, dict]:
+        conn = _conn()
+        n = navidrome.rebuild_index(conn, log=lambda *_: None)
+        store.forget_tracks()
+        counts = pool.write_pools(conn, store.reload_stations())
+        return n, counts
+
+    n, counts = await asyncio.to_thread(_run)
     return templates.TemplateResponse(
         request,
         "_saved.html",
@@ -142,13 +152,16 @@ async def admin_rebuild(request: Request):
 @router.post("/admin/reload", response_class=HTMLResponse)
 async def admin_reload(request: Request):
     auth.require_admin(request)
-    import os
 
     from .. import liqgen
 
-    password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
-    target = config.CONFIG_DIR / "spica.liq"
-    target.write_text(liqgen.render(store.reload_stations(), password), encoding="utf-8")
+    def _run() -> str:
+        password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
+        target = config.CONFIG_DIR / "spica.liq"
+        target.write_text(liqgen.render(store.reload_stations(), password), encoding="utf-8")
+        return _restart_mixer()
+
+    message = await asyncio.to_thread(_run)
     return templates.TemplateResponse(
-        request, "_saved.html", {"message": _restart_mixer(), "station_id": ""}
+        request, "_saved.html", {"message": message, "station_id": ""}
     )
