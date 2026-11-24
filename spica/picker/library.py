@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import difflib
 import html
-import json
 import random
 import sqlite3
 import time
@@ -19,6 +18,8 @@ from .. import config, ledger, loudness, mixer, navidrome, queue
 from .. import genres as genres_module
 from ..names import seed_key
 from .context import LibraryCaches
+from .rows import clock, fit_rows, full, lean_row, visible
+from .rows import row as render_row
 from ..queries import labels as label_queries
 from ..queries import tracks as track_queries
 from .memory import recent_artists
@@ -40,14 +41,6 @@ def clamp(value, default: int, high: int) -> int:
 
 # How many tracks one artist may contribute to a page of `filter` results.
 PER_ARTIST = 3
-
-# How much of the 6,000-character tool result a page may spend on rows, leaving room for
-# the envelope around them (`matching`, `offset`, `returned`, `next_offset`, a note).
-# A page has to fit *before* the model sees it: the trimmer downstream cuts from the end,
-# and a tool that says "returned 30" while the model reads 23 makes `offset` paging skip
-# the seven tracks that were never shown.
-ROW_BUDGET = 5200
-
 
 class Library:
     # Set by the loop once per pick; a standalone call gets its own throwaway seed.
@@ -120,7 +113,7 @@ class Library:
         on_station = self.rows_on_station(rows, station)
         if on_station:
             ctx = self._context(station)
-            return self._visible(on_station[:limit], ctx)
+            return visible(on_station[:limit], ctx)
         return self._search_miss(text, station)
 
     def _search_miss(self, text: str, station) -> dict:
@@ -308,13 +301,13 @@ class Library:
             if len(picked) >= limit:
                 break
         ctx = self._context(station)
-        visible = self._visible(picked, ctx)
+        shown = visible(picked, ctx)
         return {
             "matching": total,
             "offset": offset,
-            "returned": len(visible),
-            "next_offset": offset + len(visible),
-            "results": visible,
+            "returned": len(shown),
+            "next_offset": offset + len(shown),
+            "results": shown,
         }
 
     def catalog_summary(self, station: config.Station | None = None, limit: int = 60) -> dict:
@@ -459,7 +452,7 @@ class Library:
                         "id": t["id"],
                         "title": t["title"],
                         "no": t["track_no"],
-                        "duration": self._clock(t["duration"]),
+                        "duration": clock(t["duration"]),
                         "popularity": round(ranks.get(t["id"], 0.5), 2),
                     }
                     for t in tracks[:tracks_shown]
@@ -639,7 +632,7 @@ class Library:
             item["songs_ago"] = ago
             item["on_air"] = ago == 0
             out.append(item)
-        return self._fit_rows(out)
+        return fit_rows(out)
 
     def catalogue(
         self,
@@ -694,7 +687,7 @@ class Library:
         kept = 0
         played_recently = False
         for row in rows[:limit]:
-            item = self._lean_row(row, ctx)
+            item = lean_row(row, ctx)
             played_recently = played_recently or item["played"]
             key = row["album"] or ""
             block = albums.setdefault(
@@ -757,96 +750,11 @@ class Library:
             "analysis": self._features(),
         }
 
-    @staticmethod
-    def _clock(seconds: int | None) -> str:
-        total = int(seconds or 0)
-        return f"{total // 60}:{total % 60:02d}" if total else ""
-
     def _row(self, row: sqlite3.Row, ctx: dict) -> dict:
-        """The row every tool returns, so the model never has to guess what is missing.
-
-        The record's artist, not the track credit: the picker reasons about artists, and
-        "L’Impératrice & Fabiana Martone" is L’Impératrice playing with a guest.
-        """
-        keys = row.keys()
-        genres = ctx["labels"].get(row["id"]) or ([row["genre"]] if row["genre"] else [])
-        item = {
-            "id": row["id"],
-            "title": row["title"],
-            "artist": (row["album_artist"] if "album_artist" in keys else "") or row["artist"],
-            "album": row["album"],
-            "year": row["year"],
-            "genre": " / ".join(genres),
-            "duration": self._clock(row["duration"] if "duration" in keys else 0),
-            "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
-            "played": row["id"] in ctx["played"],
-            "queued": row["id"] in ctx["queued"],
-        }
-        # Only when audio analysis has this track: an installation without it gets
-        # exactly the rows it always got.
-        hit = ctx.get("analysis", {}).get(row["id"])
-        if hit:
-            if hit.get("bpm"):
-                item["tempo"] = int(round(hit["bpm"]))
-            if hit.get("key"):
-                item["key"] = hit["key"]
-            if hit.get("sound"):
-                item["sound"] = hit["sound"]
-            if hit.get("energy") is not None:
-                item["energy"] = round(float(hit["energy"]), 2)
-        return item
-
-    def _visible(self, rows: list, ctx: dict) -> list[dict]:
-        """The rows of a page that fit the budget, so the count beside them is true."""
-        return self._fit_rows([self._row(r, ctx) for r in rows])
-
-    @staticmethod
-    def _fit_rows(items: list[dict], budget: int = ROW_BUDGET) -> list[dict]:
-        """As many whole rows as fit — never a slice that leaves half a row behind."""
-        out: list[dict] = []
-        used = 0
-        for item in items:
-            size = len(json.dumps(item, ensure_ascii=False)) + 2
-            if out and used + size > budget:
-                break
-            out.append(item)
-            used += size
-        return out
-
-    def _lean_row(self, row: sqlite3.Row, ctx: dict) -> dict:
-        """One track inside an album block: enough to choose it, nothing the album says.
-
-        The album carries its own name, artist, year and genre, so repeating those on
-        every track made the payload twice the size for half the information — and a
-        `catalogue` answer was two views of the same tracks, which is what the trimmer
-        then cut in the wrong place.
-        """
-        return {
-            "id": row["id"],
-            "title": row["title"],
-            "track_no": row["track_no"],
-            "duration": self._clock(row["duration"]),
-            "popularity": round(ctx["ranks"].get(row["id"], 0.5), 2),
-            "played": row["id"] in ctx["played"],
-        }
+        return render_row(row, ctx)
 
     def _full(self, row: sqlite3.Row) -> navidrome.Track:
-        measured = self._measured()
-        return navidrome.Track(
-            id=row["id"],
-            uri=loudness.annotate(row["uri"], loudness.for_row(row, measured.get(row["id"]))),
-            title=row["title"],
-            artist=row["artist"],
-            album_artist=(row["album_artist"] if "album_artist" in row.keys() else "") or row["artist"],
-            album=row["album"],
-            album_id=row["album_id"],
-            track_no=row["track_no"],
-            year=row["year"],
-            genre=row["genre"],
-            duration=row["duration"],
-            mbz_album=row["mbz_album"] or "",
-            mbz_recording=row["mbz_recording"] or "",
-        )
+        return full(row, self._measured())
 
 
 # Tool name as the model sees it -> the method that answers it. Checked against the
