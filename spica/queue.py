@@ -1,19 +1,12 @@
-"""Per-station queue + history on disk.
+"""Per-station queue and history on disk.
 
-The mixer reads queue/<id>.txt on a one-second timer, pushes what it finds into a
-Liquidsoap request.queue and removes the file. That keeps the hand-off a plain
-file write — no sockets, no RPC, nothing to restart.
+The mixer reads queue/<id>.txt on a one-second timer, pushes it into a Liquidsoap
+request.queue and removes the file. One file is one slot: the first writer wins and a
+second push is refused rather than overwriting a track the mixer has not taken yet.
 
-One file is one slot: whoever writes first wins, and a second writer is refused
-rather than overwriting a track the mixer has not taken yet.
-
-A listener request is the exception, and it does not take the slot either: it goes
-into its own ordered list and is then promoted into the mixer's queue, ahead of the
-pick waiting there. That pick is dropped rather than moved — "play something
-heavier" is about the mood the listener just changed, and the pick in hand was
-chosen for the mood they changed from — and so is the rest of the DJ's set, which
-was chosen for that same mood. The loop picks a new set within a tick, with the
-request still remembered.
+A listener request has its own ordered list and is promoted into the mixer's queue
+ahead of the waiting pick. That pick and the rest of its set are cleared, and the loop
+chooses a new set with the request in the brief.
 """
 
 from __future__ import annotations
