@@ -14,6 +14,7 @@ import pytest
 from spica import analysis, config, ledger, mixer, navidrome, queue
 from spica.picker import loop, tracks
 from spica.picker.library import Library
+from tests.fakes import FakeLibrary, FakeTrack
 from tests.factories import insert_tracks
 
 
@@ -358,33 +359,6 @@ def test_analysis_off_means_no_table(station, tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------- the reply check
-
-class FakeTrack:
-    def __init__(self, track_id, artist):
-        self.id = track_id
-        self.uri = f"http://navidrome/{track_id}.flac"
-        self.artist = artist
-        self.album_artist = artist
-
-
-class FakeLibrary:
-    def __init__(self, tracks):
-        self.tracks = {t.id: t for t in tracks}
-
-    def by_id(self, track_id):
-        return self.tracks.get(track_id)
-
-    def by_ids(self, track_ids):
-        return {track_id: self.tracks[track_id] for track_id in track_ids if track_id in self.tracks}
-
-    def artists_by_ids(self, track_ids):
-        return {
-            track_id: (self.tracks[track_id].album_artist or self.tracks[track_id].artist)
-            for track_id in track_ids if track_id in self.tracks
-        }
-
-    def on_station(self, station, track_id):
-        return track_id in self.tracks
 
 
 def test_parse_set_from_the_table_only_takes_offered_ids():

@@ -13,40 +13,7 @@ from collections import Counter
 from spica import config, ledger, navidrome
 from spica.picker import artists, loop, memory
 from spica.picker.schemas import Pick
-
-
-class FakeTrack:
-    def __init__(self, track_id, artist):
-        self.id = track_id
-        self.uri = f"http://navidrome/{track_id}.flac"
-        self.title = f"title {track_id}"
-        self.artist = artist
-        self.album_artist = artist
-
-    def as_line(self):
-        return f"{self.artist} - {self.title}"
-
-
-class FakeLib:
-    draw_seed = 0
-
-    def __init__(self, tracks):
-        self.tracks = {t.id: t for t in tracks}
-
-    def by_id(self, track_id):
-        return self.tracks.get(track_id)
-
-    def by_ids(self, track_ids):
-        return {track_id: self.tracks[track_id] for track_id in track_ids if track_id in self.tracks}
-
-    def artists_by_ids(self, track_ids):
-        return {
-            track_id: (self.tracks[track_id].album_artist or self.tracks[track_id].artist)
-            for track_id in track_ids if track_id in self.tracks
-        }
-
-    def on_station(self, station, track_id):
-        return track_id in self.tracks
+from tests.fakes import FakeLibrary, FakeTrack
 
 
 def profile(name, label, decade, tier, tracks=1):
@@ -54,8 +21,6 @@ def profile(name, label, decade, tier, tracks=1):
             "decade": decade, "tier": tier, "tracks": tracks,
             "labels": Counter({label: tracks}), "years": [decade + 5], "pop": [0.5]}
 
-
-# ------------------------------------------------------------------ quotas
 
 
 def test_quotas_follow_weight_under_a_cap():
@@ -183,7 +148,7 @@ def test_the_draw_changes_with_the_seed():
 
 def test_the_two_extra_slots_are_whoever_has_been_off_longest(monkeypatch):
     tracks = [FakeTrack(f"t{i:02d}", f"Artist {i}") for i in range(8)]
-    lib = FakeLib(tracks)
+    lib = FakeLibrary(tracks)
     lib.draw_seed = 3
     # Newest last: Artist 0 played most recently, Artist 7 never played at all.
     plays = [{"id": f"t{i:02d}", "artist": f"Artist {i}"} for i in range(7)]
@@ -206,7 +171,7 @@ def a_set(*artists_ids):
 
 
 def test_a_set_may_not_leave_the_shelf(station):
-    lib = FakeLib([
+    lib = FakeLibrary([
         FakeTrack("a" * 22, "On The Shelf"),
         FakeTrack("b" * 22, "Off The Shelf"),
     ])
@@ -221,7 +186,7 @@ def test_a_set_may_not_leave_the_shelf(station):
 
 
 def test_no_artist_twice_in_one_set(station):
-    lib = FakeLib([
+    lib = FakeLibrary([
         FakeTrack("a" * 22, "One Artist"),
         FakeTrack("b" * 22, "One Artist"),
         FakeTrack("c" * 22, "Another Artist"),
@@ -238,7 +203,7 @@ def test_no_artist_twice_in_one_set(station):
 
 def test_without_a_shelf_nothing_is_restricted(station):
     """A listener request does not go through the shelf at all."""
-    lib = FakeLib([
+    lib = FakeLibrary([
         FakeTrack("a" * 22, "One Artist"),
         FakeTrack("b" * 22, "One Artist"),
     ])
