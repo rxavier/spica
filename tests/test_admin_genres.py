@@ -246,3 +246,20 @@ def test_reloading_writes_the_mixer_script(console, monkeypatch):
     assert response.status_code == 200
     assert (cfg / "spica.liq").exists()
     assert "queue" in (cfg / "spica.liq").read_text(encoding="utf-8")
+
+
+def test_deleting_a_rule_folds_the_source_like_the_merge_did(console):
+    """The file stores folded keys, so a deletion has to fold what the operator typed."""
+    client, _, state, _ = console
+    client.post(
+        "/admin/genres/merge", data={"labels": ["Indie"], "into": "Rock"},
+        follow_redirects=False,
+    )
+    assert has_alias(state, "Indie", "Rock")
+
+    response = client.post(
+        "/admin/genres/delete", data={"source": " INDIE "}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert aliases(state) == []

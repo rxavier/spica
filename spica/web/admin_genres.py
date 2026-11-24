@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from urllib.parse import urlencode
 
 from .. import navidrome
@@ -106,14 +105,12 @@ async def admin_genres_add(request: Request, source: str = Form(...), target: st
 async def admin_genres_delete(request: Request, source: str = Form(...)):
     from .. import genres as genre_lib
 
-    path = genre_lib._FILE
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        raw = {"aliases": []}
-    raw["aliases"] = [a for a in raw.get("aliases", []) if a.get("from") != source]
-    path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return _genres_page(f"Removed the rule for {source}.")
+    conn = _conn()
+    removed = await asyncio.to_thread(genre_lib.remove_alias, source)
+    if removed:
+        await asyncio.to_thread(pool.write_pools, conn, store.stations())
+    note = "" if removed else " (there was no such rule)"
+    return _genres_page(f"Removed the rule for {source}.{note}")
 
 
 def _all_labels(conn) -> list[str]:
