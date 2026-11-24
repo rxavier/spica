@@ -530,11 +530,17 @@ class Library:
         """
         plays = queue.recent(station, n)
         labels = navidrome.labels_by_track(self.conn)
+        rows = {
+            row["id"]: row
+            for row in track_queries.tracks_by_ids(
+                self.conn, [entry.get("id") or "" for entry in plays]
+            )
+        }
         artists: list[str] = []
         counted: Counter = Counter()
         for entry in plays:
             track_id = entry.get("id") or ""
-            row = track_queries.track_by_id(self.conn, track_id)
+            row = rows.get(track_id)
             if row is not None:
                 artists.append(row["album_artist"] or row["artist"] or "")
                 for label in labels.get(track_id, ()):
@@ -546,6 +552,11 @@ class Library:
     def by_id(self, track_id: str) -> navidrome.Track | None:
         row = track_queries.track_by_id(self.conn, track_id)
         return self._full(row) if row else None
+
+    def by_ids(self, track_ids) -> dict[str, navidrome.Track]:
+        """The same lookup for many ids in one query, keyed by id."""
+        rows = track_queries.tracks_by_ids(self.conn, list(track_ids))
+        return {row["id"]: self._full(row) for row in rows}
 
     def count(self, station: config.Station) -> int:
         return len(navidrome.rows_for_station(self.conn, station))
@@ -662,10 +673,16 @@ class Library:
         limit = clamp(limit, 20, 100)
         plays = list(reversed(queue.recent(station, limit)))
         ctx = self._context(station)
+        rows = {
+            row["id"]: row
+            for row in track_queries.tracks_by_ids(
+                self.conn, [entry.get("id") or "" for entry in plays]
+            )
+        }
         out: list[dict] = []
         for ago, entry in enumerate(plays):
             track_id = entry.get("id") or ""
-            row = track_queries.track_by_id(self.conn, track_id)
+            row = rows.get(track_id)
             if row is not None:
                 item = self._row(row, ctx)
             else:
@@ -889,11 +906,26 @@ class Library:
             "played": row["id"] in ctx["played"],
         }
 
-    @staticmethod
-    def _full(row: sqlite3.Row) -> navidrome.Track:
+    def _measured(self) -> dict:
+        """The loudness store as id -> (lufs, peak), refreshed when the file changes."""
+        if not config.LOUDNESS:
+            return {}
+        try:
+            stamp = loudness.store_path().stat().st_mtime_ns
+        except OSError:
+            return {}
+        cached = getattr(self, "_measured_cache", None)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        data = loudness.all_measured()
+        self._measured_cache = (stamp, data)
+        return data
+
+    def _full(self, row: sqlite3.Row) -> navidrome.Track:
+        measured = self._measured()
         return navidrome.Track(
             id=row["id"],
-            uri=loudness.annotate(row["uri"], loudness.for_row(row, loudness.measured(row["id"]))),
+            uri=loudness.annotate(row["uri"], loudness.for_row(row, measured.get(row["id"]))),
             title=row["title"],
             artist=row["artist"],
             album_artist=(row["album_artist"] if "album_artist" in row.keys() else "") or row["artist"],

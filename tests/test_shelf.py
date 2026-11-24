@@ -36,6 +36,9 @@ class FakeLib:
     def by_id(self, track_id):
         return self.tracks.get(track_id)
 
+    def by_ids(self, track_ids):
+        return {track_id: self.tracks[track_id] for track_id in track_ids if track_id in self.tracks}
+
     def on_station(self, station, track_id):
         return track_id in self.tracks
 
