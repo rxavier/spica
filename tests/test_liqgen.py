@@ -111,3 +111,17 @@ def test_main_refuses_to_default_the_source_password(tmp_path, monkeypatch, caps
     assert code == 2
     assert not (tmp_path / "spica.liq").exists()
     assert "ICECAST_SOURCE_PASSWORD" in capsys.readouterr().err
+
+
+def test_write_honours_the_target_env_and_replaces_the_file(tmp_path, monkeypatch):
+    from spica import liqgen
+
+    station = config.Station(id="alt", name="Alt")
+    target = tmp_path / "spica.liq"
+    monkeypatch.setenv("SPICA_LIQ", str(target))
+
+    written = liqgen.write([station], "source-password")
+
+    assert written == target
+    assert "source-password" in target.read_text(encoding="utf-8")
+    assert not (tmp_path / "spica.liq.tmp").exists()

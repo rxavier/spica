@@ -147,8 +147,7 @@ async def admin_reload(request: Request):
 
     def _run() -> str:
         password = os.environ.get("ICECAST_SOURCE_PASSWORD", "")
-        target = config.CONFIG_DIR / "spica.liq"
-        target.write_text(liqgen.render(store.reload_stations(), password), encoding="utf-8")
+        liqgen.write(store.reload_stations(), password)
         return _restart_mixer()
 
     message = await asyncio.to_thread(_run)
