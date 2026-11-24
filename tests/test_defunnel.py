@@ -360,3 +360,19 @@ def test_labels_and_the_station_matcher_are_built_once_per_index(db, station, mo
     lib.recent_labels(station, 2)
 
     assert len(builds) == 1
+
+
+def test_precedence_counts_the_file_tags_it_kept(db):
+    """The batched rebuild still reports how many informed tracks also carry a tag."""
+    seed(db, [track("1" * 22, "Band"), track("2" * 22, "Band")],
+         [label("1" * 22, "Post-Rock")])
+    with db:
+        db.execute(
+            "INSERT OR REPLACE INTO mb_artist_genres"
+            " (artist_key, mbid, genres, fetched_at) VALUES (?,?,?,?)",
+            ("band", "mbid", '[{"name": "Progressive Rock", "votes": 10}]', 0),
+        )
+
+    result = navidrome.apply_genre_precedence(db)
+
+    assert result == {"musicbrainz": 2, "with_file_tag": 1}
