@@ -409,3 +409,22 @@ def test_the_station_artist_list_groups_by_album_artist(console):
 
     form = client.get("/admin/stations/alt").text
     assert "Guest Credit" not in form
+
+
+def test_provider_settings_are_parsed_once(tmp_path, monkeypatch):
+    """Enrichment asks for the key constantly; the JSON is read once, not once per call."""
+    import json as json_mod
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    (tmp_path / "providers.json").write_text(
+        json_mod.dumps({"lastfm_key": "k", "mb_user_agent": "ops@example.com"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "_provider_cache", None)
+    parses: list[int] = []
+    real = json_mod.loads
+    monkeypatch.setattr(json_mod, "loads", lambda text: parses.append(1) or real(text))
+
+    assert config.provider_settings()["lastfm_key"] == "k"
+    assert config.provider_settings()["lastfm_key"] == "k"
+    assert len(parses) == 1

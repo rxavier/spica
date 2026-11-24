@@ -330,23 +330,47 @@ def _providers_file() -> Path:
     return CONFIG_DIR / "providers.json"
 
 
+_provider_cache: tuple[Path, int | None, dict] | None = None
+
+
 def provider_settings() -> dict:
+    """The Last.fm key and MusicBrainz contact, cached until the file changes.
+
+    Every enrichment request asks for these, and re-reading the JSON each time was
+    pure overhead. The cache is keyed by the file path and mtime so a test fixture
+    that moves CONFIG_DIR, or a hand edit, is still seen.
+    """
+    global _provider_cache
+    path = _providers_file()
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    if _provider_cache is not None:
+        cached_path, cached_stamp, cached = _provider_cache
+        if cached_path == path and cached_stamp == stamp:
+            return cached
+
     out = {"lastfm_key": LASTFM_KEY, "mb_user_agent": MB_USER_AGENT}
     try:
-        raw = json.loads(_providers_file().read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        _provider_cache = (path, stamp, out)
         return out
     if not isinstance(raw, dict):
+        _provider_cache = (path, stamp, out)
         return out
     if "lastfm_key" in raw:
         out["lastfm_key"] = str(raw.get("lastfm_key") or "").strip()
     agent = str(raw.get("mb_user_agent") or "").strip()
     if agent:
         out["mb_user_agent"] = agent
+    _provider_cache = (path, stamp, out)
     return out
 
 
 def save_provider_settings(lastfm_key: str, mb_user_agent: str) -> None:
+    global _provider_cache
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "lastfm_key": str(lastfm_key or "").strip(),
@@ -357,6 +381,7 @@ def save_provider_settings(lastfm_key: str, mb_user_agent: str) -> None:
         Path(_providers_file()).chmod(0o600)
     except OSError:
         pass
+    _provider_cache = None
 
 
 # ------------------------------------------------------------------ DJ mode
