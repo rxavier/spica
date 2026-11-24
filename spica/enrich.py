@@ -355,10 +355,12 @@ def _artist_overrides() -> dict[str, str]:
     from . import config
 
     try:
+        from . import genres
+
         raw = json.loads((config.CONFIG_DIR / _ARTIST_IDS).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {str(k).strip().lower(): str(v).strip() for k, v in raw.items() if v}
+    return {genres.fold(k): str(v).strip() for k, v in raw.items() if v}
 
 
 def _release_titles(mbid: str, attempts: int = 3) -> set[str]:

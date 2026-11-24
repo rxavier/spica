@@ -141,3 +141,21 @@ def test_a_service_that_cannot_be_reached_is_a_failure(monkeypatch):
     monkeypatch.setattr(enrich, "_mb_get", boom)
     monkeypatch.setattr(enrich, "_artist_overrides", lambda: {})
     assert enrich.mb_artist_genres("Some Name", pause=0) is None
+
+
+def test_operator_pins_use_the_same_fold_as_the_lookup(tmp_path, monkeypatch):
+    """A pin for 'Frost*' or 'AC/DC' has to survive the punctuation in the name."""
+    import json
+
+    from spica import genres
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    (tmp_path / "artist-mbids.json").write_text(
+        json.dumps({"Frost*": "frost-id", "AC/DC": "acdc-id"}), encoding="utf-8"
+    )
+
+    pins = enrich._artist_overrides()
+
+    assert pins[genres.fold("Frost*")] == "frost-id"
+    assert pins[genres.fold("AC/DC")] == "acdc-id"
+    assert pins.get(genres.fold("frost*")) == "frost-id"
