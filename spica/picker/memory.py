@@ -1,0 +1,72 @@
+"""Who may not be offered a set, for the shelf and the table alike.
+
+The two offers used to gather this separately and had already diverged: the shelf
+counted the DJ's recent picks, the table did not, so the same artist could come
+straight back on a quiet station where the ledger held no airings. They now share
+one gathering step; the only difference is `include_picks`, which is explicit.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .. import mixer, navidrome, queue
+
+
+def artist_of(lib, track_id: str, fallback: str = "") -> str:
+    """The record's artist for a ledger id, or the ledger's own name when it is gone."""
+    row = lib.by_id(track_id) if track_id else None
+    if row is not None:
+        return row.album_artist or row.artist or ""
+    return fallback
+
+
+def recent_artists(lib, station, n: int) -> list[str]:
+    """The artists behind the last n plays, oldest first."""
+    out: list[str] = []
+    for entry in queue.recent(station, n):
+        name = artist_of(lib, str(entry.get("id") or ""), str(entry.get("artist") or ""))
+        if name:
+            out.append(name)
+    return out
+
+
+def queued_artists(lib, station, limit: int | None = None) -> list[str]:
+    """The artists of the tracks already waiting for the mixer."""
+    try:
+        waiting = mixer.queued_ids(station)
+    except Exception:  # liquidsoap down: the offer is still worth building
+        return []
+    if limit is not None:
+        waiting = waiting[:limit]
+    out: list[str] = []
+    for track_id in waiting:
+        name = artist_of(lib, track_id)
+        if name:
+            out.append(name)
+    return out
+
+
+@dataclass(frozen=True)
+class Blocklist:
+    keys: set[str]          # folded artist keys that may not be offered
+    played: list[str]       # the anchor names, oldest first
+    queued: list[str]       # the artists that play after this set
+
+
+def blocked_artists(lib, station, *, recent: int, queued_limit: int | None = None,
+                    include_picks: bool = False) -> Blocklist:
+    """Artists that may not be offered: just played, queued, or on the last offer.
+
+    ``include_picks`` adds the DJ's own recent choices. The shelf sets it because a
+    quiet station's ledger is mostly standby airings, so without it an artist chosen
+    an hour ago could come straight back; the table leaves it off because its
+    familiar block is meant to be reachable.
+    """
+    played = recent_artists(lib, station, recent)
+    queued = queued_artists(lib, station, queued_limit)
+    names = list(played) + list(queued) + list(queue.last_shelf(station))
+    if include_picks:
+        names += queue.recent_pick_artists(station, recent + 3)
+    keys = {navidrome.name_key(name) for name in names if name}
+    return Blocklist(keys=keys, played=played, queued=queued)

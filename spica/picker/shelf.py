@@ -17,10 +17,11 @@ import bisect
 import statistics
 from collections import Counter, defaultdict
 
-from .. import analysis, enrich, mixer, navidrome, queue
+from .. import analysis, enrich, navidrome, queue
 from ..queries import enrichment as enrich_queries
 from ..names import seed_key
 from ..queries import tracks as track_queries
+from .memory import blocked_artists
 
 # What keeps an artist off the shelf: the last few plays, the tracks already waiting,
 # and the artists that sound most like the three tracks either side of this set.
@@ -143,43 +144,12 @@ def _tier(percentile: float | None) -> int:
 
 def _blocked(lib, station, profiles: dict[str, dict]) -> set[str]:
     """Artists that may not be offered: just played, queued, or too like what is next."""
-    blocked: set[str] = set()
-    anchors: list[str] = []
-
-    def artist_of(track_id: str, fallback: str = "") -> str:
-        row = lib.by_id(track_id) if track_id else None
-        if row is not None:
-            return row.album_artist or row.artist or ""
-        return fallback
-
-    plays = queue.recent(station, BEHIND + 1)
-    for entry in plays[-(BEHIND + 1):]:
-        name = artist_of(str(entry.get("id") or ""), str(entry.get("artist") or ""))
-        if name:
-            blocked.add(navidrome.name_key(name))
-            anchors.append(name)
-
-    # The ledger is airings, and on a quiet station those are the standby pool: an artist
-    # the DJ chose an hour ago would otherwise be free to come straight back.
-    for name in queue.recent_pick_artists(station, BEHIND + 3):
-        blocked.add(navidrome.name_key(name))
-
-    # The artists offered a set ago have had their turn at being offered. Without this
-    # the same twelve names come back whenever the plays in between happen to leave them
-    # clear, and the shelf becomes a fixed menu again, only smaller.
-    for name in queue.last_shelf(station):
-        blocked.add(navidrome.name_key(name))
-
-    queued: list[str] = []
-    try:
-        waiting = mixer.queued_ids(station)[:QUEUED]
-    except Exception:  # liquidsoap down: the shelf is still worth building
-        waiting = []
-    for track_id in waiting:
-        name = artist_of(track_id)
-        if name:
-            blocked.add(navidrome.name_key(name))
-            queued.append(name)
+    blocked_list = blocked_artists(
+        lib, station, recent=BEHIND + 1, queued_limit=QUEUED, include_picks=True
+    )
+    blocked = set(blocked_list.keys)
+    anchors = blocked_list.played
+    queued = blocked_list.queued
 
     # prev, now, next — the three records this set has to sit between.
     newest = list(reversed(anchors))
