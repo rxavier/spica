@@ -272,39 +272,5 @@ def recent(station: config.Station, n: int = 20) -> list[dict]:
         grab *= 2
 
 
-# A restart re-announces the track that is already playing, usually seconds later.
-# Two plays of the same track further apart than this are two plays: a station that
-# resumes hours later picks up exactly where it stopped.
-DUPE_ANNOUNCE_S = 120
-
-
-def recent(station: config.Station, n: int = 20) -> list[dict]:
-    """The last n plays, newest last, with a restart's re-announce collapsed.
-
-    Only the tail of the file is read, and the window grows until n real plays come
-    back, so de-duplication never returns fewer than asked for.
-    """
-    want = max(1, n)
-    grab = want + 4
-    while True:
-        out: list[dict] = []
-        lines = read_tail(station.history_file, grab)
-        for line in lines:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if out and (out[-1].get("artist"), out[-1].get("title")) == (
-                entry.get("artist"), entry.get("title")
-            ):
-                first, second = parse_stamp(out[-1].get("t")), parse_stamp(entry.get("t"))
-                if first is None or second is None or second - first <= DUPE_ANNOUNCE_S:
-                    continue  # the same announce twice, not a second play
-            out.append(entry)
-        if len(out) >= want or len(lines) < grab:
-            return out[-want:]
-        grab *= 2
-
-
 def recent_ids(station: config.Station, n: int = 40) -> set[str]:
     return {e["id"] for e in recent(station, n) if e.get("id")}

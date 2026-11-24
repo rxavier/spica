@@ -405,5 +405,40 @@
   window.initPlayer = init;
   document.body.addEventListener("htmx:afterSettle", init);
 
+  /* ---- DJ sets in the ledger keep their open state across the ten-second refresh ---- */
+
+  const SETS_KEY = "spica.openSets";
+
+  function restoreOpenSets() {
+    let open = [];
+    try {
+      open = JSON.parse(sessionStorage.getItem(SETS_KEY) || "[]");
+    } catch {
+      return;
+    }
+    const wanted = new Set(open);
+    document.querySelectorAll("#hist details.set-details").forEach((el) => {
+      if (wanted.has(el.dataset.set)) el.open = true;
+    });
+  }
+
+  const swapTarget = (event) => event.detail?.target || event.target;
+
+  document.body.addEventListener("htmx:beforeSwap", (event) => {
+    if (swapTarget(event).id !== "hist") return;
+    const open = [...document.querySelectorAll("#hist details.set-details[open]")]
+      .map((el) => el.dataset.set);
+    try {
+      sessionStorage.setItem(SETS_KEY, JSON.stringify(open));
+    } catch {
+      /* private mode: open state is a nicety, not a requirement */
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    if (swapTarget(event).id === "hist") restoreOpenSets();
+  });
+  document.body.addEventListener("htmx:afterSettle", restoreOpenSets);
+
   init();
+  restoreOpenSets();
 })();
