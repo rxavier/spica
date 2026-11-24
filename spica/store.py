@@ -151,12 +151,17 @@ _lib = None
 
 
 def library():
-    """The query layer over the index, shared so every caller sees one handle."""
+    """The query layer over the index, shared so every caller sees one handle.
+
+    One instance per connection, so the picker's caches and this pick's draw seed
+    are the same whether the caller is the loop, the REST API or a web handler.
+    """
     global _lib
-    if _lib is None:
+    connection = conn()
+    if _lib is None or _lib.conn is not connection:
         from . import picker
 
-        _lib = picker.Library(conn())
+        _lib = picker.Library(connection)
     return _lib
 
 

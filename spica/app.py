@@ -24,15 +24,9 @@ from .queries import tracks as track_queries
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("radio")
 
-LIB: picker.Library | None = None
 LAST: dict[str, dict] = {}
 QUIET_SINCE: dict[str, float] = {}
 INDEX_STAMP: list[float] = [0.0]
-
-
-def lib() -> picker.Library:
-    assert LIB is not None
-    return LIB
 
 
 async def loop() -> None:
@@ -95,7 +89,7 @@ async def loop() -> None:
                     # and both were chosen blind to each other.
                     continue
                 p = await asyncio.to_thread(
-                    picker.pick_next, lib(), st, None, queue.recent_ids(st)
+                    picker.pick_next, store.library(), st, None, queue.recent_ids(st)
                 )
                 if p is None:
                     LAST[st.id] = {**LAST.get(st.id, {}), "listeners": n, "why": "pick failed — playlist continues"}
@@ -172,9 +166,10 @@ def _pool_size(st: config.Station) -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global LIB
     bootstrap.ensure()
-    LIB = picker.Library(store.conn())
+    # Build the one shared Library now so the loop and the web handlers agree on
+    # its caches and this pick's draw seed.
+    store.library()
     # One thread reads Icecast's status page for everybody; see icecast.py.
     icecast.start_refresher()
     # Outputs start closed, so this cannot disturb anyone: the pool simply
@@ -279,7 +274,7 @@ async def pick_for(st: config.Station, text: str | None = None) -> picker.Pick |
     """Ask the DJ for one track on this station and hand it to the mixer."""
     if not (config.llm_settings()["key"] and config.llm_settings()["base"]):
         return None
-    p = await asyncio.to_thread(picker.pick_next, lib(), st, text, queue.recent_ids(st))
+    p = await asyncio.to_thread(picker.pick_next, store.library(), st, text, queue.recent_ids(st))
     if p is None:
         return None
     # A person asked for this, so it goes next even if something was already
@@ -336,7 +331,7 @@ async def clear_requests(station_id: str) -> dict:
 @app.post("/pick/{station_id}")
 async def force_pick(station_id: str) -> dict:
     st = _station(station_id)
-    p = await asyncio.to_thread(picker.pick_next, lib(), st, None, queue.recent_ids(st))
+    p = await asyncio.to_thread(picker.pick_next, store.library(), st, None, queue.recent_ids(st))
     if p is None:
         raise HTTPException(422, "pick failed (LLM off or no match)")
     displaced = queue.replace(st, p.track.uri, p.track.as_line())
@@ -393,7 +388,7 @@ async def enrich_ids(limit: int = 0) -> dict:
     from . import enrich as en
 
     def _run() -> dict:
-        conn = lib().conn
+        conn = store.library().conn
         outstanding = track_queries.artists_missing_mbid(conn)
         if limit:
             outstanding = outstanding[:limit]
@@ -421,14 +416,14 @@ async def enrich_ids(limit: int = 0) -> dict:
 
 @app.get("/similar")
 async def similar(artist: str, limit: int = 8) -> dict:
-    res = await asyncio.to_thread(lib().similar, artist, limit)
+    res = await asyncio.to_thread(store.library().similar, artist, limit)
     return {"artist": artist, **res}
 
 
 @app.get("/genres")
 async def genres() -> dict:
     """Canonical vocabulary, the raw labels behind it, and what's still unmapped."""
-    return await asyncio.to_thread(navidrome.genre_report, lib().conn)
+    return await asyncio.to_thread(navidrome.genre_report, store.library().conn)
 
 
 @app.get("/aliases")
@@ -449,11 +444,11 @@ async def coverage() -> dict:
     from . import analysis, jobs, loudness
 
     def _run() -> dict:
-        out = jobs.coverage(lib().conn)
-        extra = analysis.coverage_for(lib().conn)
+        out = jobs.coverage(store.library().conn)
+        extra = analysis.coverage_for(store.library().conn)
         if extra is not None:
             out["analysis"] = extra
-        levels = loudness.coverage(lib().conn)
+        levels = loudness.coverage(store.library().conn)
         if levels is not None:
             out["loudness"] = levels
         return out
@@ -468,17 +463,17 @@ async def create_job(body: dict) -> dict:
 
     kind = str(body.get("kind") or "")
     try:
-        job_id = await asyncio.to_thread(jobs.create, lib().conn, kind)
+        job_id = await asyncio.to_thread(jobs.create, store.library().conn, kind)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "id": job_id, "job": await asyncio.to_thread(jobs.get, lib().conn, job_id)}
+    return {"ok": True, "id": job_id, "job": await asyncio.to_thread(jobs.get, store.library().conn, job_id)}
 
 
 @app.get("/jobs")
 async def list_jobs(limit: int = 10) -> dict:
     from . import jobs
 
-    return {"jobs": await asyncio.to_thread(jobs.recent, lib().conn, limit)}
+    return {"jobs": await asyncio.to_thread(jobs.recent, store.library().conn, limit)}
 
 
 def main() -> None:
